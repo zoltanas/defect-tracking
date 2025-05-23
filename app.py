@@ -527,15 +527,36 @@ def view_drawing(project_id, drawing_id):
         flash('Drawing not found.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
     markers = DefectMarker.query.filter_by(drawing_id=drawing_id).all()
-    # Serialize markers
-    markers_data = [
-        {
-            'defect_id': marker.defect_id,
-            'x': marker.x,
-            'y': marker.y,
-            'description': marker.defect.description
-        } for marker in markers
-    ]
+    # Serialize markers with comprehensive defect data
+    markers_data = []
+    for marker in markers:
+        defect = marker.defect
+        if not defect:  # Should not happen with current DB constraints, but good practice
+            continue
+
+        creator_username = None
+        if defect.creator:
+            creator_username = defect.creator.username
+        
+        attachments_data = []
+        if defect.attachments:
+            for attachment in defect.attachments:
+                attachments_data.append({
+                    'file_path': attachment.file_path,
+                    'thumbnail_path': attachment.thumbnail_path
+                })
+
+        markers_data.append({
+            'id': defect.id,
+            'description': defect.description,
+            'status': {'name': defect.status}, # JS expects status.name
+            'creator': {'username': creator_username},
+            'creation_date': defect.creation_date.isoformat() if defect.creation_date else None,
+            'attachments': attachments_data,
+            'marker_x': marker.x,  # Marker's relative x-coordinate
+            'marker_y': marker.y   # Marker's relative y-coordinate
+        })
+    
     return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=access.role)
 
 @app.route('/project/<int:project_id>/add_defect', methods=['GET', 'POST'])

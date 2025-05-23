@@ -6,7 +6,7 @@
         <div id="pdfContainer" class="border w-full h-[500px] relative bg-gray-200 flex items-center justify-center">
             <p id="pdfStatus" class="text-gray-700">Loading PDF...</p>
             <canvas id="pdfCanvas" class="absolute top-0 left-0"></canvas>
-            <canvas id="markerCanvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
+            <canvas id="markerCanvas" class="absolute top-0 left-0"></canvas>
         </div>
     </div>
     <a href="{{ url_for('project_detail', project_id=drawing.project_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Back</a>
@@ -24,6 +24,7 @@
         let pdfDoc = null;
         let pageNum = 1;
         let scale = 1;
+        let drawnMarkers = []; // To store marker data with pixel coordinates
     
         function updateStatus(message) {
             console.log('Status:', message);
@@ -56,9 +57,11 @@
                 const markers = {{ markers | tojson }};
                 console.log('Markers data:', markers);
                 ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
-                markers.forEach(marker => {
-                    const markerX = marker.x * viewport.width;
-                    const markerY = marker.y * viewport.height;
+                drawnMarkers = []; // Reset for potential re-renders
+                markers.forEach(originalMarker => { // Renamed to avoid confusion in the next step
+                    const markerX = originalMarker.x * viewport.width;
+                    const markerY = originalMarker.y * viewport.height;
+                    drawnMarkers.push({ originalMarkerData: originalMarker, pixelX: markerX, pixelY: markerY });
                     ctx.beginPath();
                     ctx.arc(markerX, markerY, 5, 0, 2 * Math.PI);
                     ctx.fillStyle = 'red';
@@ -104,5 +107,27 @@
     
         console.log('Initializing view_drawing page');
         loadPDF();
+
+        markerCanvas.addEventListener('click', function(event) {
+            const rect = markerCanvas.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const clickY = event.clientY - rect.top;
+            const clickRadius = 10; // Pixel radius for click detection
+
+            console.log('Canvas clicked at:', { x: clickX, y: clickY });
+
+            drawnMarkers.forEach(markerInfo => { // Renamed to avoid confusion
+                const distance = Math.sqrt(Math.pow(clickX - markerInfo.pixelX, 2) + Math.pow(clickY - markerInfo.pixelY, 2));
+                if (distance < clickRadius) {
+                    // console.log("Clicked on defect:", markerInfo.originalMarkerData);
+                    // Prepare data for the popup, ensuring status is a string (status.name)
+                    const defectDisplayData = {
+                        ...markerInfo.originalMarkerData,
+                        status: markerInfo.originalMarkerData.status ? markerInfo.originalMarkerData.status.name : 'N/A'
+                    };
+                    showDefectPopup(defectDisplayData);
+                }
+            });
+        });
     </script>
 {% endblock %}

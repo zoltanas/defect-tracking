@@ -31,3 +31,28 @@
     position: relative;
     z-index: 20;
 }
+
+/* Defect Summary Popup Styles */
+#defectSummaryPopup {
+    /* Uses Tailwind classes for initial hidden state, background, and flex centering in layout.html */
+    /* Additional styles for content box can be added here if Tailwind isn't sufficient */
+    z-index: 100; /* Ensure it's above other content like flash messages (z-50) and marker canvas (z-2) */
+}
+
+#defectSummaryPopup > div { /* Styling the inner content box */
+    max-height: 90vh; /* Max height to prevent popup from being too tall on small screens */
+    overflow-y: auto; /* Allow scrolling for content that exceeds max-height */
+}
+
+#defect-popup-images img {
+    max-width: 100px; /* Example max-width for thumbnail images */
+    max-height: 100px; /* Example max-height for thumbnail images */
+    border: 1px solid #ddd;
+    object-fit: cover; /* Ensures images cover the area without distortion */
+    margin: 2px;
+}
+
+/* Style for the close button - Tailwind classes are used in HTML, but can be augmented here */
+#defect-popup-close {
+    /* Example: specific font-size or padding if needed */
+}

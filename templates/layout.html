@@ -10,6 +10,7 @@
     <title>{% block title %}{% endblock %} - Defect Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{{ url_for('static', filename='js/popup.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/defect_popup.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const flashMessages = document.querySelectorAll('.flash-message');
@@ -55,5 +56,23 @@
             </div>
         {% endif %}
     {% endwith %}
+
+    <!-- Defect Summary Popup -->
+    <div id="defectSummaryPopup" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+            <h3 class="text-xl font-semibold mb-4">Defect Details</h3>
+            <p class="mb-2"><strong>Description:</strong> <span id="defect-popup-description"></span></p>
+            <p class="mb-2"><strong>Status:</strong> <span id="defect-popup-status"></span></p>
+            <p class="mb-2"><strong>Creator:</strong> <span id="defect-popup-creator"></span></p>
+            <p class="mb-2"><strong>Created:</strong> <span id="defect-popup-creation-date"></span></p>
+            <div class="mb-4">
+                <strong class="block mb-1">Attachments:</strong>
+                <div id="defect-popup-images" class="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+                    <!-- Images will be appended here -->
+                </div>
+            </div>
+            <button id="defect-popup-close" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">Close</button>
+        </div>
+    </div>
 </body>
 </html>
