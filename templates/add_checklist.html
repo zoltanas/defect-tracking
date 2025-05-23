@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}Add Checklist{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Add Checklist to {{ project.name }}</h1>
+    <form method="POST" class="bg-white p-6 rounded shadow">
+        <div class="mb-4">
+            <label for="name" class="block text-sm font-medium text-gray-700">Checklist Name</label>
+            <input type="text" name="name" id="name" class="mt-1 p-2 border rounded w-full" required>
+        </div>
+        <div class="mb-4">
+            <label for="template_id" class="block text-sm font-medium text-gray-700">Select Template</label>
+            <select name="template_id" id="template_id" class="mt-1 p-2 border rounded w-full">
+                {% for template in templates %}
+                    <option value="{{ template.id }}">{{ template.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Save</button>
+            <a href="{{ url_for('add_template', project_id=project.id) }}" class="bg-green-500 text-white px-4 py-2 rounded">New Template</a>
+            <a href="{{ url_for('project_detail', project_id=project.id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</a>
+        </div>
+    </form>
+{% endblock %}

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<head>
+
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} - Defect Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{{ url_for('static', filename='js/popup.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(msg => {
+                setTimeout(() => {
+                    msg.style.transition = 'opacity 0.5s';
+                    msg.style.opacity = '0';
+                    setTimeout(() => msg.remove(), 500);
+                }, 3000);
+            });
+        });
+    </script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <nav class="bg-blue-600 text-white p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <a href="{{ url_for('index') }}" class="text-xl font-bold">Defect Tracker</a>
+            <div class="space-x-4">
+                {% if current_user.is_authenticated %}
+                    {% if current_user.role == 'admin' %}
+                        <a href="{{ url_for('invite') }}" class="text-sm">Invite User</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="text-sm">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="text-sm">Login</a>
+                    <a href="{{ url_for('register') }}" class="text-sm">Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+    <div class="container mx-auto p-4">
+        {% block content %}{% endblock %}
+    </div>
+    <!-- Flash messages at the bottom -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-md z-50">
+                {% for category, message in messages %}
+                    <div class="flash-message {{ 'bg-green-100 text-green-700' if category == 'success' else 'bg-red-100 text-red-700' }} p-4 mb-2 rounded shadow opacity-100">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+</body>
+</html>

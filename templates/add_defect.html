@@ -1,0 +1,162 @@
+{% extends "layout.html" %}
+{% block title %}Add Defect{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Add Defect to {{ project.name }}</h1>
+    <div class="bg-white p-6 rounded shadow">
+        <form id="defectForm" method="POST" enctype="multipart/form-data">
+            <div class="mb-4">
+                <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+                <textarea name="description" id="description" class="mt-1 p-2 border rounded w-full" required></textarea>
+            </div>
+            <div class="mb-4">
+                <label for="drawing_id" class="block text-sm font-medium text-gray-700">Select Drawing</label>
+                <select name="drawing_id" id="drawing_id" class="mt-1 p-2 border rounded w-full" onchange="loadDrawing()">
+                    <option value="">Select a drawing</option>
+                    {% for drawing in drawings %}
+                        <option value="{{ drawing.id }}">{{ drawing.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="drawingSection" class="mb-4 relative hidden">
+                <div id="pdfContainer" class="border w-full h-[500px] relative bg-gray-200 flex items-center justify-center">
+                    <p id="pdfStatus" class="text-gray-700">Loading PDF...</p>
+                    <canvas id="pdfCanvas" class="absolute top-0 left-0"></canvas>
+                    <canvas id="markerCanvas" class="absolute top-0 left-0"></canvas>
+                </div>
+            </div>
+            <input type="hidden" name="marker_x" id="marker_x">
+            <input type="hidden" name="marker_y" id="marker_y">
+            <div class="mb-4">
+                <label for="photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
+                <input type="file" name="photos" id="photos" multiple accept="image/*" class="mt-1 p-2 border rounded w-full">
+            </div>
+            <div class="flex space-x-4">
+                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Create Defect</button>
+                <a href="{{ url_for('project_detail', project_id=project.id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+
+        const drawings = {{ drawings | tojson }};
+        const pdfContainer = document.getElementById('pdfContainer');
+        const pdfStatus = document.getElementById('pdfStatus');
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const markerCanvas = document.getElementById('markerCanvas');
+        const drawingSection = document.getElementById('drawingSection');
+        const drawingSelect = document.getElementById('drawing_id');
+        const markerXInput = document.getElementById('marker_x');
+        const markerYInput = document.getElementById('marker_y');
+        const ctx = markerCanvas.getContext('2d');
+
+        let pdfDoc = null;
+        let pageNum = 1;
+        let scale = 1;
+        let currentDrawingId = null;
+
+        function updateStatus(message) {
+            console.log('Status:', message);
+            pdfStatus.textContent = message;
+            pdfStatus.style.display = message ? 'block' : 'none';
+        }
+
+        function renderPage(page) {
+            console.log('Rendering PDF page with scale:', scale);
+            const viewport = page.getViewport({ scale: scale });
+            console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height });
+
+            pdfContainer.style.width = `${viewport.width}px`;
+            pdfContainer.style.height = `${viewport.height}px`;
+            pdfCanvas.width = viewport.width;
+            pdfCanvas.height = viewport.height;
+            markerCanvas.width = viewport.width;
+            markerCanvas.height = viewport.height;
+
+            const renderContext = {
+                canvasContext: pdfCanvas.getContext('2d'),
+                viewport: viewport
+            };
+            page.render(renderContext).promise.then(() => {
+                console.log('PDF rendered successfully');
+                updateStatus('');
+                pdfCanvas.style.display = 'block';
+            }).catch(error => {
+                console.error('Error rendering PDF:', error);
+                updateStatus('Error rendering PDF: ' + error.message);
+            });
+        }
+
+        function drawMarker(x, y) {
+            ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            ctx.strokeStyle = 'black';
+            ctx.stroke();
+            console.log('Marker drawn at pixel:', { x, y });
+        }
+
+        function loadDrawing() {
+            const drawingId = drawingSelect.value;
+            if (!drawingId) {
+                drawingSection.classList.add('hidden');
+                updateStatus('');
+                return;
+            }
+            const drawing = drawings.find(d => d.id == drawingId);
+            if (!drawing) {
+                console.error('Drawing not found for id:', drawingId);
+                updateStatus('Drawing not found');
+                return;
+            }
+            currentDrawingId = drawingId;
+            drawingSection.classList.remove('hidden');
+            const pdfUrl = `/static/${drawing.file_path}`;
+            console.log('Attempting to load PDF from:', pdfUrl);
+
+            pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                pdfDoc = pdf;
+                console.log('PDF document loaded, pages:', pdf.numPages);
+                pdfDoc.getPage(pageNum).then(page => {
+                    console.log('PDF page loaded');
+                    const containerWidth = pdfContainer.clientWidth;
+                    console.log('Container width:', containerWidth);
+                    if (containerWidth <= 0) {
+                        console.error('Container width is 0, defaulting to 800px');
+                        pdfContainer.style.width = '800px';
+                    }
+                    const viewport = page.getViewport({ scale: 1 });
+                    scale = containerWidth / viewport.width;
+                    console.log('Calculated scale:', scale);
+                    renderPage(page);
+                }).catch(error => {
+                    console.error('Error loading PDF page:', error);
+                    updateStatus('Error loading PDF page: ' + error.message);
+                });
+            }).catch(error => {
+                console.error('Error loading PDF:', error);
+                updateStatus('Error loading PDF: ' + error.message);
+            });
+        }
+
+        markerCanvas.addEventListener('click', (event) => {
+            if (!currentDrawingId) return;
+            const rect = markerCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const normalizedX = x / markerCanvas.width;
+            const normalizedY = y / markerCanvas.height;
+            console.log('Marker placed at:', { pixelX: x, pixelY: y, normalizedX, normalizedY });
+            drawMarker(x, y);
+            markerXInput.value = normalizedX;
+            markerYInput.value = normalizedY;
+        });
+
+        console.log('Initializing add_defect page');
+        drawingSelect.addEventListener('change', loadDrawing);
+    </script>
+{% endblock %}

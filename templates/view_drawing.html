@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+{% block title %}View Drawing{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Drawing: {{ drawing.name }}</h1>
+    <div id="drawingSection" class="mb-4 relative">
+        <div id="pdfContainer" class="border w-full h-[500px] relative bg-gray-200 flex items-center justify-center">
+            <p id="pdfStatus" class="text-gray-700">Loading PDF...</p>
+            <canvas id="pdfCanvas" class="absolute top-0 left-0"></canvas>
+            <canvas id="markerCanvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
+        </div>
+    </div>
+    <a href="{{ url_for('project_detail', project_id=drawing.project_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Back</a>
+
+    <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+    
+        const pdfContainer = document.getElementById('pdfContainer');
+        const pdfStatus = document.getElementById('pdfStatus');
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const markerCanvas = document.getElementById('markerCanvas');
+        const ctx = markerCanvas.getContext('2d');
+    
+        let pdfDoc = null;
+        let pageNum = 1;
+        let scale = 1;
+    
+        function updateStatus(message) {
+            console.log('Status:', message);
+            pdfStatus.textContent = message;
+            pdfStatus.style.display = message ? 'block' : 'none';
+        }
+    
+        function renderPage(page) {
+            console.log('Rendering PDF page with scale:', scale);
+            const viewport = page.getViewport({ scale: scale });
+            console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height });
+    
+            pdfContainer.style.width = `${viewport.width}px`;
+            pdfContainer.style.height = `${viewport.height}px`;
+            pdfCanvas.width = viewport.width;
+            pdfCanvas.height = viewport.height;
+            markerCanvas.width = viewport.width;
+            markerCanvas.height = viewport.height;
+    
+            const renderContext = {
+                canvasContext: pdfCanvas.getContext('2d'),
+                viewport: viewport
+            };
+            page.render(renderContext).promise.then(() => {
+                console.log('PDF rendered successfully');
+                updateStatus('');
+                pdfCanvas.style.display = 'block';
+    
+                // Draw markers
+                const markers = {{ markers | tojson }};
+                console.log('Markers data:', markers);
+                ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
+                markers.forEach(marker => {
+                    const markerX = marker.x * viewport.width;
+                    const markerY = marker.y * viewport.height;
+                    ctx.beginPath();
+                    ctx.arc(markerX, markerY, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'red';
+                    ctx.fill();
+                    ctx.strokeStyle = 'black';
+                    ctx.stroke();
+                    console.log('Marker drawn for defect:', marker.description, 'at:', { x: markerX, y: markerY });
+                });
+            }).catch(error => {
+                console.error('Error rendering PDF:', error);
+                updateStatus('Error rendering PDF: ' + error.message);
+            });
+        }
+    
+        function loadPDF() {
+            const pdfUrl = `/static/{{ drawing.file_path }}`;
+            console.log('Attempting to load PDF from:', pdfUrl);
+    
+            pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                pdfDoc = pdf;
+                console.log('PDF document loaded, pages:', pdf.numPages);
+                pdfDoc.getPage(pageNum).then(page => {
+                    console.log('PDF page loaded');
+                    const containerWidth = pdfContainer.clientWidth;
+                    console.log('Container width:', containerWidth);
+                    if (containerWidth <= 0) {
+                        console.error('Container width is 0, defaulting to 800px');
+                        pdfContainer.style.width = '800px';
+                    }
+                    const viewport = page.getViewport({ scale: 1 });
+                    scale = containerWidth / viewport.width;
+                    console.log('Calculated scale:', scale);
+                    renderPage(page);
+                }).catch(error => {
+                    console.error('Error loading PDF page:', error);
+                    updateStatus('Error loading PDF page: ' + error.message);
+                });
+            }).catch(error => {
+                console.error('Error loading PDF:', error);
+                updateStatus('Error loading PDF: ' + error.message);
+            });
+        }
+    
+        console.log('Initializing view_drawing page');
+        loadPDF();
+    </script>
+{% endblock %}

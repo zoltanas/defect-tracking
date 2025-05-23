@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block title %}Project: {{ project.name }}{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Project: {{ project.name }}</h1>
+
+    <div class="flex flex-wrap gap-2 mb-4"> {# Added mb-4 for spacing below buttons #}
+        {% if user_role in ['admin', 'expert'] %}
+            <a href="{{ url_for('add_defect', project_id=project.id) }}" class="bg-blue-500 text-white px-4 py-2 rounded">Add Defect</a>
+        {% endif %}
+        {% if user_role == 'admin' %}
+            <a href="{{ url_for('add_checklist', project_id=project.id) }}" class="bg-blue-500 text-white px-4 py-2 rounded">Add Checklist</a>
+        {% endif %}
+        <a href="{{ url_for('generate_report', project_id=project.id, filter=filter_status) }}" class="bg-green-500 text-white px-4 py-2 rounded">Generate Report</a>
+        <a href="{{ url_for('index') }}" class="bg-gray-500 text-white px-4 py-2 rounded">Back</a>
+    </div>
+
+    <div class="mb-4">
+        <label for="filter" class="block text-sm font-medium text-gray-700">Filter</label>
+        <select id="filter" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value" class="mt-1 p-2 border rounded">
+            <option value="All" {% if filter_status == 'All' %}selected{% endif %}>All</option>
+            <option value="Open" {% if filter_status == 'Open' %}selected{% endif %}>Open</option>
+            <option value="Closed" {% if filter_status == 'Closed' %}selected{% endif %}>Closed</option>
+        </select>
+    </div>
+    <div class="space-y-2 mb-4">
+        {% for defect in defects %}
+            <a href="{{ url_for('defect_detail', defect_id=defect.id) }}" class="block bg-white p-4 rounded shadow hover:bg-gray-50">
+                Defect: {{ defect.description }} ({{ defect.status }})
+            </a>
+        {% endfor %}
+        {% for checklist in checklists %}
+            <a href="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" class="block bg-white p-4 rounded shadow hover:bg-gray-50">
+                Checklist: {{ checklist.name }}
+            </a>
+        {% endfor %}
+    </div>
+
+
+{% endblock %}

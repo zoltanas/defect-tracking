@@ -1,0 +1,241 @@
+{% extends "layout.html" %}
+{% block title %}Draw on Image{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Edit Image</h1>
+    <div class="mb-4">
+        <label for="colorPicker" class="block text-sm font-medium text-gray-700">Line Color:</label>
+        <input type="color" id="colorPicker" value="#000000" class="mt-1">
+    </div>
+    <div class="mb-4">
+        <label for="lineWidth" class="block text-sm font-medium text-gray-700">Line Width:</label>
+        <input type="range" id="lineWidth" min="1" max="20" value="5" class="mt-1">
+        <span id="lineWidthValue">5</span>
+    </div>
+    <div class="mb-4">
+        <button id="undoButton" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Undo</button>
+        <button id="saveButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Save</button>
+        {% if next_url %}
+            <a href="{{ next_url }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+        {% else %}
+            {% if attachment.defect_id %}
+                <a href="{{ url_for('defect_detail', defect_id=attachment.defect_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+            {% elif attachment.checklist_item_id %}
+                <a href="{{ url_for('checklist_detail', checklist_id=attachment.checklist_item.checklist_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+            {% elif attachment.comment_id %}
+                <a href="{{ url_for('defect_detail', defect_id=attachment.comment.defect_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+            {% endif %}
+        {% endif %}
+    </div>
+    <div class="relative w-full">
+        <img id="sourceImage" src="{{ url_for('static', filename=attachment.file_path) }}" alt="Source Image" class="max-w-full h-auto hidden">
+        <canvas id="drawingCanvas" class="border w-full h-auto touch-none"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        const sourceImage = document.getElementById('sourceImage');
+        const colorPicker = document.getElementById('colorPicker');
+        const lineWidth = document.getElementById('lineWidth');
+        const lineWidthValue = document.getElementById('lineWidthValue');
+        const undoButton = document.getElementById('undoButton');
+        const saveButton = document.getElementById('saveButton');
+    
+        let drawing = false;
+        let currentLine = null;
+        let lines = [];
+        let lineWidthScale = 1;
+    
+        function resizeCanvas() {
+            const maxWidth = window.innerWidth - 32; // Account for padding/margins
+            const aspectRatio = sourceImage.width / sourceImage.height;
+            let canvasWidth = sourceImage.width;
+            let canvasHeight = sourceImage.height;
+    
+            // Scale canvas to fit viewport width while preserving aspect ratio
+            if (canvasWidth > maxWidth) {
+                canvasWidth = maxWidth;
+                canvasHeight = canvasWidth / aspectRatio;
+            }
+    
+            canvas.width = canvasWidth * window.devicePixelRatio; // High-DPI support
+            canvas.height = canvasHeight * window.devicePixelRatio;
+            canvas.style.width = `${canvasWidth}px`;
+            canvas.style.height = `${canvasHeight}px`;
+    
+            // Calculate line width scale based on canvas width relative to source image
+            lineWidthScale = (canvas.width / window.devicePixelRatio) / sourceImage.width;
+            console.log('Line width scale:', lineWidthScale, 'Canvas width:', canvas.width, 'Source width:', sourceImage.width);
+    
+            // Scale context to account for device pixel ratio
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    
+            redraw();
+        }
+    
+        function redraw() {
+            ctx.clearRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
+            ctx.drawImage(sourceImage, 0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
+    
+            lines.forEach(line => {
+                ctx.beginPath();
+                ctx.strokeStyle = line.color;
+                ctx.lineWidth = line.width * lineWidthScale; // Scale line width for canvas
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                line.points.forEach((point, index) => {
+                    const x = point.x * (canvas.width / window.devicePixelRatio);
+                    const y = point.y * (canvas.height / window.devicePixelRatio);
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+            });
+    
+            if (currentLine && currentLine.points.length > 0) {
+                ctx.beginPath();
+                ctx.strokeStyle = currentLine.color;
+                ctx.lineWidth = currentLine.width * lineWidthScale; // Scale line width
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                currentLine.points.forEach((point, index) => {
+                    const x = point.x * (canvas.width / window.devicePixelRatio);
+                    const y = point.y * (canvas.height / window.devicePixelRatio);
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+            }
+        }
+    
+        function getPos(event, isTouch = false) {
+            const rect = canvas.getBoundingClientRect();
+            let x, y;
+            if (isTouch) {
+                const touch = event.touches[0] || event.changedTouches[0];
+                x = (touch.clientX - rect.left) / rect.width;
+                y = (touch.clientY - rect.top) / rect.height;
+            } else {
+                x = (event.clientX - rect.left) / rect.width;
+                y = (event.clientY - rect.top) / rect.height;
+            }
+            return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
+        }
+    
+        function startDrawing(event, isTouch = false) {
+            if (isTouch || event.button === 0) {
+                event.preventDefault(); // Prevent scrolling
+                drawing = true;
+                currentLine = {
+                    points: [getPos(event, isTouch)],
+                    color: colorPicker.value,
+                    width: parseInt(lineWidth.value)
+                };
+                console.log('Started drawing:', isTouch ? 'touch' : 'mouse', currentLine);
+            }
+        }
+    
+        function continueDrawing(event, isTouch = false) {
+            if (drawing && currentLine) {
+                event.preventDefault(); // Prevent scrolling
+                currentLine.points.push(getPos(event, isTouch));
+                redraw();
+            }
+        }
+    
+        function stopDrawing(event, isTouch = false) {
+            if (drawing && currentLine) {
+                if (isTouch) event.preventDefault(); // Prevent scrolling
+                if (currentLine.points.length > 1) {
+                    lines.push(currentLine);
+                    console.log('Finished drawing:', isTouch ? 'touch' : 'mouse', currentLine);
+                }
+                currentLine = null;
+                drawing = false;
+                redraw();
+            }
+        }
+    
+        // Mouse Events
+        canvas.addEventListener('mousedown', (event) => startDrawing(event));
+        canvas.addEventListener('mousemove', (event) => continueDrawing(event));
+        canvas.addEventListener('mouseup', (event) => stopDrawing(event));
+        canvas.addEventListener('mouseleave', (event) => stopDrawing(event));
+    
+        // Touch Events
+        canvas.addEventListener('touchstart', (event) => startDrawing(event, true));
+        canvas.addEventListener('touchmove', (event) => continueDrawing(event, true));
+        canvas.addEventListener('touchend', (event) => stopDrawing(event, true));
+        canvas.addEventListener('touchcancel', (event) => stopDrawing(event, true));
+    
+        undoButton.addEventListener('click', () => {
+            lines.pop();
+            console.log('Undo clicked, lines remaining:', lines.length);
+            redraw();
+        });
+    
+        saveButton.addEventListener('click', () => {
+            console.log('Saving lines:', lines);
+            fetch('{{ url_for("draw", attachment_id=attachment.id) }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lines })
+            })
+            .then(response => {
+                console.log('Save response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Save response data:', data);
+                if (data.status === 'success') {
+                    if (data.redirect) {
+                        window.location.href = data.redirect;
+                    } else {
+                        {% if attachment.defect_id %}
+                            window.location.href = '{{ url_for("defect_detail", defect_id=attachment.defect_id) }}';
+                        {% elif attachment.checklist_item_id %}
+                            window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist_id) }}';
+                        {% elif attachment.comment_id and attachment.comment %}
+                            window.location.href = '{{ url_for("defect_detail", defect_id=attachment.comment.defect_id) }}';
+                        {% else %}
+                            window.location.href = '{{ url_for("index") }}';
+                        {% endif %}
+                    }
+                } else {
+                    alert('Error saving drawing: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error saving drawing:', error);
+                alert('Error saving drawing: ' + error.message);
+            });
+        });
+    
+        lineWidth.addEventListener('input', () => {
+            lineWidthValue.textContent = lineWidth.value;
+        });
+    
+        // Ensure image is drawn immediately on page load
+        function initializeCanvas() {
+            if (sourceImage.complete && sourceImage.naturalWidth !== 0) {
+                // Image is already loaded (e.g., cached)
+                resizeCanvas();
+            } else {
+                // Wait for image to load
+                sourceImage.onload = resizeCanvas;
+            }
+        }
+    
+        // Call initialization immediately
+        initializeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+    
+        console.log('Canvas initialized:', { width: canvas.width, height: canvas.height });
+    </script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block title %}Invite User{% endblock %}
+{% block content %}
+    <h1 class="text-2xl font-bold mb-4">Invite User</h1>
+    <form id="inviteForm" class="max-w-md mx-auto">
+        <div class="mb-4">
+            <label for="project_id" class="block text-sm font-medium text-gray-700">Project</label>
+            <select id="project_id" name="project_id" required class="mt-1 block w-full p-2 border rounded">
+                {% for project in projects %}
+                    <option value="{{ project.id }}">{{ project.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-4">
+            <label for="role" class="block text-sm font-medium text-gray-700">Role</label>
+            <select id="role" name="role" required class="mt-1 block w-full p-2 border rounded">
+                <option value="admin">Admin</option>
+                <option value="expert">Expert</option>
+                <option value="contractor">Contractor</option>
+            </select>
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Generate Invite Link</button>
+    </form>
+
+    <!-- Popup for invite link -->
+    <div id="invitePopup" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded shadow-lg max-w-md w-full">
+            <h2 class="text-lg font-bold mb-4">Invite Link</h2>
+            <p class="mb-4 text-sm text-gray-600">Share this link with the user to grant them access to the project.</p>
+            <div class="flex items-center mb-4">
+                <input id="inviteLink" type="text" readonly class="w-full p-2 border rounded mr-2" />
+                <button id="copyButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Copy</button>
+            </div>
+            <button id="closePopup" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 w-full">Close</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('inviteForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch('{{ url_for("invite") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const inviteLinkInput = document.getElementById('inviteLink');
+                    inviteLinkInput.value = data.invite_link;
+                    document.getElementById('invitePopup').classList.remove('hidden');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error generating invite link: ' + error.message);
+            });
+        });
+
+        document.getElementById('copyButton').addEventListener('click', function() {
+            const inviteLink = document.getElementById('inviteLink');
+            inviteLink.select();
+            document.execCommand('copy');
+            alert('Link copied to clipboard!');
+        });
+
+        document.getElementById('closePopup').addEventListener('click', function() {
+            document.getElementById('invitePopup').classList.add('hidden');
+        });
+    </script>
+{% endblock %}

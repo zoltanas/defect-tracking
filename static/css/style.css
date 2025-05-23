@@ -1,0 +1,33 @@
+.hidden {
+    display: none;
+}
+#pdfContainer {
+    position: relative;
+    overflow: hidden;
+}
+#pdfCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+#markerCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+}
+#pdfStatus {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+}
+#defectForm {
+    position: relative;
+}
+#drawing_id, #description, #photos, #defectForm button, #defectForm a {
+    position: relative;
+    z-index: 20;
+}
