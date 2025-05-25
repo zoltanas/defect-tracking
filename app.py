@@ -9,7 +9,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import os
 import shutil
-from PIL import Image as PILImage, ImageDraw
+from PIL import Image as PILImage, ImageDraw, ImageOps
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -244,6 +244,7 @@ def allowed_file(filename):
 def create_thumbnail(image_path, thumbnail_path, size=(300, 300)):
     try:
         with PILImage.open(image_path) as img:
+            img = ImageOps.exif_transpose(img) # Apply EXIF orientation
             img.thumbnail(size, PILImage.Resampling.LANCZOS)
             img.save(thumbnail_path, quality=85, optimize=True)
             os.chmod(thumbnail_path, 0o644)
@@ -612,6 +613,7 @@ def add_defect(project_id):
                     thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                     try:
                         img = PILImage.open(file)
+                        img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                         img = img.convert('RGB')
                         img.save(full_path, quality=85, optimize=True)
                         os.chmod(full_path, 0o644)
@@ -697,6 +699,7 @@ def defect_detail(defect_id):
                                 thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                                 try:
                                     img = PILImage.open(file)
+                                    img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                                     img = img.convert('RGB')
                                     img.save(full_path, quality=85, optimize=True)
                                     os.chmod(full_path, 0o644)
@@ -902,9 +905,13 @@ def checklist_detail(checklist_id):
                         thumbnail_filename = f'thumb_{filename}'
                         thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                         try:
-                            file.save(full_path)
+                            # For checklist item uploads, 'file' is a FileStorage object
+                            img = PILImage.open(file.stream) # Open from stream
+                            img = ImageOps.exif_transpose(img) # Apply EXIF orientation
+                            img = img.convert('RGB')
+                            img.save(full_path, quality=85, optimize=True) # Save the processed image
                             os.chmod(full_path, 0o644)
-                            create_thumbnail(full_path, thumbnail_path)
+                            create_thumbnail(full_path, thumbnail_path) # Thumbnail will use the already oriented image
                             attachment = Attachment(checklist_item_id=item.id, file_path=file_path, thumbnail_path=f'images/{thumbnail_filename}')
                             db.session.add(attachment)
                             db.session.commit()
@@ -1589,7 +1596,7 @@ def draw(attachment_id):
         except Exception as e:
             db.session.rollback()
             return jsonify({'status': 'error', 'message': str(e)}), 500
-    return render_template('draw.html', attachment=attachment, next_url=next_url)
+    return render_template('draw.html', attachment=attachment, next_url=next_url, csrf_token_value=csrf_token())
 
 if __name__ == '__main__':
     app.run(debug=True)

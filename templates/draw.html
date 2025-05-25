@@ -44,6 +44,7 @@
     </div>
 
     <script>
+        const csrfToken = "{{ csrf_token_value }}"; // Or "{{ csrf_token() }}" if that's how it's passed
         const canvas = document.getElementById('drawingCanvas');
         const ctx = canvas.getContext('2d');
         const sourceImage = document.getElementById('sourceImage');
@@ -196,11 +197,19 @@
             console.log('Saving lines:', lines);
             fetch('{{ url_for("draw", attachment_id=attachment.id) }}', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken // Add this line
+                },
                 body: JSON.stringify({ lines })
             })
             .then(response => {
                 console.log('Save response status:', response.status);
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(`Server error: ${response.status} ${response.statusText} - ${text}`);
+                    });
+                }
                 return response.json();
             })
             .then(data => {
@@ -211,12 +220,13 @@
                     } else {
                         {% if attachment.defect_id %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.defect_id) }}';
-                        {% elif attachment.checklist_item_id %}
-                            window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist_id) }}';
+                        {% elif attachment.checklist_item_id and attachment.checklist_item and attachment.checklist_item.checklist %}
+                            window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist.id) }}';
                         {% elif attachment.comment_id and attachment.comment %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.comment.defect_id) }}';
                         {% else %}
-                            window.location.href = '{{ url_for("index") }}';
+                            // Fallback if the context is unknown, though next_url should ideally be set
+                            window.location.href = '{{ next_url or url_for("index") }}';
                         {% endif %}
                     }
                 } else {
