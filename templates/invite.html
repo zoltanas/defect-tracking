@@ -1,72 +1,170 @@
 {% extends "layout.html" %}
 {% block title %}Invite User{% endblock %}
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Invite User</h1>
-    <form id="inviteForm" class="max-w-md mx-auto">
-        <div class="mb-4">
-            <label for="project_id" class="block text-sm font-medium text-gray-700">Project</label>
-            <select id="project_id" name="project_id" required class="mt-1 block w-full p-2 border rounded">
-                {% for project in projects %}
-                    <option value="{{ project.id }}">{{ project.name }}</option>
-                {% endfor %}
-            </select>
+<div class="min-h-[calc(100vh-12rem)] flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8 bg-white p-8 sm:p-10 shadow-xl rounded-xl">
+        <div>
+            <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                Invite a New User
+            </h2>
+            <p class="mt-2 text-center text-sm text-gray-600">
+                Select a project and role to generate an invitation link.
+            </p>
         </div>
-        <div class="mb-4">
-            <label for="role" class="block text-sm font-medium text-gray-700">Role</label>
-            <select id="role" name="role" required class="mt-1 block w-full p-2 border rounded">
-                <option value="admin">Admin</option>
-                <option value="expert">Expert</option>
-                <option value="contractor">Contractor</option>
-            </select>
-        </div>
-        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Generate Invite Link</button>
-    </form>
-
-    <!-- Popup for invite link -->
-    <div id="invitePopup" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
-        <div class="bg-white p-6 rounded shadow-lg max-w-md w-full">
-            <h2 class="text-lg font-bold mb-4">Invite Link</h2>
-            <p class="mb-4 text-sm text-gray-600">Share this link with the user to grant them access to the project.</p>
-            <div class="flex items-center mb-4">
-                <input id="inviteLink" type="text" readonly class="w-full p-2 border rounded mr-2" />
-                <button id="copyButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Copy</button>
+        <form id="inviteForm" class="mt-8 space-y-6">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div>
+                <label for="project_id" class="block text-sm font-medium text-gray-700">Project</label>
+                <select id="project_id" name="project_id" required
+                        class="mt-1 block w-full px-3 py-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    {% if projects %}
+                        {% for project in projects %}
+                            <option value="{{ project.id }}">{{ project.name }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="" disabled>No projects available. Please create a project first.</option>
+                    {% endif %}
+                </select>
             </div>
-            <button id="closePopup" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 w-full">Close</button>
-        </div>
+
+            <div>
+                <label for="role" class="block text-sm font-medium text-gray-700">Role</label>
+                <select id="role" name="role" required
+                        class="mt-1 block w-full px-3 py-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    <option value="admin">Admin</option>
+                    <option value="expert">Expert</option>
+                    <option value="worker">Worker</option> {# Changed from contractor to worker to match other places #}
+                </select>
+            </div>
+
+            <div>
+                <button type="submit" {% if not projects %}disabled{% endif %}
+                        class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary {% if not projects %}opacity-50 cursor-not-allowed{% endif %}">
+                    Generate Invite Link
+                </button>
+                {% if not projects %}
+                    <p class="mt-2 text-xs text-center text-red-600">You must have at least one project to generate an invite link.</p>
+                {% endif %}
+            </div>
+        </form>
     </div>
+</div>
 
-    <script>
-        document.getElementById('inviteForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            fetch('{{ url_for("invite") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const inviteLinkInput = document.getElementById('inviteLink');
-                    inviteLinkInput.value = data.invite_link;
-                    document.getElementById('invitePopup').classList.remove('hidden');
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            })
-            .catch(error => {
-                alert('Error generating invite link: ' + error.message);
+<!-- Popup for invite link -->
+<div id="invitePopup" class="fixed inset-0 bg-gray-800 bg-opacity-75 hidden flex items-center justify-center z-50 p-4 transition-opacity duration-300 opacity-0">
+    <div class="bg-white p-6 sm:p-8 rounded-lg shadow-xl max-w-lg w-full transform transition-all duration-300 scale-95">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-semibold text-gray-800">Your Invitation Link</h2>
+            <button id="closePopupCross" class="text-gray-400 hover:text-gray-600">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+        <p class="mb-5 text-sm text-gray-600">Share this link with the user to grant them access to the selected project with the assigned role.</p>
+        <div class="space-y-3 mb-6">
+            <label for="inviteLink" class="sr-only">Invite Link</label>
+            <input id="inviteLink" type="text" readonly 
+                   class="w-full px-3 py-3 border border-gray-300 bg-gray-50 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" />
+            <div>
+                <button id="copyButton"
+                        class="w-full flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                    <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    Copy Link
+                </button>
+            </div>
+        </div>
+        <button id="closePopup" class="w-full bg-gray-200 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 text-sm font-medium">Close</button>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const inviteForm = document.getElementById('inviteForm');
+        const invitePopup = document.getElementById('invitePopup');
+        const inviteLinkInput = document.getElementById('inviteLink');
+        const copyButton = document.getElementById('copyButton');
+        const closePopupButton = document.getElementById('closePopup');
+        const closePopupCrossButton = document.getElementById('closePopupCross');
+
+        if(inviteForm) {
+            inviteForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                // Add CSRF token if your backend expects it in JSON/FormData
+                // formData.append('csrf_token', '{{ csrf_token() }}'); 
+
+                fetch('{{ url_for("invite") }}', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        inviteLinkInput.value = data.invite_link;
+                        invitePopup.classList.remove('hidden');
+                        setTimeout(() => { // For transition
+                           invitePopup.classList.remove('opacity-0');
+                           invitePopup.querySelector('.transform').classList.remove('scale-95');
+                        }, 10);
+                    } else {
+                        // Consider using a flash message or a more integrated notification
+                        alert('Error: ' + (data.message || 'Could not generate link.'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error generating invite link: ' + error.message);
+                });
             });
-        });
+        }
 
-        document.getElementById('copyButton').addEventListener('click', function() {
-            const inviteLink = document.getElementById('inviteLink');
-            inviteLink.select();
-            document.execCommand('copy');
-            alert('Link copied to clipboard!');
-        });
+        if(copyButton) {
+            copyButton.addEventListener('click', function() {
+                inviteLinkInput.select();
+                inviteLinkInput.setSelectionRange(0, 99999); // For mobile devices
+                
+                navigator.clipboard.writeText(inviteLinkInput.value).then(function() {
+                    copyButton.innerHTML = '<svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Link Copied!';
+                    setTimeout(() => {
+                         copyButton.innerHTML = '<svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy Link';
+                    }, 2000);
+                }).catch(function(error) {
+                    console.error('Clipboard copy failed:', error);
+                    // Fallback for older browsers (less common now)
+                    try {
+                        document.execCommand('copy');
+                        alert('Link copied (fallback method)!');
+                    } catch (err) {
+                        alert('Failed to copy link. Please copy it manually.');
+                    }
+                });
+            });
+        }
+        
+        function closeThePopup() {
+            invitePopup.classList.add('opacity-0');
+            invitePopup.querySelector('.transform').classList.add('scale-95');
+            setTimeout(() => {
+                invitePopup.classList.add('hidden');
+            }, 300); // Match transition duration
+        }
 
-        document.getElementById('closePopup').addEventListener('click', function() {
-            document.getElementById('invitePopup').classList.add('hidden');
-        });
-    </script>
+        if(closePopupButton) {
+            closePopupButton.addEventListener('click', closeThePopup);
+        }
+        if(closePopupCrossButton) {
+            closePopupCrossButton.addEventListener('click', closeThePopup);
+        }
+        
+        // Disable button if no projects
+        const submitButton = inviteForm ? inviteForm.querySelector('button[type="submit"]') : null;
+        const projectSelect = document.getElementById('project_id');
+        if (submitButton && projectSelect && projectSelect.options.length === 0) {
+            submitButton.disabled = true;
+            // The classList additions for opacity/cursor are already handled in the HTML.
+        } else if (submitButton && projectSelect && projectSelect.value === "") { // If "No projects available" is the selected option
+             submitButton.disabled = true;
+        }
+
+    });
+</script>
 {% endblock %}

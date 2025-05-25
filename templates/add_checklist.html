@@ -1,24 +1,48 @@
 {% extends "layout.html" %}
-{% block title %}Add Checklist{% endblock %}
+{% block title %}Add Checklist to Project{% endblock %}
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Add Checklist to {{ project.name }}</h1>
-    <form method="POST" class="bg-white p-6 rounded shadow">
-        <div class="mb-4">
-            <label for="name" class="block text-sm font-medium text-gray-700">Checklist Name</label>
-            <input type="text" name="name" id="name" class="mt-1 p-2 border rounded w-full" required>
+<div class="max-w-xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <div class="space-y-2 mb-8">
+        <h1 class="text-3xl font-bold text-gray-800">Add Checklist to <span class="text-primary">{{ project.name }}</span></h1>
+        <p class="text-sm text-gray-600">Create a new checklist for this project, optionally using a template.</p>
+    </div>
+    <form method="POST" class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Checklist Name</label>
+            <input type="text" name="name" id="name" required placeholder="E.g., Daily Site Safety Checklist"
+                   class="mt-1 block w-full px-3 py-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
         </div>
-        <div class="mb-4">
-            <label for="template_id" class="block text-sm font-medium text-gray-700">Select Template</label>
-            <select name="template_id" id="template_id" class="mt-1 p-2 border rounded w-full">
+        <div>
+            <label for="template_id" class="block text-sm font-medium text-gray-700 mb-1">Select Template (Optional)</label>
+            <select name="template_id" id="template_id"
+                    class="mt-1 block w-full px-3 py-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                <option value="">No template (blank checklist)</option>
                 {% for template in templates %}
                     <option value="{{ template.id }}">{{ template.name }}</option>
                 {% endfor %}
             </select>
+             <p class="mt-2 text-xs text-gray-500">Using a template will pre-fill the checklist with items from the selected template.</p>
         </div>
-        <div class="flex flex-wrap gap-2">
-            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Save</button>
-            <a href="{{ url_for('add_template', project_id=project.id) }}" class="bg-green-500 text-white px-4 py-2 rounded">New Template</a>
-            <a href="{{ url_for('project_detail', project_id=project.id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</a>
+        
+        <div class="flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200 mt-8">
+            <div>
+                 <a href="{{ url_for('add_template', project_id=project.id) }}"
+                   class="w-full sm:w-auto flex justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 text-sm">
+                    Create New Template
+                </a>
+            </div>
+            <div class="flex space-x-3">
+                <a href="{{ url_for('project_detail', project_id=project.id) }}"
+                   class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 text-sm">
+                   Cancel
+                </a>
+                <button type="submit"
+                        class="bg-primary hover:bg-primary-hover text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary text-sm">
+                    Save Checklist
+                </button>
+            </div>
         </div>
     </form>
+</div>
 {% endblock %}

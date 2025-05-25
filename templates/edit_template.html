@@ -1,19 +1,35 @@
 {% extends "layout.html" %}
-{% block title %}Edit Template{% endblock %}
+{% block title %}Edit Checklist Template{% endblock %}
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Edit Template: {{ template.name }}</h1>
-    <form method="POST" class="bg-white p-6 rounded shadow">
-        <div class="mb-4">
-            <label for="name" class="block text-sm font-medium text-gray-700">Template Name</label>
-            <input type="text" name="name" id="name" value="{{ template.name }}" class="mt-1 p-2 border rounded w-full" required>
+<div class="max-w-xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <div class="space-y-2 mb-8">
+        <h1 class="text-3xl font-bold text-gray-800">Edit Checklist Template</h1>
+        <p class="text-sm text-gray-600">Update the details for <strong class="font-medium text-primary">{{ template.name }}</strong>.</p>
+    </div>
+    <form method="POST" class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Template Name</label>
+            <input type="text" name="name" id="name" value="{{ template.name }}" required placeholder="E.g., Pre-Flight Safety Check"
+                   class="mt-1 block w-full px-3 py-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
         </div>
-        <div class="mb-4">
-            <label for="items" class="block text-sm font-medium text-gray-700">Items (comma-separated)</label>
-            <textarea name="items" id="items" class="mt-1 p-2 border rounded w-full">{{ item_text }}</textarea>
+        <div>
+            <label for="items" class="block text-sm font-medium text-gray-700 mb-1">Checklist Items</label>
+            <textarea name="items" id="items" rows="8" placeholder="Enter each checklist item on a new line."
+                      class="mt-1 block w-full px-3 py-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">{{ item_text }}</textarea>
+            <p class="mt-2 text-xs text-gray-500">Enter one item per line. These will become individual checkable items in the checklist.</p>
         </div>
-        <div class="flex space-x-2">
-            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Save</button>
-            <a href="{{ url_for('template_list') }}" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</a>
+        
+        <div class="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200 mt-8">
+            <a href="{{ url_for('template_list') }}"
+               class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 text-sm">
+               Cancel
+            </a>
+            <button type="submit"
+                    class="bg-primary hover:bg-primary-hover text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary text-sm">
+                Save Changes
+            </button>
         </div>
     </form>
+</div>
 {% endblock %}

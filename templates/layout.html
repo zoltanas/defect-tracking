@@ -1,14 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<head>
-
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Font: Inter (sans-serif) via Google Fonts and Tailwind's default sans-serif stack -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Custom Styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{% endblock %} - Defect Tracker</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Primary and Secondary Color Definitions -->
+    <style>
+        :root {
+            --color-primary: #0284c7; /* sky-600 */
+            --color-primary-hover: #0369a1; /* sky-700 */
+            --color-secondary: #e2e8f0; /* slate-200 */
+            --color-secondary-text: #1e293b; /* slate-800 */
+        }
+        .bg-primary { background-color: var(--color-primary); }
+        .hover\:bg-primary-hover:hover { background-color: var(--color-primary-hover); }
+        .bg-secondary { background-color: var(--color-secondary); }
+        .text-secondary-text { color: var(--color-secondary-text); }
+
+        /* Custom styles for flash messages to align with new color scheme */
+        .flash-success {
+            background-color: var(--color-primary) !important; /* Lighter shade of primary or a distinct green */
+            color: white !important;
+        }
+        .flash-error {
+            background-color: #dc2626 !important; /* red-600 */
+            color: white !important;
+        }
+    </style>
     <script src="{{ url_for('static', filename='js/popup.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -20,22 +46,72 @@
                     setTimeout(() => msg.remove(), 500);
                 }, 3000);
             });
+
+            // Hamburger menu toggle
+            const menuButton = document.getElementById('menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+
+            if (menuButton && mobileMenu) {
+                menuButton.addEventListener('click', () => {
+                    const isExpanded = menuButton.getAttribute('aria-expanded') === 'true' || false;
+                    menuButton.setAttribute('aria-expanded', !isExpanded);
+                    mobileMenu.classList.toggle('hidden');
+                    // Toggle icons
+                    const openIcon = menuButton.querySelector('.block'); // Assuming open icon is initially block
+                    const closeIcon = menuButton.querySelector('.hidden'); // Assuming close icon is initially hidden
+                    openIcon.classList.toggle('hidden');
+                    openIcon.classList.toggle('block');
+                    closeIcon.classList.toggle('hidden');
+                    closeIcon.classList.toggle('block');
+                });
+            }
         });
     </script>
 </head>
-<body class="bg-gray-100 font-sans">
-    <nav class="bg-blue-600 text-white p-4">
+<!-- Font Choice: Inter (sans-serif) for a clean, modern look. Tailwind's sans-serif stack as fallback. -->
+<body class="bg-secondary text-secondary-text font-['Inter',_system-ui,_sans-serif]">
+    <!-- Color Choice: Primary (modern blue - sky-600) for navigation and key actions. -->
+    <nav class="bg-primary text-white p-4 shadow-md">
         <div class="container mx-auto flex justify-between items-center">
-            <a href="{{ url_for('index') }}" class="text-xl font-bold">Defect Tracker</a>
-            <div class="space-x-4">
+            <a href="{{ url_for('index') }}" class="text-xl font-bold hover:text-gray-200">Defect Tracker</a>
+            <!-- Desktop Menu -->
+            <div class="hidden md:flex space-x-4 items-center">
                 {% if current_user.is_authenticated %}
                     {% if current_user.role == 'admin' %}
-                        <a href="{{ url_for('invite') }}" class="text-sm">Invite User</a>
+                        <a href="{{ url_for('invite') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Invite User</a>
                     {% endif %}
-                    <a href="{{ url_for('logout') }}" class="text-sm">Logout</a>
+                    <a href="{{ url_for('logout') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Logout</a>
                 {% else %}
-                    <a href="{{ url_for('login') }}" class="text-sm">Login</a>
-                    <a href="{{ url_for('register') }}" class="text-sm">Register</a>
+                    <a href="{{ url_for('login') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Login</a>
+                    <a href="{{ url_for('register') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Register</a>
+                {% endif %}
+            </div>
+            <!-- Mobile Menu Button -->
+            <div class="md:hidden">
+                <button id="menu-button" type="button" class="inline-flex items-center justify-center p-2 rounded-md text-gray-200 hover:text-white hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" aria-controls="mobile-menu" aria-expanded="false">
+                    <span class="sr-only">Open main menu</span>
+                    <!-- Icon when menu is closed. Heroicon name: menu. `block` is default state -->
+                    <svg class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                    <!-- Icon when menu is open. Heroicon name: x. `hidden` is default state -->
+                    <svg class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <!-- Mobile Menu, show/hide based on menu state. -->
+        <div class="md:hidden hidden" id="mobile-menu">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                {% if current_user.is_authenticated %}
+                    {% if current_user.role == 'admin' %}
+                        <a href="{{ url_for('invite') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Invite User</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Login</a>
+                    <a href="{{ url_for('register') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Register</a>
                 {% endif %}
             </div>
         </div>
@@ -44,11 +120,12 @@
         {% block content %}{% endblock %}
     </div>
     <!-- Flash messages at the bottom -->
+    <!-- Ensure flash messages use the new color scheme (flash-success, flash-error classes) -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             <div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-md z-50">
                 {% for category, message in messages %}
-                    <div class="flash-message {{ 'bg-green-100 text-green-700' if category == 'success' else 'bg-red-100 text-red-700' }} p-4 mb-2 rounded shadow opacity-100">
+                    <div class="flash-message p-4 mb-2 rounded shadow opacity-100 {{ 'flash-success' if category == 'success' else 'flash-error' }}">
                         {{ message }}
                     </div>
                 {% endfor %}

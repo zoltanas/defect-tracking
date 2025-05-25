@@ -1,95 +1,175 @@
 {% extends "layout.html" %}
-{% block title %}Defect Details{% endblock %}
+{% block title %}Defect: {{ defect.description | truncate(30) }}{% endblock %}
+
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Defect Details for {{ project.name }}</h1>
-    <div class="bg-white p-6 rounded shadow">
-        <h2 class="text-xl font-semibold mb-2">{{ defect.description }}</h2>
-        <p><strong>Status:</strong> {{ defect.status }}</p>
-        <p><strong>Created:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-        <p><strong>Creator:</strong> {{ defect.creator.username }}</p>
-        {% if defect.close_date %}
-            <p><strong>Closed:</strong> {{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-        {% endif %}
-        {% if marker %}
-            <h3 class="text-lg font-semibold mt-4 mb-2">Defect Location</h3>
-            <div id="drawingSection" class="mb-4 relative">
-                <div id="pdfContainer" class="border w-full h-[500px] relative bg-gray-200 flex items-center justify-center">
-                    <p id="pdfStatus" class="text-gray-700">Loading PDF...</p>
-                    <canvas id="pdfCanvas" class="absolute top-0 left-0"></canvas>
-                    <canvas id="markerCanvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
-                </div>
-            </div>
-        {% else %}
-            <p class="text-sm text-gray-500 mt-4">No drawing location specified for this defect.</p>
-        {% endif %}
-        {% if attachments %}
-            <h3 class="text-lg font-semibold mt-4 mb-2">Attachments</h3>
-            <div class="grid grid-cols-3 gap-4">
-                {% for attachment in attachments %}
-                    <a href="{{ url_for('view_attachment', attachment_id=attachment.id) }}">
-                        <img src="/{{ attachment.thumbnail_path }}" alt="Attachment" class="w-full h-auto border rounded">
-                    </a>
-                {% endfor %}
-            </div>
-        {% endif %}
-        {% if comments %}
-            <h3 class="text-lg font-semibold mt-4 mb-2">Comments</h3>
-            {% for comment in comments %}
-                <div class="border-t pt-2 mt-2">
-                    <p><strong>{{ comment.user.username }}</strong> on {{ comment.created_at.strftime('%Y-%m-%d %H:%M:%S') }}:</p>
-                    <p>{{ comment.content }}</p>
-                    {% set comment_attachments = comment.attachments %}
-                    {% if comment_attachments %}
-                        <div class="grid grid-cols-3 gap-2 mt-2">
-                            {% for attachment in comment_attachments %}
-                                <a href="{{ url_for('view_attachment', attachment_id=attachment.id) }}">
-                                    <img src="/{{ attachment.thumbnail_path }}" alt="Comment Attachment" class="w-full h-auto border rounded">
-                                </a>
-                            {% endfor %}
+    <!-- Header: Defect Title and Back Button -->
+    <div class="flex flex-col sm:flex-row justify-between items-start mb-6 pb-4 border-b border-gray-300">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800 break-words">{{ defect.description }}</h1>
+            <p class="text-sm text-gray-600">Part of Project: <a href="{{ url_for('project_detail', project_id=project.id) }}" class="text-primary hover:underline">{{ project.name }}</a></p>
+        </div>
+        <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-6">
+        <!-- Left Column: Defect Info, Drawing, Attachments -->
+        <div class="lg:w-2/3 space-y-6">
+            <!-- Defect Information Card -->
+            <div class="bg-white shadow-lg rounded-lg p-6">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Details</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Status</dt>
+                        <dd class="mt-1">
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full
+                                {% if defect.status.lower() == 'open' %} bg-yellow-100 text-yellow-800 
+                                {% elif defect.status.lower() == 'closed' %} bg-green-100 text-green-800
+                                {% else %} bg-gray-100 text-gray-800 
+                                {% endif %}">
+                                {{ defect.status | capitalize }}
+                            </span>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Location in Drawing</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ defect.location if defect.location else 'N/A' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Created By</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ defect.creator.username }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Creation Date</dt>
+                        <dd class="mt-1 text-sm text-gray-900">{{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                    </div>
+                    {% if defect.close_date %}
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Close Date</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
                         </div>
                     {% endif %}
                 </div>
-            {% endfor %}
-        {% endif %}
-        {% if user_role in ['admin', 'expert', 'worker'] %}
-            <h3 class="text-lg font-semibold mt-4 mb-2">Add Comment</h3>
-            <form method="POST" enctype="multipart/form-data">
-                <div class="mb-4">
-                    <label for="comment" class="block text-sm font-medium text-gray-700">Comment</label>
-                    <textarea name="comment" id="comment" class="mt-1 p-2 border rounded w-full"></textarea>
+            </div>
+
+            <!-- Defect Location (Drawing) Card -->
+            {% if marker %}
+                <div class="bg-white shadow-lg rounded-lg p-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Location on Drawing</h2>
+                    <div id="drawingSection" class="mb-4 relative">
+                        <div id="pdfContainer" class="border border-gray-300 w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px] relative bg-gray-200 flex items-center justify-center rounded-md overflow-hidden">
+                            <div id="pdfStatus" class="text-gray-700 p-4 text-center">
+                                <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Loading PDF...
+                            </div>
+                            <canvas id="pdfCanvas" class="absolute top-0 left-0"></canvas>
+                            <canvas id="markerCanvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
+                        </div>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label for="photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
-                    <input type="file" name="photos" id="photos" multiple accept="image/*" class="mt-1 p-2 border rounded w-full">
+            {% else %}
+                <div class="bg-white shadow-lg rounded-lg p-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Location on Drawing</h2>
+                    <p class="text-sm text-gray-500">No drawing location specified for this defect.</p>
                 </div>
-                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Add Comment</button>
-            </form>
-        {% endif %}
-        {% if user_role in ['admin', 'expert'] %}
-            <h3 class="text-lg font-semibold mt-4 mb-2">Edit Defect</h3>
-            <form method="POST">
-                <div class="mb-4">
-                    <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea name="description" id="description" class="mt-1 p-2 border rounded w-full" required>{{ defect.description }}</textarea>
+            {% endif %}
+
+            <!-- Attachments Card -->
+            {% if attachments %}
+                <div class="bg-white shadow-lg rounded-lg p-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Attachments</h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                        {% for attachment in attachments %}
+                            <a href="{{ url_for('view_attachment', attachment_id=attachment.id) }}" class="group block rounded-lg overflow-hidden border border-gray-200 hover:border-primary transition-all duration-300">
+                                <img src="/{{ attachment.thumbnail_path }}" alt="Attachment Thumbnail" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity">
+                            </a>
+                        {% endfor %}
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
-                    <select name="status" id="status" class="mt-1 p-2 border rounded w-full">
-                        <option value="open" {% if defect.status == 'open' %}selected{% endif %}>Open</option>
-                        <option value="closed" {% if defect.status == 'closed' %}selected{% endif %}>Closed</option>
-                    </select>
+            {% endif %}
+        </div>
+
+        <!-- Right Column: Actions, Comments -->
+        <div class="lg:w-1/3 space-y-6">
+            <!-- Actions Card (Edit, Delete) -->
+            {% if user_role in ['admin', 'expert'] or user_role == 'admin' %}
+            <div class="bg-white shadow-lg rounded-lg p-6">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Manage Defect</h2>
+                {% if user_role in ['admin', 'expert'] %}
+                    <form method="POST" class="space-y-4 mb-4"> {# Edit Defect Form #}
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+                            <textarea name="description" id="description" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required>{{ defect.description }}</textarea>
+                        </div>
+                        <div>
+                            <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
+                            <select name="status" id="status" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                                <option value="Open" {% if defect.status.lower() == 'open' %}selected{% endif %}>Open</option>
+                                <option value="Closed" {% if defect.status.lower() == 'closed' %}selected{% endif %}>Closed</option>
+                            </select>
+                        </div>
+                        <button type="submit" name="action" value="edit_defect" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Save Changes</button>
+                    </form>
+                {% endif %}
+                {% if user_role == 'admin' %}
+                    <form action="{{ url_for('defect_detail', defect_id=defect.id) }}" method="POST" class="mt-2">
+                        <input type="hidden" name="action" value="delete_defect">
+                        <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium" onclick="return confirm('Are you sure you want to delete this defect? This action cannot be undone.');">Delete Defect</button>
+                    </form>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <!-- Add Comment Form Card -->
+            {% if user_role in ['admin', 'expert', 'worker'] %}
+                <div class="bg-white shadow-lg rounded-lg p-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
+                    <form method="POST" enctype="multipart/form-data" class="space-y-4">
+                        <input type="hidden" name="action" value="add_comment">
+                        <div>
+                            <label for="comment_content" class="block text-sm font-medium text-gray-700">Your Comment</label>
+                            <textarea name="comment_content" id="comment_content" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required></textarea>
+                        </div>
+                        <div>
+                            <label for="comment_photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
+                            <input type="file" name="comment_photos" id="comment_photos" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-hover file:cursor-pointer">
+                        </div>
+                        <button type="submit" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Comment</button>
+                    </form>
                 </div>
-                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Save  Save Changes</button>
-            </form>
-        {% endif %}
-        {% if user_role == 'admin' %}
-            <form action="{{ url_for('defect_detail', defect_id=defect.id) }}" method="POST" class="mt-4 inline">
-                <input type="hidden" name="delete" value="true">
-                <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded" onclick="return confirm('Are you sure you want to delete this defect?')">Delete Defect</button>
-            </form>
-        {% endif %}
-        <div class="mt-4">
-            <a href="{{ url_for('project_detail', project_id=project.id) }}" class="bg-gray-500 text-white px-4 py-2 rounded">Back</a>
+            {% endif %}
+
+            <!-- Comments List Card -->
+            <div class="bg-white shadow-lg rounded-lg p-6">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Comments</h2>
+                {% if comments %}
+                    <div class="space-y-4">
+                        {% for comment in comments %}
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <div class="flex justify-between items-center mb-1">
+                                    <p class="text-sm font-semibold text-primary">{{ comment.user.username }}</p>
+                                    <p class="text-xs text-gray-500">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                                </div>
+                                <p class="text-sm text-gray-700 break-words">{{ comment.content }}</p>
+                                {% set comment_attachments = comment.attachments %}
+                                {% if comment_attachments %}
+                                    <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {% for attachment in comment_attachments %}
+                                            <a href="{{ url_for('view_attachment', attachment_id=attachment.id) }}" class="group block rounded overflow-hidden border border-gray-100 hover:border-primary transition-all duration-300">
+                                                <img src="/{{ attachment.thumbnail_path }}" alt="Comment Attachment" class="w-full h-20 sm:h-24 object-cover group-hover:opacity-80 transition-opacity">
+                                            </a>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
@@ -100,28 +180,41 @@
 
         try {
             const pdfContainer = document.getElementById('pdfContainer');
-            const pdfStatus = document.getElementById('pdfStatus');
+            const pdfStatusEl = document.getElementById('pdfStatus'); // Renamed for clarity
             const pdfCanvas = document.getElementById('pdfCanvas');
             const markerCanvas = document.getElementById('markerCanvas');
+            
+            if (!pdfContainer || !pdfStatusEl || !pdfCanvas || !markerCanvas) {
+                throw new Error("One or more canvas/container elements not found.");
+            }
             const ctx = markerCanvas.getContext('2d');
 
             let pdfDoc = null;
-            let pageNum = 1;
-            let scale = 1;
+            let pageNum = 1; // Default to first page
+            let currentScale = 1; // Store current scale
 
-            function updateStatus(message) {
+            function updateStatus(message, isLoading = false) {
                 console.log('Status:', message);
-                pdfStatus.textContent = message;
-                pdfStatus.style.display = message ? 'block' : 'none';
+                if (isLoading) {
+                    pdfStatusEl.innerHTML = `
+                        <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        ${message}`;
+                } else {
+                    pdfStatusEl.textContent = message;
+                }
+                pdfStatusEl.style.display = message ? 'flex' : 'none'; // Use flex for centering spinner
+                 pdfCanvas.style.display = message ? 'none' : 'block'; // Hide canvas when status is shown
             }
 
             function renderPage(page) {
-                console.log('Rendering PDF page with scale:', scale);
-                const viewport = page.getViewport({ scale: scale });
+                const viewport = page.getViewport({ scale: currentScale });
                 console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height });
 
-                pdfContainer.style.width = `${viewport.width}px`;
-                pdfContainer.style.height = `${viewport.height}px`;
+                // pdfContainer is already responsive via Tailwind's w-full and h-[...]
+                // Set canvas dimensions based on viewport
                 pdfCanvas.width = viewport.width;
                 pdfCanvas.height = viewport.height;
                 markerCanvas.width = viewport.width;
@@ -131,74 +224,99 @@
                     canvasContext: pdfCanvas.getContext('2d'),
                     viewport: viewport
                 };
+
                 page.render(renderContext).promise.then(() => {
                     console.log('PDF rendered successfully');
-                    updateStatus('');
+                    updateStatus(''); // Clear status, hide spinner
                     pdfCanvas.style.display = 'block';
 
-                    // Draw marker
-                    const marker = {{ marker | tojson }};
-                    console.log('Marker data:', marker);
-                    if (marker && marker.x != null && marker.y != null) {
+                    const markerData = {{ marker | tojson }};
+                    console.log('Marker data:', markerData);
+                    if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
                         ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
+                        // Use a more visible marker style
+                        const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015); // Responsive radius
+                        const markerX = markerData.x * viewport.width;
+                        const markerY = markerData.y * viewport.height;
+
                         ctx.beginPath();
-                        ctx.arc(marker.x * viewport.width, marker.y * viewport.height, 5, 0, 2 * Math.PI);
-                        ctx.fillStyle = 'red';
+                        ctx.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.7)'; // Semi-transparent red
                         ctx.fill();
-                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = Math.max(1, markerRadius * 0.2); // Responsive line width
+                        ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
                         ctx.stroke();
-                        console.log('Marker drawn at:', { x: marker.x * viewport.width, y: marker.y * viewport.height });
+                        console.log('Marker drawn at:', { x: markerX, y: markerY });
                     } else {
-                        console.warn('Invalid marker data:', marker);
-                        updateStatus('No valid marker position available');
+                        console.warn('Invalid or missing marker data:', markerData);
+                        // Don't show error here, as it might be normal if no marker for this PDF page
                     }
                 }).catch(error => {
-                    console.error('Error rendering PDF:', error);
+                    console.error('Error rendering PDF page:', error);
                     updateStatus('Error rendering PDF: ' + error.message);
                 });
             }
+            
+            function calculateScaleAndRender(pdfPage) {
+                 // Calculate scale to fit width, then set height dynamically
+                const pageWidth = pdfPage.getViewport({ scale: 1 }).width;
+                currentScale = pdfContainer.clientWidth / pageWidth;
+                
+                // Update container height based on scaled PDF page height to maintain aspect ratio
+                const scaledViewport = pdfPage.getViewport({ scale: currentScale });
+                pdfContainer.style.height = `${scaledViewport.height}px`;
+
+                console.log('Calculated scale:', currentScale, 'Container clientWidth:', pdfContainer.clientWidth);
+                renderPage(pdfPage);
+            }
 
             function loadPDF() {
-                const marker = {{ marker | tojson }};
-                if (!marker || !marker.file_path) {
-                    console.warn('No valid file_path in marker:', marker);
-                    updateStatus('No drawing available');
+                const markerData = {{ marker | tojson }}; // Use markerData for clarity
+                if (!markerData || !markerData.file_path) {
+                    console.warn('No valid file_path in marker:', markerData);
+                    updateStatus('No drawing available for this defect.');
                     return;
                 }
-                const pdfUrl = `/static/${marker.file_path}`;
+                const pdfUrl = `/static/${markerData.file_path}`; // Ensure this path is correct
                 console.log('Attempting to load PDF from:', pdfUrl);
+                updateStatus('Loading PDF...', true);
 
                 pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
                     pdfDoc = pdf;
                     console.log('PDF document loaded, pages:', pdf.numPages);
-                    pdfDoc.getPage(pageNum).then(page => {
-                        console.log('PDF page loaded');
-                        const containerWidth = pdfContainer.clientWidth;
-                        console.log('Container width:', containerWidth);
-                        if (containerWidth <= 0) {
-                            console.error('Container width is 0, defaulting to 800px');
-                            pdfContainer.style.width = '800px';
-                        }
-                        const viewport = page.getViewport({ scale: 1 });
-                        scale = containerWidth / viewport.width;
-                        console.log('Calculated scale:', scale);
-                        renderPage(page);
-                    }).catch(error => {
-                        console.error('Error loading PDF page:', error);
-                        updateStatus('Error loading PDF page: ' + error.message);
+                    // Use page number from marker if available, otherwise default to 1
+                    pageNum = markerData.page_num || 1; 
+                    if (pageNum > pdfDoc.numPages) {
+                        console.warn(`Marker page_num ${pageNum} exceeds PDF pages ${pdfDoc.numPages}. Defaulting to page 1.`);
+                        pageNum = 1;
+                    }
+                    return pdfDoc.getPage(pageNum);
+                }).then(page => {
+                    console.log(`PDF page ${pageNum} loaded`);
+                    calculateScaleAndRender(page);
+                     // Add resize listener after initial load
+                    window.addEventListener('resize', () => {
+                        // Recalculate scale and re-render on resize
+                        // Debounce this if it causes performance issues
+                        console.log('Window resized, recalculating scale and re-rendering.');
+                        calculateScaleAndRender(page); // Re-use the loaded page object
                     });
                 }).catch(error => {
                     console.error('Error loading PDF:', error);
-                    updateStatus('Error loading PDF: ' + error.message);
+                    updateStatus('Error loading PDF: ' + (error.message || 'Unknown error'));
                 });
             }
-
-            console.log('Initializing defect_detail page');
+            
+            console.log('Initializing defect_detail page PDF rendering');
             loadPDF();
+
         } catch (error) {
-            console.error('Error in defect_detail JavaScript:', error);
-            document.getElementById('pdfStatus').textContent = 'Error loading drawing';
-            document.getElementById('pdfStatus').style.display = 'block';
+            console.error('General error in defect_detail JavaScript:', error);
+            const statusEl = document.getElementById('pdfStatus');
+            if (statusEl) {
+                statusEl.textContent = 'Error initializing drawing viewer: ' + (error.message || 'Unknown error');
+                statusEl.style.display = 'flex'; // Use flex for centering
+            }
         }
     </script>
     {% endif %}
