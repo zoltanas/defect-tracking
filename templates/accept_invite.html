@@ -14,7 +14,6 @@
             {% endif %}
         </div>
         <form method="POST" class="mt-8 space-y-6">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="token" value="{{ token }}">
             
             <div class="rounded-md shadow-sm -space-y-px">

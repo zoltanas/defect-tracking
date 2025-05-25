@@ -99,6 +99,7 @@
                 <h2 class="text-2xl font-semibold text-gray-700 mb-4">Manage Defect</h2>
                 {% if user_role in ['admin', 'expert'] %}
                     <form method="POST" class="space-y-4 mb-4"> {# Edit Defect Form #}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div>
                             <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
                             <textarea name="description" id="description" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required>{{ defect.description }}</textarea>
@@ -127,6 +128,7 @@
                 <div class="bg-white shadow-lg rounded-lg p-6">
                     <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
                     <form method="POST" enctype="multipart/form-data" class="space-y-4">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="add_comment">
                         <div>
                             <label for="comment_content" class="block text-sm font-medium text-gray-700">Your Comment</label>
