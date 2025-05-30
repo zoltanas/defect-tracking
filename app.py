@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, Response, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_bcrypt import Bcrypt
 from threading import Lock
 from itsdangerous import URLSafeTimedSerializer
@@ -634,7 +634,7 @@ def add_defect(project_id):
             return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect.id)))
         flash('Defect created successfully!', 'success')
         return redirect(url_for('defect_detail', defect_id=defect.id))
-    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=access.role)
+    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=access.role, csrf_token_value=generate_csrf())
 
 @app.route('/defect/<int:defect_id>', methods=['GET', 'POST'])
 @login_required
