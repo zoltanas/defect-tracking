@@ -453,6 +453,16 @@ def project_detail(project_id):
         defects = defects_query.filter_by(status='closed').all()
     else:
         defects = defects_query.all()
+
+    for defect in defects:
+        defect.first_thumbnail_path = None
+        defect.has_marker = False
+        if defect.attachments:
+            first_attachment = defect.attachments[0]
+            defect.first_thumbnail_path = first_attachment.thumbnail_path
+        if defect.markers:
+            defect.has_marker = True
+
     checklists = Checklist.query.filter_by(project_id=project_id).all()
     filtered_checklists = []
     for checklist in checklists:
