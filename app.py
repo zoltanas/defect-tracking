@@ -1596,7 +1596,7 @@ def draw(attachment_id):
         except Exception as e:
             db.session.rollback()
             return jsonify({'status': 'error', 'message': str(e)}), 500
-    return render_template('draw.html', attachment=attachment, next_url=next_url, csrf_token_value=csrf_token())
+    return render_template('draw.html', attachment=attachment, next_url=next_url, csrf_token_value=generate_csrf())
 
 @app.route('/view_attachment/<int:attachment_id>')
 @login_required
