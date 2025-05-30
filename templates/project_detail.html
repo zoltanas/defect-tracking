@@ -152,9 +152,24 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderModalPage(page, markerData) {
-        // Adjust scale to fit container width
-        const viewport = page.getViewport({ scale: 1.0 }); // Get natural scale first
+        console.log("renderModalPage: modalPdfContainer.clientWidth =", modalPdfContainer.clientWidth);
+        if (modalPdfContainer.clientWidth === 0) {
+            console.warn("modalPdfContainer.clientWidth is 0. Retrying render after next frame.");
+            updateModalStatus('Initializing viewer...', true);
+            requestAnimationFrame(() => renderModalPage(page, markerData));
+            return;
+        }
+
+        const viewport = page.getViewport({ scale: 1.5 }); // Initial viewport to get natural size
         const scale = modalPdfContainer.clientWidth / viewport.width;
+        console.log("renderModalPage: Calculated scale =", scale);
+
+        if (scale === 0 || !isFinite(scale)) {
+            console.error("renderModalPage: Invalid scale calculated (" + scale + "). Aborting render.");
+            updateModalStatus('Error: Viewer size invalid.');
+            return;
+        }
+
         const scaledViewport = page.getViewport({ scale: scale });
 
         modalPdfCanvas.width = scaledViewport.width;
@@ -183,7 +198,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 modalMarkerCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
                 modalMarkerCtx.stroke();
             }
-        }).catch(err => updateModalStatus('Error rendering PDF page: ' + err.message));
+        }).catch(err => {
+            console.error("renderModalPage: Error during page.render promise:", err);
+            updateModalStatus('Error rendering PDF content: ' + err.message);
+        });
     }
 
     document.querySelectorAll('.show-drawing-modal').forEach(button => {
@@ -203,13 +221,19 @@ document.addEventListener('DOMContentLoaded', function () {
             const pdfUrl = `/static/${drawingPath}`;
             pdfjsLib.getDocument(pdfUrl).promise.then(pdfDoc_ => {
                 currentPdfDoc = pdfDoc_;
-                // For now, assume page 1 for markers on project_detail.
-                return currentPdfDoc.getPage(1);
+                return currentPdfDoc.getPage(1); // Assuming page 1 for now
             }).then(page => {
-                renderModalPage(page, { x: markerX, y: markerY });
+                requestAnimationFrame(() => { // Defer rendering
+                    try {
+                        renderModalPage(page, { x: markerX, y: markerY });
+                    } catch (renderError) {
+                        console.error("Error calling renderModalPage:", renderError);
+                        updateModalStatus('Error preparing PDF render: ' + renderError.message);
+                    }
+                });
             }).catch(error => {
-                updateModalStatus('Error loading PDF: ' + error.message);
-                console.error('Error loading PDF for modal:', error);
+                updateModalStatus('Error loading PDF document: ' + error.message);
+                console.error('Error loading PDF document for modal:', error);
             });
         });
     });
