@@ -1,37 +1,50 @@
 {% extends "layout.html" %}
-{% block title %}Draw on Image{% endblock %}
+{% block title %}Annotate Image{% endblock %}
 {% block content %}
-    <h1 class="text-2xl font-bold mb-4">Edit Image</h1>
-    <div class="mb-4">
-        <label for="colorPicker" class="block text-sm font-medium text-gray-700">Line Color:</label>
-        <input type="color" id="colorPicker" value="#000000" class="mt-1">
-    </div>
-    <div class="mb-4">
-        <label for="lineWidth" class="block text-sm font-medium text-gray-700">Line Width:</label>
-        <input type="range" id="lineWidth" min="1" max="20" value="5" class="mt-1">
-        <span id="lineWidthValue">5</span>
-    </div>
-    <div class="mb-4">
-        <button id="undoButton" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Undo</button>
-        <button id="saveButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Save</button>
+<div class="container mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <div class="flex flex-col sm:flex-row justify-between items-center mb-6 pb-4 border-b border-gray-300">
+        <h1 class="text-3xl font-bold text-gray-800">Annotate Image</h1>
         {% if next_url %}
-            <a href="{{ next_url }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+            <a href="{{ next_url }}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm">Back</a>
         {% else %}
             {% if attachment.defect_id %}
-                <a href="{{ url_for('defect_detail', defect_id=attachment.defect_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+                <a href="{{ url_for('defect_detail', defect_id=attachment.defect_id) }}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm">Back</a>
             {% elif attachment.checklist_item_id %}
-                <a href="{{ url_for('checklist_detail', checklist_id=attachment.checklist_item.checklist_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
-            {% elif attachment.comment_id %}
-                <a href="{{ url_for('defect_detail', defect_id=attachment.comment.defect_id) }}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-4">Back</a>
+                 {# Assuming checklist_item.checklist relationship exists #}
+                <a href="{{ url_for('checklist_detail', checklist_id=attachment.checklist_item.checklist.id if attachment.checklist_item.checklist else '#') }}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm">Back</a>
+            {% elif attachment.comment_id and attachment.comment %}
+                <a href="{{ url_for('defect_detail', defect_id=attachment.comment.defect_id) }}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm">Back</a>
+            {% else %}
+                 <a href="{{ url_for('index') }}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm">Back to Safety Net</a>
             {% endif %}
         {% endif %}
     </div>
-    <div class="relative w-full">
-        <img id="sourceImage" src="{{ url_for('static', filename=attachment.file_path) }}" alt="Source Image" class="max-w-full h-auto hidden">
-        <canvas id="drawingCanvas" class="border w-full h-auto touch-none"></canvas>
+
+    <div class="bg-white p-6 rounded-lg shadow-xl mb-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 items-center">
+            <div>
+                <label for="colorPicker" class="block text-sm font-medium text-gray-700 mb-1">Line Color</label>
+                <input type="color" id="colorPicker" value="#FF0000" class="mt-1 h-10 w-full sm:w-20 border border-gray-300 rounded-md shadow-sm cursor-pointer focus:ring-primary focus:border-primary">
+            </div>
+            <div class="md:col-span-2">
+                <label for="lineWidth" class="block text-sm font-medium text-gray-700 mb-1">Line Width: <span id="lineWidthValue" class="font-semibold text-primary">5</span>px</label>
+                <input type="range" id="lineWidth" min="1" max="20" value="5" class="mt-1 w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+            </div>
+            <div class="flex flex-col sm:flex-row sm:justify-end space-y-2 sm:space-y-0 sm:space-x-3">
+                <button id="undoButton" class="w-full sm:w-auto bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400">Undo</button>
+                <button id="saveButton" class="w-full sm:w-auto bg-primary hover:bg-primary-hover text-white font-semibold py-2 px-4 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="relative w-full bg-gray-100 rounded-lg shadow-inner overflow-hidden">
+        {# Hidden source image to get dimensions #}
+        <img id="sourceImage" src="{{ url_for('static', filename=attachment.file_path) }}" alt="Source Image for Annotation" class="max-w-full h-auto hidden opacity-0 pointer-events-none">
+        <canvas id="drawingCanvas" class="border border-gray-300 w-full h-auto touch-none display-block rounded-md"></canvas>
     </div>
 
     <script>
+        const csrfToken = "{{ csrf_token_value }}"; // Or "{{ csrf_token() }}" if that's how it's passed
         const canvas = document.getElementById('drawingCanvas');
         const ctx = canvas.getContext('2d');
         const sourceImage = document.getElementById('sourceImage');
@@ -184,11 +197,19 @@
             console.log('Saving lines:', lines);
             fetch('{{ url_for("draw", attachment_id=attachment.id) }}', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken // Add this line
+                },
                 body: JSON.stringify({ lines })
             })
             .then(response => {
                 console.log('Save response status:', response.status);
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(`Server error: ${response.status} ${response.statusText} - ${text}`);
+                    });
+                }
                 return response.json();
             })
             .then(data => {
@@ -199,12 +220,13 @@
                     } else {
                         {% if attachment.defect_id %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.defect_id) }}';
-                        {% elif attachment.checklist_item_id %}
-                            window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist_id) }}';
+                        {% elif attachment.checklist_item_id and attachment.checklist_item and attachment.checklist_item.checklist %}
+                            window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist.id) }}';
                         {% elif attachment.comment_id and attachment.comment %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.comment.defect_id) }}';
                         {% else %}
-                            window.location.href = '{{ url_for("index") }}';
+                            // Fallback if the context is unknown, though next_url should ideally be set
+                            window.location.href = '{{ next_url or url_for("index") }}';
                         {% endif %}
                     }
                 } else {

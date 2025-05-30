@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, Response, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_bcrypt import Bcrypt
 from threading import Lock
 from itsdangerous import URLSafeTimedSerializer
@@ -8,7 +9,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import os
 import shutil
-from PIL import Image as PILImage, ImageDraw
+from PIL import Image as PILImage, ImageDraw, ImageOps
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
+csrf = CSRFProtect(app)
 app.config['SECRET_KEY'] = 'your-secret-key'
 
 # Set SQLite database URI with absolute path
@@ -242,6 +244,7 @@ def allowed_file(filename):
 def create_thumbnail(image_path, thumbnail_path, size=(300, 300)):
     try:
         with PILImage.open(image_path) as img:
+            img = ImageOps.exif_transpose(img) # Apply EXIF orientation
             img.thumbnail(size, PILImage.Resampling.LANCZOS)
             img.save(thumbnail_path, quality=85, optimize=True)
             os.chmod(thumbnail_path, 0o644)
@@ -450,6 +453,29 @@ def project_detail(project_id):
         defects = defects_query.filter_by(status='closed').all()
     else:
         defects = defects_query.all()
+
+    for defect in defects:
+        defect.first_thumbnail_path = None
+        defect.has_marker = False
+        if defect.attachments:
+            first_attachment = defect.attachments[0]
+            defect.first_thumbnail_path = first_attachment.thumbnail_path
+
+        defect.marker_data = None
+        if defect.markers:
+            defect.has_marker = True
+            first_marker = defect.markers[0]
+            # Ensure drawing is loaded to prevent DetachedInstanceError if accessed later
+            # by touching first_marker.drawing.file_path once
+            _ = first_marker.drawing.file_path
+            defect.marker_data = {
+                'file_path': first_marker.drawing.file_path,
+                'x': first_marker.x,
+                'y': first_marker.y
+                # 'page_num': getattr(first_marker, 'page_num', 1) # Assuming page 1 for now
+            }
+
+
     checklists = Checklist.query.filter_by(project_id=project_id).all()
     filtered_checklists = []
     for checklist in checklists:
@@ -610,6 +636,7 @@ def add_defect(project_id):
                     thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                     try:
                         img = PILImage.open(file)
+                        img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                         img = img.convert('RGB')
                         img.save(full_path, quality=85, optimize=True)
                         os.chmod(full_path, 0o644)
@@ -630,7 +657,7 @@ def add_defect(project_id):
             return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect.id)))
         flash('Defect created successfully!', 'success')
         return redirect(url_for('defect_detail', defect_id=defect.id))
-    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=access.role)
+    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=access.role, csrf_token_value=generate_csrf())
 
 @app.route('/defect/<int:defect_id>', methods=['GET', 'POST'])
 @login_required
@@ -676,8 +703,8 @@ def defect_detail(defect_id):
                 flash('Defect deleted successfully!', 'success')
                 return redirect(url_for('project_detail', project_id=project_id))
 
-            if 'comment' in request.form:
-                content = request.form['comment'].strip()
+            if request.form.get('action') == 'add_comment':
+                content = request.form.get('comment_content', '').strip()
                 if content:
                     comment = Comment(defect_id=defect_id, user_id=current_user.id, content=content)
                     db.session.add(comment)
@@ -695,6 +722,7 @@ def defect_detail(defect_id):
                                 thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                                 try:
                                     img = PILImage.open(file)
+                                    img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                                     img = img.convert('RGB')
                                     img.save(full_path, quality=85, optimize=True)
                                     os.chmod(full_path, 0o644)
@@ -776,7 +804,8 @@ def defect_detail(defect_id):
             comments=comments,
             user_role=access.role,
             marker=marker_data,
-            project=defect.project
+            project=defect.project,
+            csrf_token_value=generate_csrf()
         )
 
     except Exception as e:
@@ -900,9 +929,13 @@ def checklist_detail(checklist_id):
                         thumbnail_filename = f'thumb_{filename}'
                         thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
                         try:
-                            file.save(full_path)
+                            # For checklist item uploads, 'file' is a FileStorage object
+                            img = PILImage.open(file.stream) # Open from stream
+                            img = ImageOps.exif_transpose(img) # Apply EXIF orientation
+                            img = img.convert('RGB')
+                            img.save(full_path, quality=85, optimize=True) # Save the processed image
                             os.chmod(full_path, 0o644)
-                            create_thumbnail(full_path, thumbnail_path)
+                            create_thumbnail(full_path, thumbnail_path) # Thumbnail will use the already oriented image
                             attachment = Attachment(checklist_item_id=item.id, file_path=file_path, thumbnail_path=f'images/{thumbnail_filename}')
                             db.session.add(attachment)
                             db.session.commit()
@@ -1587,7 +1620,45 @@ def draw(attachment_id):
         except Exception as e:
             db.session.rollback()
             return jsonify({'status': 'error', 'message': str(e)}), 500
-    return render_template('draw.html', attachment=attachment, next_url=next_url)
+    return render_template('draw.html', attachment=attachment, next_url=next_url, csrf_token_value=generate_csrf())
+
+@app.route('/view_attachment/<int:attachment_id>')
+@login_required
+def view_attachment(attachment_id):
+    attachment = db.session.get(Attachment, attachment_id)
+    if not attachment:
+        flash('Attachment not found.', 'error')
+        return redirect(url_for('index'))
+
+    project_id = None
+    back_url = url_for('index') # Default back URL
+
+    if attachment.defect_id:
+        defect = db.session.get(Defect, attachment.defect_id)
+        if defect:
+            project_id = defect.project_id
+            back_url = url_for('defect_detail', defect_id=attachment.defect_id)
+    elif attachment.comment_id:
+        comment = db.session.get(Comment, attachment.comment_id)
+        if comment and comment.defect:
+            project_id = comment.defect.project_id
+            back_url = url_for('defect_detail', defect_id=comment.defect_id)
+    elif attachment.checklist_item_id:
+        checklist_item = db.session.get(ChecklistItem, attachment.checklist_item_id)
+        if checklist_item and checklist_item.checklist:
+            project_id = checklist_item.checklist.project_id
+            back_url = url_for('checklist_detail', checklist_id=checklist_item.checklist_id)
+
+    if project_id is None:
+        flash('Could not determine project for this attachment.', 'error')
+        return redirect(url_for('index'))
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access:
+        flash('You do not have access to this project.', 'error')
+        return redirect(url_for('index'))
+
+    return render_template('view_attachment.html', attachment=attachment, back_url=back_url)
 
 if __name__ == '__main__':
     app.run(debug=True)
