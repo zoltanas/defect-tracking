@@ -144,29 +144,44 @@ document.addEventListener('DOMContentLoaded', function () {
     const modalMarkerCanvas = document.getElementById('modalMarkerCanvas');
     const modalMarkerCtx = modalMarkerCanvas.getContext('2d');
     let currentPdfDoc = null;
+    let renderRetryCount = 0;
+    const MAX_RENDER_RETRIES = 10;
+    const RENDER_RETRY_DELAY = 100;
 
-    function updateModalStatus(message, isLoading = false) {
+    function updateModalStatus(message, isError = false) {
         modalPdfStatusEl.textContent = message;
-        modalPdfStatusEl.style.display = message ? 'flex' : 'none';
-        modalPdfCanvas.style.display = !message ? 'block' : 'none';
+        modalPdfStatusEl.style.display = message ? 'flex' : 'none'; // Show status if message exists
+        modalPdfCanvas.style.display = !message && !isError ? 'block' : 'none'; // Show canvas if no message and not an error
+        if (isError) {
+            console.error("Modal Status Update (Error):", message);
+        } else {
+            console.log("Modal Status Update:", message);
+        }
     }
 
     function renderModalPage(page, markerData) {
-        console.log("renderModalPage: modalPdfContainer.clientWidth =", modalPdfContainer.clientWidth);
+        console.log("renderModalPage: modalPdfContainer.clientWidth =", modalPdfContainer.clientWidth, "Retry count:", renderRetryCount);
         if (modalPdfContainer.clientWidth === 0) {
-            console.warn("modalPdfContainer.clientWidth is 0. Retrying render after next frame.");
-            updateModalStatus('Initializing viewer...', true);
-            requestAnimationFrame(() => renderModalPage(page, markerData));
+            if (renderRetryCount < MAX_RENDER_RETRIES) {
+                renderRetryCount++;
+                console.warn(`modalPdfContainer.clientWidth is 0. Retrying render (attempt ${renderRetryCount}/${MAX_RENDER_RETRIES}) in ${RENDER_RETRY_DELAY}ms.`);
+                updateModalStatus(`Initializing viewer (attempt ${renderRetryCount}/${MAX_RENDER_RETRIES})...`);
+                setTimeout(() => renderModalPage(page, markerData), RENDER_RETRY_DELAY);
+            } else {
+                console.error("modalPdfContainer.clientWidth is 0 after max retries. Aborting render.");
+                updateModalStatus('Error: Could not initialize viewer dimensions.', true);
+            }
             return;
         }
+        renderRetryCount = 0; // Reset retry count on successful width check
 
         const viewport = page.getViewport({ scale: 1.5 }); // Initial viewport to get natural size
         const scale = modalPdfContainer.clientWidth / viewport.width;
         console.log("renderModalPage: Calculated scale =", scale);
 
-        if (scale === 0 || !isFinite(scale)) {
+        if (scale <= 0 || !isFinite(scale)) { // Check for non-positive or non-finite scale
             console.error("renderModalPage: Invalid scale calculated (" + scale + "). Aborting render.");
-            updateModalStatus('Error: Viewer size invalid.');
+            updateModalStatus('Error: Viewer size invalid or too small.', true);
             return;
         }
 
@@ -183,7 +198,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const renderContext = { canvasContext: modalPdfCanvas.getContext('2d'), viewport: scaledViewport };
         page.render(renderContext).promise.then(() => {
-            updateModalStatus('');
+            updateModalStatus(''); // Clear status on successful render
             modalPdfCanvas.style.display = 'block';
             if (markerData) {
                 modalMarkerCtx.clearRect(0, 0, modalMarkerCanvas.width, modalMarkerCanvas.height);
@@ -200,48 +215,79 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }).catch(err => {
             console.error("renderModalPage: Error during page.render promise:", err);
-            updateModalStatus('Error rendering PDF content: ' + err.message);
+            updateModalStatus('Error rendering PDF page: ' + err.message, true);
+        });
+    }
+
+    function loadAndRenderPdfInModal(pdfUrl, markerData) {
+        updateModalStatus('Loading PDF document...');
+        pdfjsLib.getDocument(pdfUrl).promise.then(pdfDoc_ => {
+            currentPdfDoc = pdfDoc_;
+            updateModalStatus('Fetching PDF page...');
+            return currentPdfDoc.getPage(1); // Assuming page 1 for now
+        }).then(page => {
+            updateModalStatus('Rendering PDF page...');
+            // No need for requestAnimationFrame here as renderModalPage handles its own timing for clientWidth
+            try {
+                renderModalPage(page, markerData);
+            } catch (renderError) {
+                console.error("Error calling renderModalPage (initial call):", renderError);
+                updateModalStatus('Error preparing PDF for display: ' + renderError.message, true);
+            }
+        }).catch(error => {
+            console.error('Error loading PDF document for modal:', error);
+            updateModalStatus('Failed to load PDF: ' + error.message, true);
         });
     }
 
     document.querySelectorAll('.show-drawing-modal').forEach(button => {
         button.addEventListener('click', function (event) {
-            event.preventDefault();    // Add or ensure this line is present
-            event.stopPropagation(); // Ensure this line is present
+            event.preventDefault();
+            event.stopPropagation();
             const drawingPath = this.dataset.drawingPath;
             const markerX = this.dataset.markerX;
             const markerY = this.dataset.markerY;
             const defectDescription = this.dataset.defectDescription;
-            // const pageNum = parseInt(this.dataset.pageNum || '1'); // Future use
 
             modalTitle.textContent = 'Drawing for: ' + defectDescription;
+            updateModalStatus('Opening viewer...'); // Initial status before modal is shown
             modal.classList.remove('hidden');
-            updateModalStatus('Loading PDF...', true);
+            renderRetryCount = 0; // Reset retry count for new modal opening
 
-            const pdfUrl = `/static/${drawingPath}`;
-            pdfjsLib.getDocument(pdfUrl).promise.then(pdfDoc_ => {
-                currentPdfDoc = pdfDoc_;
-                return currentPdfDoc.getPage(1); // Assuming page 1 for now
-            }).then(page => {
-                requestAnimationFrame(() => { // Defer rendering
-                    try {
-                        renderModalPage(page, { x: markerX, y: markerY });
-                    } catch (renderError) {
-                        console.error("Error calling renderModalPage:", renderError);
-                        updateModalStatus('Error preparing PDF render: ' + renderError.message);
-                    }
-                });
-            }).catch(error => {
-                updateModalStatus('Error loading PDF document: ' + error.message);
-                console.error('Error loading PDF document for modal:', error);
+            // Defer PDF loading until after the modal is visible and has had a chance to render
+            requestAnimationFrame(() => {
+                const pdfUrl = `/static/${drawingPath}`;
+                loadAndRenderPdfInModal(pdfUrl, { x: markerX, y: markerY });
             });
         });
     });
 
-    closeModalButton.addEventListener('click', () => modal.classList.add('hidden'));
+    closeModalButton.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        updateModalStatus(''); // Clear status when closing
+        if (currentPdfDoc) {
+            currentPdfDoc.destroy(); // Optional: Clean up PDF document object
+            currentPdfDoc = null;
+        }
+        modalPdfCanvas.width = 0; // Clear canvas
+        modalPdfCanvas.height = 0;
+        modalMarkerCanvas.width = 0;
+        modalMarkerCanvas.height = 0;
+        modalPdfContainer.style.height = 'auto'; // Reset container height
+    });
     modal.addEventListener('click', (event) => {
         if (event.target === modal) {
             modal.classList.add('hidden');
+            updateModalStatus(''); // Clear status when closing
+            if (currentPdfDoc) {
+                currentPdfDoc.destroy();
+                currentPdfDoc = null;
+            }
+            modalPdfCanvas.width = 0;
+            modalPdfCanvas.height = 0;
+            modalMarkerCanvas.width = 0;
+            modalMarkerCanvas.height = 0;
+            modalPdfContainer.style.height = 'auto';
         }
     });
 });
