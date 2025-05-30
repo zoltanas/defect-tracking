@@ -460,8 +460,21 @@ def project_detail(project_id):
         if defect.attachments:
             first_attachment = defect.attachments[0]
             defect.first_thumbnail_path = first_attachment.thumbnail_path
+
+        defect.marker_data = None
         if defect.markers:
             defect.has_marker = True
+            first_marker = defect.markers[0]
+            # Ensure drawing is loaded to prevent DetachedInstanceError if accessed later
+            # by touching first_marker.drawing.file_path once
+            _ = first_marker.drawing.file_path
+            defect.marker_data = {
+                'file_path': first_marker.drawing.file_path,
+                'x': first_marker.x,
+                'y': first_marker.y
+                # 'page_num': getattr(first_marker, 'page_num', 1) # Assuming page 1 for now
+            }
+
 
     checklists = Checklist.query.filter_by(project_id=project_id).all()
     filtered_checklists = []
