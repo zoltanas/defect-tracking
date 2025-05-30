@@ -54,7 +54,7 @@
                 {% if defects %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for defect in defects %}
-                            <a href="{{ url_for('defect_detail', defect_id=defect.id) }}" class="block bg-white p-5 rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300">
+                            <a href="{{ url_for('defect_detail', defect_id=defect.id) }}" class="block bg-gray-50 p-5 rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300">
                                 <h3 class="text-lg font-semibold text-primary mb-2 truncate" title="{{ defect.description }}">{{ defect.description }}</h3>
                                 {% if defect.first_thumbnail_path %}
                                     <div class="my-2"> {# Margin for spacing #}
@@ -105,7 +105,7 @@
                 {% if checklists %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for checklist in checklists %}
-                            <a href="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" class="block bg-white p-5 rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300">
+                            <a href="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" class="block bg-gray-50 p-5 rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300">
                                 <h3 class="text-lg font-semibold text-primary mb-2 truncate" title="{{ checklist.name }}">{{ checklist.name }}</h3>
                                 {# Assuming checklists might have a count of items or completion status later #}
                                 <p class="text-sm text-gray-600">Contains {{ checklist.items|length }} items.</p>
