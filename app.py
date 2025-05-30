@@ -1598,5 +1598,43 @@ def draw(attachment_id):
             return jsonify({'status': 'error', 'message': str(e)}), 500
     return render_template('draw.html', attachment=attachment, next_url=next_url, csrf_token_value=csrf_token())
 
+@app.route('/view_attachment/<int:attachment_id>')
+@login_required
+def view_attachment(attachment_id):
+    attachment = db.session.get(Attachment, attachment_id)
+    if not attachment:
+        flash('Attachment not found.', 'error')
+        return redirect(url_for('index'))
+
+    project_id = None
+    back_url = url_for('index') # Default back URL
+
+    if attachment.defect_id:
+        defect = db.session.get(Defect, attachment.defect_id)
+        if defect:
+            project_id = defect.project_id
+            back_url = url_for('defect_detail', defect_id=attachment.defect_id)
+    elif attachment.comment_id:
+        comment = db.session.get(Comment, attachment.comment_id)
+        if comment and comment.defect:
+            project_id = comment.defect.project_id
+            back_url = url_for('defect_detail', defect_id=comment.defect_id)
+    elif attachment.checklist_item_id:
+        checklist_item = db.session.get(ChecklistItem, attachment.checklist_item_id)
+        if checklist_item and checklist_item.checklist:
+            project_id = checklist_item.checklist.project_id
+            back_url = url_for('checklist_detail', checklist_id=checklist_item.checklist_id)
+
+    if project_id is None:
+        flash('Could not determine project for this attachment.', 'error')
+        return redirect(url_for('index'))
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access:
+        flash('You do not have access to this project.', 'error')
+        return redirect(url_for('index'))
+
+    return render_template('view_attachment.html', attachment=attachment, back_url=back_url)
+
 if __name__ == '__main__':
     app.run(debug=True)
