@@ -176,34 +176,56 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         renderRetryCount = 0; // Reset retry count on successful width check
 
-        const viewport = page.getViewport({ scale: 1.5 }); // Initial viewport to get natural size
-        const scale = modalPdfContainer.clientWidth / viewport.width;
-        console.log("renderModalPage: Calculated scale =", scale);
+        // 1. Calculate the base scale to fit the container width
+        const initialViewport = page.getViewport({ scale: 1.0 });
+        const baseScale = modalPdfContainer.clientWidth / initialViewport.width;
+        console.log("renderModalPage: Calculated baseScale =", baseScale);
 
-        if (scale <= 0 || !isFinite(scale)) { // Check for non-positive or non-finite scale
-            console.error("renderModalPage: Invalid scale calculated (" + scale + "). Aborting render.");
-            updateModalStatus('Error: Viewer size invalid or too small.', true);
+        if (baseScale <= 0 || !isFinite(baseScale)) {
+            console.error("renderModalPage: Invalid baseScale calculated (" + baseScale + "). Aborting render.");
+            updateModalStatus('Error: Viewer size invalid for PDF scaling.', true);
             return;
         }
 
-        const scaledViewport = page.getViewport({ scale: scale });
+        // 2. Adjust this scale by window.devicePixelRatio for rendering
+        const actualScale = baseScale * (window.devicePixelRatio || 1);
+        console.log("renderModalPage: Calculated actualScale (with devicePixelRatio) =", actualScale);
 
+        // 3. Get the viewport using this actualScale for rendering
+        const scaledViewport = page.getViewport({ scale: actualScale });
+
+        // 4. Set the canvas element's width and height attributes
         modalPdfCanvas.width = scaledViewport.width;
         modalPdfCanvas.height = scaledViewport.height;
         modalMarkerCanvas.width = scaledViewport.width;
         modalMarkerCanvas.height = scaledViewport.height;
 
-        // Ensure container height matches canvas height to prevent scrollbars or cut-off
-        modalPdfContainer.style.height = `${scaledViewport.height}px`;
+        // 5. Set the canvas element's style.width and style.height CSS properties
+        const cssWidth = modalPdfContainer.clientWidth;
+        const cssHeight = (cssWidth * scaledViewport.height / scaledViewport.width);
 
+        modalPdfCanvas.style.width = cssWidth + 'px';
+        modalPdfCanvas.style.height = cssHeight + 'px';
+        modalMarkerCanvas.style.width = cssWidth + 'px';
+        modalMarkerCanvas.style.height = cssHeight + 'px';
+
+        // 6. Ensure the modalPdfContainer's height is also adjusted
+        modalPdfContainer.style.height = cssHeight + 'px';
+
+        console.log("renderModalPage: Canvas dimensions (actual):", modalPdfCanvas.width, "x", modalPdfCanvas.height);
+        console.log("renderModalPage: Canvas dimensions (CSS):", modalPdfCanvas.style.width, "x", modalPdfCanvas.style.height);
+        console.log("renderModalPage: Container height:", modalPdfContainer.style.height);
 
         const renderContext = { canvasContext: modalPdfCanvas.getContext('2d'), viewport: scaledViewport };
         page.render(renderContext).promise.then(() => {
             updateModalStatus(''); // Clear status on successful render
-            modalPdfCanvas.style.display = 'block';
+            modalPdfCanvas.style.display = 'block'; // Ensure canvas is visible after status clear
+            modalMarkerCanvas.style.display = 'block'; // Ensure marker canvas is also visible
+
             if (markerData) {
                 modalMarkerCtx.clearRect(0, 0, modalMarkerCanvas.width, modalMarkerCanvas.height);
-                const markerRadius = Math.max(5, Math.min(scaledViewport.width, scaledViewport.height) * 0.015);
+                // Note: marker coordinates are percentages of the viewport, so they scale with scaledViewport automatically.
+                const markerRadius = Math.max(5, Math.min(scaledViewport.width, scaledViewport.height) * 0.015); // Use scaledViewport for marker size
                 const markerX = parseFloat(markerData.x) * scaledViewport.width;
                 const markerY = parseFloat(markerData.y) * scaledViewport.height;
                 modalMarkerCtx.beginPath();
