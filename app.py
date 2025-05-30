@@ -680,8 +680,8 @@ def defect_detail(defect_id):
                 flash('Defect deleted successfully!', 'success')
                 return redirect(url_for('project_detail', project_id=project_id))
 
-            if 'comment' in request.form:
-                content = request.form['comment'].strip()
+            if request.form.get('action') == 'add_comment':
+                content = request.form.get('comment_content', '').strip()
                 if content:
                     comment = Comment(defect_id=defect_id, user_id=current_user.id, content=content)
                     db.session.add(comment)
@@ -781,7 +781,8 @@ def defect_detail(defect_id):
             comments=comments,
             user_role=access.role,
             marker=marker_data,
-            project=defect.project
+            project=defect.project,
+            csrf_token_value=generate_csrf()
         )
 
     except Exception as e:
