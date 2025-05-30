@@ -6,13 +6,33 @@
     <div class="flex flex-col sm:flex-row justify-between items-start mb-6 pb-4 border-b border-gray-300">
         <div>
             <h1 class="text-3xl font-bold text-gray-800 break-words">{{ defect.description }}</h1>
-            <p class="text-sm text-gray-600">Part of Project: <a href="{{ url_for('project_detail', project_id=project.id) }}" class="text-primary hover:underline">{{ project.name }}</a></p>
+            <p class="text-sm text-gray-600 mb-2">Part of Project: <a href="{{ url_for('project_detail', project_id=project.id) }}" class="text-primary hover:underline">{{ project.name }}</a></p>
+            <!-- NEW: Compact details for mobile -->
+            <div class="block sm:hidden mt-2 space-y-1">
+                <div>
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-full
+                        {% if defect.status.lower() == 'open' %} bg-yellow-100 text-yellow-800
+                        {% elif defect.status.lower() == 'closed' %} bg-green-100 text-green-800
+                        {% else %} bg-gray-100 text-gray-800
+                        {% endif %}">
+                        {{ defect.status | capitalize }}
+                    </span>
+                </div>
+                <p class="text-xs text-gray-600">
+                    Created by: <span class="font-medium text-gray-800">{{ defect.creator.username }}</span> on <span class="font-medium text-gray-800">{{ defect.creation_date.strftime('%Y-%m-%d') }}</span>
+                </p>
+                {% if defect.close_date %}
+                <p class="text-xs text-gray-600">
+                    Closed on: <span class="font-medium text-gray-800">{{ defect.close_date.strftime('%Y-%m-%d') }}</span>
+                </p>
+                {% endif %}
+            </div>
         </div>
         <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
     </div>
 
     <!-- Wrapper for Defect Title and Defect Details Card -->
-    <div class="mb-6">
+    <div class="mb-6 hidden sm:block">
         <!-- Defect Information Card (Moved Here) -->
         <div class="bg-white shadow-lg rounded-lg p-4 sm:p-6">
             <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Details</h2>
