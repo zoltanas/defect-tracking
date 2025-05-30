@@ -187,7 +187,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.querySelectorAll('.show-drawing-modal').forEach(button => {
-        button.addEventListener('click', function () {
+        button.addEventListener('click', function (event) { // Add 'event' parameter
+            event.stopPropagation(); // Add this line
             const drawingPath = this.dataset.drawingPath;
             const markerX = this.dataset.markerX;
             const markerY = this.dataset.markerY;
