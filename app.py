@@ -24,6 +24,15 @@ import tempfile
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+if not logger.handlers:
+    handler = logging.StreamHandler() # Defaults to stderr
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+# logger.propagate = False # Keep this commented for now
+logger.info("Flask application logger explicitly configured for checklist debugging.")
+
 # Initialize Flask app
 app = Flask(__name__)
 csrf = CSRFProtect(app)
