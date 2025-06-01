@@ -24,6 +24,15 @@ import tempfile
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+if not logger.handlers:
+    handler = logging.StreamHandler() # Defaults to stderr
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+# logger.propagate = False # Keep this commented for now
+logger.info("Flask application logger explicitly configured for checklist debugging.")
+
 # Initialize Flask app
 app = Flask(__name__)
 csrf = CSRFProtect(app)
@@ -924,30 +933,53 @@ def checklist_detail(checklist_id):
                     if file and allowed_file(file.filename):
                         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                         filename = secure_filename(f'checklist_{item.id}_{timestamp}_{file.filename}')
-                        file_path = os.path.join('images', filename)
-                        full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                        # Path for storing in DB (relative to static folder)
+                        db_file_path = os.path.join('images', filename)
+                        # Full disk path for saving the original file
+                        disk_save_full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                         thumbnail_filename = f'thumb_{filename}'
-                        thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
+                        # Full disk path for saving the thumbnail
+                        disk_save_thumbnail_full_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
+                        # Path for storing thumbnail in DB (relative to static folder)
+                        db_thumbnail_path = os.path.join('images', thumbnail_filename)
+
                         try:
-                            # For checklist item uploads, 'file' is a FileStorage object
-                            img = PILImage.open(file.stream) # Open from stream
-                            img = ImageOps.exif_transpose(img) # Apply EXIF orientation
+                            logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
+                            img = PILImage.open(file) # Changed from file.stream
+                            img = ImageOps.exif_transpose(img)
                             img = img.convert('RGB')
-                            img.save(full_path, quality=85, optimize=True) # Save the processed image
-                            os.chmod(full_path, 0o644)
-                            create_thumbnail(full_path, thumbnail_path) # Thumbnail will use the already oriented image
-                            attachment = Attachment(checklist_item_id=item.id, file_path=file_path, thumbnail_path=f'images/{thumbnail_filename}')
+
+                            logger.info(f"Attempting to save original image to: {disk_save_full_path}")
+                            img.save(disk_save_full_path, quality=85, optimize=True)
+                            os.chmod(disk_save_full_path, 0o644)
+                            logger.info(f"Successfully saved original image to: {disk_save_full_path}")
+
+                            logger.info(f"Attempting to create thumbnail: {disk_save_thumbnail_full_path} from {disk_save_full_path}")
+                            create_thumbnail(disk_save_full_path, disk_save_thumbnail_full_path)
+                            logger.info(f"Successfully created thumbnail: {disk_save_thumbnail_full_path}")
+
+                            logger.info(f"Creating attachment record with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
+                            attachment = Attachment(
+                                checklist_item_id=item.id,
+                                file_path=db_file_path, # Use db specific path
+                                thumbnail_path=db_thumbnail_path # Use db specific thumbnail path
+                            )
                             db.session.add(attachment)
-                            db.session.commit()
+                            db.session.commit() # Commit for this specific attachment
+                            logger.info(f"Successfully committed attachment {attachment.id} for item {item.id}")
+
                             attachment_ids.append(attachment.id)
                         except Exception as e:
                             flash(f'Error uploading file {file.filename}: {str(e)}', 'error')
-                            logger.error(f'Error uploading file {file.filename}: {str(e)}')
+                            logger.error(f'Error uploading file {file.filename} for item {item.id}: {str(e)}', exc_info=True)
                             db.session.rollback()
                             continue
                 if attachment_ids:
                     # Redirect to draw the first uploaded image
+                    # This part remains outside the file loop, but uses the collected attachment_ids
                     return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('checklist_detail', checklist_id=checklist_id)))
+
+            # The main commit for item.is_checked and item.comments happens after processing all files for that item
             db.session.commit()
             flash('Checklist updated successfully!', 'success')
         except Exception as e:
@@ -955,8 +987,9 @@ def checklist_detail(checklist_id):
             flash(f'Error updating checklist: {str(e)}', 'error')
             logger.error(f'Error updating checklist {checklist_id}: {str(e)}')
             return redirect(url_for('checklist_detail', checklist_id=checklist_id))
-        return redirect(url_for('project_detail', project_id=checklist.project_id))
-    return render_template('checklist_detail.html', checklist=checklist, items=items)
+        return redirect(url_for('project_detail', project_id=checklist.project.id, _anchor='checklists'))
+    project = checklist.project
+    return render_template('checklist_detail.html', checklist=checklist, items=items, project=project)
 
 @app.route('/checklist/<int:checklist_id>/delete', methods=['POST'])
 @login_required

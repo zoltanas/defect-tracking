@@ -399,24 +399,19 @@ document.addEventListener('DOMContentLoaded', function () {
         switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
     });
 
-    // Set initial active tab (e.g., Defects tab)
-    // Ensure the default active tab button has active styles and its pane is visible.
-    // The HTML already has defectsPane visible and checklistsPane hidden.
-    // So, just apply the active style to the defectsTabButton initially.
-    defectsTabButton.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b');
-    defectsTabButton.classList.add('bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]');
-    // Ensure checklistsTabButton has inactive styles if it was somehow styled as active.
-    checklistsTabButton.classList.remove('bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]');
-    checklistsTabButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b');
-
-    // Initial state for Defects tab active regarding buttons and filters
-    if (addDefectButton) addDefectButton.classList.remove('hidden');
-    if (reportDefectsButton) reportDefectsButton.classList.remove('hidden');
-    if (filterDefectsWrapper) filterDefectsWrapper.classList.remove('hidden');
-
-    if (addChecklistButton) addChecklistButton.classList.add('hidden');
-    if (manageTemplatesButton) manageTemplatesButton.classList.add('hidden'); // Added
-    if (filterChecklistsWrapper) filterChecklistsWrapper.classList.add('hidden');
+    // Check for URL hash and switch to checklists tab if necessary
+    if (window.location.hash === '#checklists') {
+        // Call the existing switchTab function to activate the checklists tab
+        // Ensure variables like checklistsTabButton, checklistsPane, etc., are accessible here
+        // or simulate a click if that's easier and already set up.
+        // Based on the provided script, simulating a click is straightforward:
+        checklistsTabButton.click();
+    } else {
+        // Default to defects tab if no specific hash or a different one
+        // The existing code already defaults to the defects tab by styling,
+        // so explicitly clicking it ensures all logic (like button/filter visibility) runs.
+        defectsTabButton.click();
+    }
 });
 </script>
 {% endblock %}
