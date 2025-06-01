@@ -920,6 +920,7 @@ def checklist_detail(checklist_id):
     items = ChecklistItem.query.filter_by(checklist_id=checklist_id).all()
     if request.method == 'POST':
         logger.debug(f'Received POST for checklist {checklist_id}')
+        # logger.info(f"request.files content: {request.files}")
         try:
             for item in items:
                 checked_key = f'item_{item.id}_checked'
@@ -927,10 +928,15 @@ def checklist_detail(checklist_id):
                 photos_key = f'item_{item.id}_photos'
                 item.is_checked = checked_key in request.form
                 item.comments = request.form.get(comments_key, '').strip()
+                # logger.info(f"Attempting to get files for item {item.id} using photos_key: '{photos_key}'")
+                # logger.info(f"Result of request.files.getlist('{photos_key}'): {request.files.getlist(photos_key)}")
                 files = request.files.getlist(photos_key)
                 attachment_ids = []
                 for file in files:
-                    if file and allowed_file(file.filename):
+                    # logger.info(f"Processing file: {file.filename} for item {item.id}. File object: {file}")
+                    is_allowed = allowed_file(file.filename)
+                    # logger.info(f"File {file.filename} allowed: {is_allowed}")
+                    if file and is_allowed:
                         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                         filename = secure_filename(f'checklist_{item.id}_{timestamp}_{file.filename}')
                         # Path for storing in DB (relative to static folder)
@@ -944,36 +950,46 @@ def checklist_detail(checklist_id):
                         db_thumbnail_path = os.path.join('images', thumbnail_filename)
 
                         try:
-                            logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
+                            # logger.info(f"Processing file: {file.filename} for checklist item {item.id}") # Already logged above
+                            # logger.info(f"Attempting to open image: {file.filename}")
                             img = PILImage.open(file) # Changed from file.stream
                             img = ImageOps.exif_transpose(img)
                             img = img.convert('RGB')
+                            # logger.info(f"Image {file.filename} opened and converted successfully.")
 
-                            logger.info(f"Attempting to save original image to: {disk_save_full_path}")
+                            # logger.info(f"Attempting to save image to: {disk_save_full_path}")
                             img.save(disk_save_full_path, quality=85, optimize=True)
                             os.chmod(disk_save_full_path, 0o644)
-                            logger.info(f"Successfully saved original image to: {disk_save_full_path}")
+                            # logger.info(f"Image {file.filename} saved to {disk_save_full_path}")
 
-                            logger.info(f"Attempting to create thumbnail: {disk_save_thumbnail_full_path} from {disk_save_full_path}")
+                            # logger.info(f"Attempting to create thumbnail: {disk_save_thumbnail_full_path} from {disk_save_full_path}")
                             create_thumbnail(disk_save_full_path, disk_save_thumbnail_full_path)
-                            logger.info(f"Successfully created thumbnail: {disk_save_thumbnail_full_path}")
+                            # logger.info(f"Thumbnail created: {disk_save_thumbnail_full_path}")
 
-                            logger.info(f"Creating attachment record with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
+                            # logger.info(f"Attempting to create Attachment object for item {item.id} with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
                             attachment = Attachment(
                                 checklist_item_id=item.id,
                                 file_path=db_file_path, # Use db specific path
                                 thumbnail_path=db_thumbnail_path # Use db specific thumbnail path
                             )
+                            # logger.info(f"Attempting to add attachment to session: {attachment}")
                             db.session.add(attachment)
                             db.session.commit() # Commit for this specific attachment
-                            logger.info(f"Successfully committed attachment {attachment.id} for item {item.id}")
-
+                            # logger.info(f"Successfully committed attachment {attachment.id} for item {item.id}") # This is existing, but covered by the one below
+                            logger.info(f"Saved attachment {attachment.id} for item {item.id} with path {attachment.file_path} and thumb {attachment.thumbnail_path}") # This was from previous turn
                             attachment_ids.append(attachment.id)
                         except Exception as e:
                             flash(f'Error uploading file {file.filename}: {str(e)}', 'error')
-                            logger.error(f'Error uploading file {file.filename} for item {item.id}: {str(e)}', exc_info=True)
+                            logger.error(f"Error processing file {file.filename} for item {item.id}: {str(e)}", exc_info=True)
                             db.session.rollback()
                             continue
+
+                # After processing all files for the current item, refresh it
+                # This is important if attachment_ids were added, to ensure 'item' is fresh before redirect or further processing.
+                if files: # Only refresh if files were processed for this item
+                    db.session.refresh(item)
+                    logger.info(f"Refreshed item {item.id} after attachment processing. Current attachments: {item.attachments}")
+
                 if attachment_ids:
                     # Redirect to draw the first uploaded image
                     # This part remains outside the file loop, but uses the collected attachment_ids
@@ -986,8 +1002,14 @@ def checklist_detail(checklist_id):
             db.session.rollback()
             flash(f'Error updating checklist: {str(e)}', 'error')
             logger.error(f'Error updating checklist {checklist_id}: {str(e)}')
+            logger.info(f"Error during POST, temporarily redirecting to checklist_detail for checklist_id {checklist_id}")
             return redirect(url_for('checklist_detail', checklist_id=checklist_id))
         return redirect(url_for('project_detail', project_id=checklist.project.id, _anchor='checklists'))
+
+    # Log attachments for each item in GET request
+    for item in items:
+        logger.info(f"Item {item.id} attachments for template: {item.attachments}")
+
     project = checklist.project
     return render_template('checklist_detail.html', checklist=checklist, items=items, project=project)
 

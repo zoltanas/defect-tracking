@@ -11,7 +11,7 @@
     </div>
 
     {% if items %}
-        <form method="POST" action="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
+        <form method="POST" action="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" enctype="multipart/form-data" class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             
             <div class="space-y-6">
@@ -48,7 +48,9 @@
                             <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                                 {% for attachment in item_attachments %}
                                 <div class="relative group">
-                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Thumbnail" class="w-full h-20 object-cover rounded-md border border-gray-200">
+                                    <a href="{{ url_for('view_attachment', attachment_id=attachment.id) }}" target="_blank" rel="noopener noreferrer">
+                                        <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Thumbnail" class="w-full max-h-24 object-contain rounded-md border border-gray-200">
+                                    </a>
                                     {# Link to delete attachment can be added here if functionality exists #}
                                 </div>
                                 {% endfor %}
