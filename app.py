@@ -956,7 +956,8 @@ def checklist_detail(checklist_id):
             logger.error(f'Error updating checklist {checklist_id}: {str(e)}')
             return redirect(url_for('checklist_detail', checklist_id=checklist_id))
         return redirect(url_for('project_detail', project_id=checklist.project_id))
-    return render_template('checklist_detail.html', checklist=checklist, items=items)
+    project = checklist.project
+    return render_template('checklist_detail.html', checklist=checklist, items=items, project=project)
 
 @app.route('/checklist/<int:checklist_id>/delete', methods=['POST'])
 @login_required
