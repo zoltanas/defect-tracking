@@ -26,6 +26,7 @@
                     {% endif %}
                     {% if user_role == 'admin' %}
                         <a id="add-checklist-button" href="{{ url_for('add_checklist', project_id=project.id) }}" class="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Add Checklist</a>
+                        <a id="manage-templates-button" href="{{ url_for('template_list') }}" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium text-center">Manage Templates</a>
                     {% endif %}
                     <a id="report-defects-button" href="{{ url_for('generate_report', project_id=project.id, filter=filter_status) }}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Report</a>
                 </div>
@@ -347,6 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Action buttons and filters
     const addDefectButton = document.getElementById('add-defect-button');
     const addChecklistButton = document.getElementById('add-checklist-button');
+    const manageTemplatesButton = document.getElementById('manage-templates-button'); // Added
     const reportDefectsButton = document.getElementById('report-defects-button');
     const filterDefectsWrapper = document.getElementById('filter-defects-wrapper');
     const filterChecklistsWrapper = document.getElementById('filter-checklists-wrapper');
@@ -373,10 +375,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (filterDefectsWrapper) filterDefectsWrapper.classList.remove('hidden');
 
             if (addChecklistButton) addChecklistButton.classList.add('hidden');
+            if (manageTemplatesButton) manageTemplatesButton.classList.add('hidden'); // Added
             if (filterChecklistsWrapper) filterChecklistsWrapper.classList.add('hidden');
         } else if (activePane === checklistsPane) {
             // Checklists tab is active
             if (addChecklistButton) addChecklistButton.classList.remove('hidden');
+            if (manageTemplatesButton) manageTemplatesButton.classList.remove('hidden'); // Added
             if (filterChecklistsWrapper) filterChecklistsWrapper.classList.remove('hidden');
 
             if (addDefectButton) addDefectButton.classList.add('hidden');
@@ -411,6 +415,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (filterDefectsWrapper) filterDefectsWrapper.classList.remove('hidden');
 
     if (addChecklistButton) addChecklistButton.classList.add('hidden');
+    if (manageTemplatesButton) manageTemplatesButton.classList.add('hidden'); // Added
     if (filterChecklistsWrapper) filterChecklistsWrapper.classList.add('hidden');
 });
 </script>
