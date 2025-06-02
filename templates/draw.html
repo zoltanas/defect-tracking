@@ -60,10 +60,20 @@
         let lineWidthScale = 1;
     
         function resizeCanvas() {
+            // Ensure naturalWidth and naturalHeight are available and valid
+            if (!sourceImage.naturalWidth || sourceImage.naturalWidth === 0 || !sourceImage.naturalHeight || sourceImage.naturalHeight === 0) {
+                console.error('Cannot resize canvas: source image dimensions are invalid (e.g., image not loaded or zero size).', 
+                              { w: sourceImage.naturalWidth, h: sourceImage.naturalHeight });
+                // Optionally, display an error message to the user on the canvas or an alert.
+                // For now, just preventing further execution of this function.
+                return;
+            }
+    
             const maxWidth = window.innerWidth - 32; // Account for padding/margins
-            const aspectRatio = sourceImage.width / sourceImage.height;
-            let canvasWidth = sourceImage.width;
-            let canvasHeight = sourceImage.height;
+            // Use naturalWidth and naturalHeight for aspect ratio calculation
+            const aspectRatio = sourceImage.naturalWidth / sourceImage.naturalHeight; 
+            let canvasWidth = sourceImage.naturalWidth;
+            let canvasHeight = sourceImage.naturalHeight;
     
             // Scale canvas to fit viewport width while preserving aspect ratio
             if (canvasWidth > maxWidth) {
@@ -76,14 +86,12 @@
             canvas.style.width = `${canvasWidth}px`;
             canvas.style.height = `${canvasHeight}px`;
     
-            // Calculate line width scale based on canvas width relative to source image
-            lineWidthScale = (canvas.width / window.devicePixelRatio) / sourceImage.width;
-            console.log('Line width scale:', lineWidthScale, 'Canvas width:', canvas.width, 'Source width:', sourceImage.width);
+            // Calculate line width scale based on canvas width relative to source image's natural width
+            lineWidthScale = (canvas.width / window.devicePixelRatio) / sourceImage.naturalWidth;
+            console.log('Line width scale:', lineWidthScale, 'Canvas width:', canvas.width, 'Source naturalWidth:', sourceImage.naturalWidth);
     
-            // Scale context to account for device pixel ratio
             ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    
-            redraw();
+            redraw(); // redraw will draw the image
         }
     
         function redraw() {
@@ -245,12 +253,42 @@
     
         // Ensure image is drawn immediately on page load
         function initializeCanvas() {
-            if (sourceImage.complete && sourceImage.naturalWidth !== 0) {
-                // Image is already loaded (e.g., cached)
+            if (sourceImage.complete && sourceImage.naturalWidth !== 0 && sourceImage.naturalHeight !== 0) {
+                console.log('Source image already complete and has dimensions.');
                 resizeCanvas();
+            } else if (sourceImage.naturalWidth === 0 || sourceImage.naturalHeight === 0) {
+                // Image might be 'complete' but still have no dimensions if it failed to load (e.g. 404)
+                console.log('Source image may be complete but has no valid dimensions. Setting up onload...');
+                sourceImage.onload = () => {
+                    console.log('Source image loaded via .onload callback.');
+                    if (sourceImage.naturalWidth === 0 || sourceImage.naturalHeight === 0) {
+                        console.error('Error: Image loaded but naturalWidth or naturalHeight is 0. Cannot display image.');
+                        // Optionally, display an error message to the user on the canvas or an alert.
+                        // For now, logging an error is sufficient.
+                        alert('Error: The image could not be loaded for annotation. Please check the image file and try again.');
+                        return;
+                    }
+                    resizeCanvas();
+                };
+                sourceImage.onerror = () => {
+                    console.error('Error: Image failed to load (onerror event).');
+                    alert('Error: The image failed to load. It might be missing or corrupted.');
+                };
             } else {
-                // Wait for image to load
-                sourceImage.onload = resizeCanvas;
+                 console.log('Source image not yet complete. Setting up onload...');
+                 sourceImage.onload = () => {
+                    console.log('Source image loaded via .onload callback.');
+                     if (sourceImage.naturalWidth === 0 || sourceImage.naturalHeight === 0) {
+                        console.error('Error: Image loaded but naturalWidth or naturalHeight is 0. Cannot display image.');
+                        alert('Error: The image could not be loaded for annotation. Please check the image file and try again.');
+                        return;
+                    }
+                    resizeCanvas();
+                };
+                sourceImage.onerror = () => {
+                    console.error('Error: Image failed to load (onerror event).');
+                    alert('Error: The image failed to load. It might be missing or corrupted.');
+                };
             }
         }
     

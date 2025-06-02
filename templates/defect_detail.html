@@ -135,6 +135,39 @@
                                 <option value="Closed" {% if defect.status.lower() == 'closed' %}selected{% endif %}>Closed</option>
                             </select>
                         </div>
+
+                        {# New HTML for marker editing - START #}
+                        <div class="mt-4">
+                            <label for="drawing_id_edit" class="block text-sm font-medium text-gray-700 mb-1">Select Drawing for Marker (Optional)</label>
+                            <select name="drawing_id" id="drawing_id_edit" class="mt-1 block w-full px-3 py-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                                <option value="">None - Remove existing marker</option>
+                                {% for drawing_item in drawings %} {# 'drawings' is passed from app.py #}
+                                    <option value="{{ drawing_item.id }}" data-file-path="{{ drawing_item.file_path }}" {% if marker and marker.drawing_id == drawing_item.id %}selected{% endif %}>
+                                        {{ drawing_item.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div id="drawingSectionEdit" class="space-y-3 mt-4 {% if not marker or not marker.file_path %}hidden{% endif %}">
+                            <p class="text-sm font-medium text-gray-700">Click on the drawing to place/update the defect location.</p>
+                            <div id="pdfContainerEdit" class="border border-gray-300 w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px] relative bg-gray-200 flex items-center justify-center rounded-md overflow-hidden">
+                                <div id="pdfStatusEdit" class="text-gray-700 p-4 text-center flex flex-col items-center justify-center">
+                                    {# SVG Spinner an_d Loading text #}
+                                    <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>Loading PDF...</span>
+                                </div>
+                                <canvas id="pdfCanvasEdit" class="absolute top-0 left-0 hidden"></canvas>
+                                <canvas id="markerCanvasEdit" class="absolute top-0 left-0 cursor-crosshair"></canvas>
+                            </div>
+                            <input type="hidden" name="marker_x" id="marker_x_edit" value="{{ marker.x if marker and marker.x is not none else '' }}">
+                            <input type="hidden" name="marker_y" id="marker_y_edit" value="{{ marker.y if marker and marker.y is not none else '' }}">
+                            <input type="hidden" name="page_num" id="page_num_edit" value="{{ marker.page_num if marker and marker.page_num is not none else '1' }}">
+                        </div>
+                        {# New HTML for marker editing - END #}
                         <button type="submit" name="action" value="edit_defect" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Save Changes</button>
                     </form>
                 {% endif %}
@@ -347,4 +380,178 @@
         }
     </script>
     {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof pdfjsLib === 'undefined') {
+        console.error("pdfjsLib is not defined. PDF functionality will not work for editing markers.");
+        return;
+    }
+    // Assuming workerSrc is set globally by the other script. If not, uncomment:
+    // pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+
+    const drawingSelectEdit = document.getElementById('drawing_id_edit');
+    const drawingSectionEdit = document.getElementById('drawingSectionEdit');
+    const pdfContainerEdit = document.getElementById('pdfContainerEdit');
+    const pdfStatusEditEl = document.getElementById('pdfStatusEdit');
+    const pdfCanvasEdit = document.getElementById('pdfCanvasEdit');
+    const markerCanvasEdit = document.getElementById('markerCanvasEdit');
+    const markerXInputEdit = document.getElementById('marker_x_edit');
+    const markerYInputEdit = document.getElementById('marker_y_edit');
+    const pageNumInputEdit = document.getElementById('page_num_edit');
+
+    if (!drawingSelectEdit || !drawingSectionEdit || !pdfContainerEdit || !pdfStatusEditEl || !pdfCanvasEdit || !markerCanvasEdit || !markerXInputEdit || !markerYInputEdit || !pageNumInputEdit) {
+        console.warn("Essential marker editing UI elements are missing from defect_detail.html.");
+        return;
+    }
+
+    const ctxEdit = markerCanvasEdit.getContext('2d');
+    let pdfDocEdit = null;
+    let currentPageNumEdit = 1; 
+    let currentScaleEdit = 1;
+    let currentMarkerEdit = null; 
+
+    if (markerXInputEdit.value !== '' && markerYInputEdit.value !== '' && drawingSelectEdit.value) {
+        const selectedOpt = drawingSelectEdit.options[drawingSelectEdit.selectedIndex];
+        if (selectedOpt && selectedOpt.dataset.filePath) {
+             currentMarkerEdit = {
+                x: parseFloat(markerXInputEdit.value),
+                y: parseFloat(markerYInputEdit.value),
+                pageNum: parseInt(pageNumInputEdit.value) || 1,
+                drawing_id: drawingSelectEdit.value 
+            };
+        }
+    }
+
+    function updateStatusEdit(message, isLoading = false) {
+        if (!pdfStatusEditEl) return;
+        if (isLoading) {
+            pdfStatusEditEl.innerHTML = `
+                <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>${message}</span>`;
+            if(pdfCanvasEdit) pdfCanvasEdit.classList.add('hidden');
+        } else {
+            pdfStatusEditEl.textContent = message;
+            if(pdfCanvasEdit) pdfCanvasEdit.classList.toggle('hidden', !!message);
+        }
+        pdfStatusEditEl.style.display = message ? 'flex' : 'none';
+    }
+
+    function drawMarkerEdit() {
+        if (!pdfDocEdit || !ctxEdit || !markerCanvasEdit) return;
+        ctxEdit.clearRect(0, 0, markerCanvasEdit.width, markerCanvasEdit.height);
+        if (currentMarkerEdit && currentMarkerEdit.drawing_id === drawingSelectEdit.value && currentMarkerEdit.pageNum === currentPageNumEdit) {
+            pdfDocEdit.getPage(currentPageNumEdit).then(page => {
+                const viewport = page.getViewport({ scale: currentScaleEdit });
+                const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015);
+                const markerX = currentMarkerEdit.x * viewport.width;
+                const markerY = currentMarkerEdit.y * viewport.height;
+                ctxEdit.beginPath();
+                ctxEdit.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
+                ctxEdit.fillStyle = 'rgba(255, 0, 0, 0.7)';
+                ctxEdit.fill();
+                ctxEdit.lineWidth = Math.max(1, markerRadius * 0.2);
+                ctxEdit.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctxEdit.stroke();
+            }).catch(e => console.error("Error in drawMarkerEdit getPage:", e));
+        }
+    }
+
+    function renderPageEdit(pageNumber) {
+        if (!pdfDocEdit || !pdfContainerEdit || !pdfCanvasEdit) return;
+        updateStatusEdit(`Rendering page ${pageNumber}...`, true);
+        pdfDocEdit.getPage(pageNumber).then(page => {
+            currentPageNumEdit = pageNumber;
+            pageNumInputEdit.value = currentPageNumEdit;
+            const pageWidth = page.getViewport({ scale: 1 }).width;
+            currentScaleEdit = pdfContainerEdit.clientWidth / pageWidth;
+            const viewport = page.getViewport({ scale: currentScaleEdit });
+            pdfContainerEdit.style.height = `${viewport.height}px`;
+            pdfCanvasEdit.width = viewport.width;
+            pdfCanvasEdit.height = viewport.height;
+            markerCanvasEdit.width = viewport.width;
+            markerCanvasEdit.height = viewport.height;
+            const renderContext = { canvasContext: pdfCanvasEdit.getContext('2d'), viewport: viewport };
+            page.render(renderContext).promise.then(() => {
+                updateStatusEdit('');
+                pdfCanvasEdit.classList.remove('hidden');
+                drawMarkerEdit(); 
+            }).catch(err => {
+                console.error(`Error rendering page ${pageNumber}:`, err);
+                updateStatusEdit('Error rendering PDF page: ' + err.message);
+            });
+        }).catch(err => {
+            console.error(`Error getting page ${pageNumber}:`, err);
+            updateStatusEdit('Error getting PDF page: ' + err.message);
+        });
+    }
+    
+    function loadPdfForEditing() {
+        const selectedOption = drawingSelectEdit.options[drawingSelectEdit.selectedIndex];
+        const filePath = selectedOption.dataset.filePath;
+        const newDrawingId = selectedOption.value; 
+        if (!newDrawingId || (currentMarkerEdit && currentMarkerEdit.drawing_id !== newDrawingId)) {
+            markerXInputEdit.value = '';
+            markerYInputEdit.value = '';
+            pageNumInputEdit.value = (newDrawingId && filePath) ? '1' : ''; 
+            currentMarkerEdit = null; 
+        }
+        if (!filePath) { 
+            drawingSectionEdit.classList.add('hidden');
+            pdfDocEdit = null;
+            if(ctxEdit && markerCanvasEdit) ctxEdit.clearRect(0, 0, markerCanvasEdit.width, markerCanvasEdit.height);
+            return;
+        }
+        drawingSectionEdit.classList.remove('hidden');
+        updateStatusEdit('Loading PDF...', true);
+        const pdfUrl = `/static/${filePath}`;
+        pdfjsLib.getDocument(pdfUrl).promise.then(loadedPdfDoc => {
+            pdfDocEdit = loadedPdfDoc;
+            renderPageEdit(currentMarkerEdit && currentMarkerEdit.drawing_id === newDrawingId ? currentMarkerEdit.pageNum : 1); 
+        }).catch(err => {
+            console.error(`Error loading PDF ${pdfUrl}:`, err);
+            updateStatusEdit('Error loading PDF: ' + err.message);
+            drawingSectionEdit.classList.add('hidden'); 
+        });
+    }
+
+    markerCanvasEdit.addEventListener('click', (event) => {
+        if (!pdfDocEdit || !markerCanvasEdit) return;
+        const rect = markerCanvasEdit.getBoundingClientRect(); 
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const normalizedX = x / markerCanvasEdit.clientWidth; 
+        const normalizedY = y / markerCanvasEdit.clientHeight;
+        currentMarkerEdit = { 
+            x: normalizedX, 
+            y: normalizedY, 
+            pageNum: currentPageNumEdit,
+            drawing_id: drawingSelectEdit.value 
+        };
+        markerXInputEdit.value = normalizedX.toFixed(5);
+        markerYInputEdit.value = normalizedY.toFixed(5);
+        pageNumInputEdit.value = currentPageNumEdit;
+        drawMarkerEdit();
+    });
+    
+    drawingSelectEdit.addEventListener('change', loadPdfForEditing);
+    
+    const initialSelectedOption = drawingSelectEdit.options[drawingSelectEdit.selectedIndex];
+    if (drawingSelectEdit.value && initialSelectedOption && initialSelectedOption.dataset.filePath) {
+        loadPdfForEditing();
+    } else {
+        drawingSectionEdit.classList.add('hidden');
+    }
+
+    window.addEventListener('resize', () => {
+         const selectedOptionOnResize = drawingSelectEdit.options[drawingSelectEdit.selectedIndex];
+         if (pdfDocEdit && drawingSelectEdit.value && selectedOptionOnResize && selectedOptionOnResize.dataset.filePath) {
+             renderPageEdit(currentPageNumEdit); 
+         }
+     });
+});
+</script>
 {% endblock %}
