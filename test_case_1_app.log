@@ -1,0 +1,58 @@
+2025-06-02 21:43:12,152 - app - INFO - Flask application logger explicitly configured for checklist debugging. Log level set to DEBUG for testing.
+INFO:app:Flask application logger explicitly configured for checklist debugging. Log level set to DEBUG for testing.
+2025-06-02 21:43:12,154 - app - INFO - Ensured database directory exists: /app/instance
+INFO:app:Ensured database directory exists: /app/instance
+2025-06-02 21:43:12,154 - app - INFO - Ensured report directory exists: /app/reports
+INFO:app:Ensured report directory exists: /app/reports
+2025-06-02 21:43:12,154 - app - INFO - Ensured drawing directory exists: static/drawings
+INFO:app:Ensured drawing directory exists: static/drawings
+2025-06-02 21:43:12,154 - app - INFO - Using SQLALCHEMY_DATABASE_URI: sqlite:////app/instance/myapp.db
+INFO:app:Using SQLALCHEMY_DATABASE_URI: sqlite:////app/instance/myapp.db
+2025-06-02 21:43:12,154 - app - INFO - Ensured upload directory exists: static/images
+INFO:app:Ensured upload directory exists: static/images
+2025-06-02 21:43:12,207 - app - INFO - Checking database tables...
+INFO:app:Checking database tables...
+2025-06-02 21:43:12,211 - app - INFO - Existing tables: ['attachments', 'checklist_items', 'checklists', 'comments', 'defect_markers', 'defects', 'drawings', 'project_access', 'projects', 'template_items', 'templates', 'users']
+INFO:app:Existing tables: ['attachments', 'checklist_items', 'checklists', 'comments', 'defect_markers', 'defects', 'drawings', 'project_access', 'projects', 'template_items', 'templates', 'users']
+2025-06-02 21:43:12,211 - app - INFO - Required tables: ['users', 'project_access', 'projects', 'defects', 'comments', 'attachments', 'templates', 'template_items', 'checklists', 'checklist_items', 'drawings', 'defect_markers']
+INFO:app:Required tables: ['users', 'project_access', 'projects', 'defects', 'comments', 'attachments', 'templates', 'template_items', 'checklists', 'checklist_items', 'drawings', 'defect_markers']
+2025-06-02 21:43:12,211 - app - INFO - All required tables already exist, skipping creation.
+INFO:app:All required tables already exist, skipping creation.
+ * Serving Flask app 'app.py'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+2025-06-02 21:43:19,002 - app - INFO - --- Starting Test Case 1 for PDF Report ---
+INFO:app:--- Starting Test Case 1 for PDF Report ---
+2025-06-02 21:43:19,003 - app - INFO - Setting up data for Test Case 1
+INFO:app:Setting up data for Test Case 1
+2025-06-02 21:43:19,004 - app - INFO - Generating PDF report for project ID: 999 with filter: All
+INFO:app:Generating PDF report for project ID: 999 with filter: All
+2025-06-02 21:43:19,004 - app - INFO - Using provided project_obj for testing: Test Project for Case 1
+INFO:app:Using provided project_obj for testing: Test Project for Case 1
+2025-06-02 21:43:19,005 - app - INFO - Found 1 open items and 0 closed items for the report.
+INFO:app:Found 1 open items and 0 closed items for the report.
+2025-06-02 21:43:19,153 - app - DEBUG - Using default estimated height 150 for PDF drawing static/drawings/dummy_drawing.pdf in space estimation.
+DEBUG:app:Using default estimated height 150 for PDF drawing static/drawings/dummy_drawing.pdf in space estimation.
+2025-06-02 21:43:19,155 - app - DEBUG - Processing marked drawing for defect 1: static/drawings/dummy_drawing.pdf
+DEBUG:app:Processing marked drawing for defect 1: static/drawings/dummy_drawing.pdf
+2025-06-02 21:43:19,155 - app - DEBUG - Attempting to convert PDF page to image: static/drawings/dummy_drawing.pdf
+DEBUG:app:Attempting to convert PDF page to image: static/drawings/dummy_drawing.pdf
+2025-06-02 21:43:19,943 - app - DEBUG - Successfully converted PDF page to image: static/drawings/dummy_drawing.pdf
+DEBUG:app:Successfully converted PDF page to image: static/drawings/dummy_drawing.pdf
+2025-06-02 21:43:20,237 - app - DEBUG - Saved marked drawing to temporary file: static/images/temp_marked_pdf_3d277c56293292da.png
+DEBUG:app:Saved marked drawing to temporary file: static/images/temp_marked_pdf_3d277c56293292da.png
+2025-06-02 21:43:20,238 - app - DEBUG - Attempting to add image to PDF: static/images/temp_marked_pdf_3d277c56293292da.png
+DEBUG:app:Attempting to add image to PDF: static/images/temp_marked_pdf_3d277c56293292da.png
+2025-06-02 21:43:21,038 - app - DEBUG - Successfully added image static/images/temp_marked_pdf_3d277c56293292da.png to PDF.
+DEBUG:app:Successfully added image static/images/temp_marked_pdf_3d277c56293292da.png to PDF.
+2025-06-02 21:43:21,039 - app - DEBUG - Deleted temporary marked drawing: static/images/temp_marked_pdf_3d277c56293292da.png
+DEBUG:app:Deleted temporary marked drawing: static/images/temp_marked_pdf_3d277c56293292da.png
+2025-06-02 21:43:21,048 - app - INFO - Saving PDF report to: /app/reports/report_project_Test_Project_for_Case_1_20250602_214321.pdf
+INFO:app:Saving PDF report to: /app/reports/report_project_Test_Project_for_Case_1_20250602_214321.pdf
+2025-06-02 21:43:21,049 - app - INFO - Sending PDF for project 999 with headers: {'Content-Disposition': 'attachment; filename=report_project_Test_Project_for_Case_1_20250602_214321.pdf', 'Content-Type': 'application/pdf', 'Content-Length': '78597', 'Last-Modified': 'Mon, 02 Jun 2025 21:43:21 GMT', 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0', 'ETag': '"1748900601.0448737-78597-3454015738"', 'Date': 'Mon, 02 Jun 2025 21:43:21 GMT', 'Pragma': 'no-cache', 'Expires': '0'}
+INFO:app:Sending PDF for project 999 with headers: {'Content-Disposition': 'attachment; filename=report_project_Test_Project_for_Case_1_20250602_214321.pdf', 'Content-Type': 'application/pdf', 'Content-Length': '78597', 'Last-Modified': 'Mon, 02 Jun 2025 21:43:21 GMT', 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0', 'ETag': '"1748900601.0448737-78597-3454015738"', 'Date': 'Mon, 02 Jun 2025 21:43:21 GMT', 'Pragma': 'no-cache', 'Expires': '0'}
+2025-06-02 21:43:21,049 - app - INFO - --- Finished Test Case 1 ---
+INFO:app:--- Finished Test Case 1 ---
+INFO:werkzeug:127.0.0.1 - - [02/Jun/2025 21:43:21] "GET /test_report_case/1 HTTP/1.1" 200 -

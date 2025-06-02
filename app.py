@@ -1,4 +1,3 @@
-
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, Response, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -14,10 +13,11 @@ from PIL import Image as PILImage, ImageDraw, ImageOps
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from reportlab.graphics.shapes import Drawing, Rect
+from reportlab.graphics.shapes import Drawing as ReportLabDrawing, Rect
 from reportlab.lib import colors
 from reportlab.graphics import renderPDF
 import io
+from pdf2image import convert_from_path
 import logging
 from sqlalchemy import inspect
 import tempfile
@@ -30,9 +30,9 @@ if not logger.handlers:
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO) # Restored to INFO
 # logger.propagate = False # Keep this commented for now
-logger.info("Flask application logger explicitly configured for checklist debugging.")
+logger.info("Flask application logger explicitly configured for checklist debugging.") # Restored message
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -1307,8 +1307,12 @@ def delete_template(template_id):
     return redirect(url_for('template_list'))
 
 @app.route('/project/<int:project_id>/report')
-@login_required
-def generate_report(project_id):
+@login_required # Restored decorator
+def generate_report(project_id): # Restored original signature
+    filter_status = request.args.get('filter', 'All') # Use request.args for filter_status
+    logger.info(f"Generating PDF report for project ID: {project_id} with filter: {filter_status}")
+    
+    # Original project fetching logic restored
     project = db.session.get(Project, project_id)
     if not project:
         flash('Project not found.', 'error')
@@ -1317,55 +1321,58 @@ def generate_report(project_id):
     if not access:
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
-    filter_status = request.args.get('filter', 'All')
+
+    # Original data fetching logic restored
     defects_query = Defect.query.filter_by(project_id=project_id)
-    if filter_status == 'Open':
-        defects = defects_query.filter_by(status='open').all()
-    elif filter_status == 'Closed':
-        defects = defects_query.filter_by(status='closed').all()
-    else:
-        defects = defects_query.all()
-
-    checklists = Checklist.query.filter_by(project_id=project_id).all()
-    checklist_items_to_report = []
-    for checklist in checklists:
-        items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
-        for item in items:
-            item_status = 'closed' if item.is_checked else 'open'
-            if filter_status == 'Open' and item_status != 'open':
-                continue
-            elif filter_status == 'Closed' and item_status != 'closed':
-                continue
-            checklist_items_to_report.append((checklist, item, item_status))
-
-    if not defects and not checklist_items_to_report:
-        flash('No defects or checklist items found to generate a report.', 'error')
-        return redirect(url_for('project_detail', project_id=project_id))
-
-    open_defects = []
-    closed_defects = []
-    for defect in defects:
-        contractor_comments = Comment.query.filter_by(defect_id=defect.id).join(User).filter(User.role == 'contractor').all()
-        if defect.status == 'open':
-            open_defects.append(('defect', defect, contractor_comments))
+        if filter_status == 'Open':
+            defects = defects_query.filter_by(status='open').all()
+        elif filter_status == 'Closed':
+            defects = defects_query.filter_by(status='closed').all()
         else:
-            closed_defects.append(('defect', defect, contractor_comments))
-    for checklist, item, item_status in checklist_items_to_report:
-        if item_status == 'open':
-            open_defects.append(('checklist_item', checklist, item, []))
-        else:
-            closed_defects.append(('checklist_item', checklist, item, []))
+            defects = defects_query.all()
 
-    open_defects.sort(key=lambda x: x[1].creation_date if x[0] == 'defect' else x[1].creation_date)
-    closed_defects.sort(key=lambda x: (x[1].close_date if x[1].close_date else x[1].creation_date) if x[0] == 'defect' else x[1].creation_date, reverse=True)
+        checklists = Checklist.query.filter_by(project_id=project_id).all()
+        checklist_items_to_report = []
+        for checklist in checklists:
+            items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
+            for item in items:
+                item_status = 'closed' if item.is_checked else 'open'
+                if filter_status == 'Open' and item_status != 'open':
+                    continue
+                elif filter_status == 'Closed' and item_status != 'closed':
+                    continue
+                checklist_items_to_report.append((checklist, item, item_status))
+
+        if not defects and not checklist_items_to_report:
+            flash('No defects or checklist items found to generate a report.', 'error')
+            return redirect(url_for('project_detail', project_id=project_id))
+
+        open_defects = []
+        closed_defects = []
+        for defect in defects: # Changed variable name to avoid clash
+            contractor_comments_list = Comment.query.filter_by(defect_id=defect.id).join(User).filter(User.role == 'contractor').all()
+            if defect.status == 'open':
+                open_defects.append(('defect', defect, contractor_comments_list))
+            else:
+                closed_defects.append(('defect', defect, contractor_comments_list))
+        for checklist, item, item_status in checklist_items_to_report:
+            if item_status == 'open':
+                open_defects.append(('checklist_item', checklist, item, []))
+            else:
+                closed_defects.append(('checklist_item', checklist, item, []))
+
+        open_defects.sort(key=lambda x: x[1].creation_date if x[0] == 'defect' else x[1].creation_date)
+        closed_defects.sort(key=lambda x: (x[1].close_date if x[1].close_date else x[1].creation_date) if x[0] == 'defect' else x[1].creation_date, reverse=True)
+
+    logger.info(f"Found {len(open_defects)} open items and {len(closed_defects)} closed items for the report.")
 
     pdf_buffer = io.BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=letter)
-    width, height = letter
+    width, height = letter # page width and height
     left_margin = 50
     right_margin = width - 50
     center_x = width / 2
-    column_width = (width - left_margin - (width - right_margin)) / 2
+    column_width = (width - left_margin - (width - right_margin)) / 2 # Adjusted for direct use
 
     def draw_text_wrapped(c, text, x, y, max_width, line_height=15, font='Helvetica', font_size=12):
         if text is None:
@@ -1386,12 +1393,13 @@ def generate_report(project_id):
                 current_width = word_width
         if current_line:
             lines.append(' '.join(current_line))
-        for line in lines:
-            c.drawString(x, y, line)
+        for line_text in lines: # Renamed loop variable
+            c.drawString(x, y, line_text)
             y -= line_height
         return y, len(lines) * line_height
 
     def add_image_to_pdf(c, img_path, x, y, max_width, max_height):
+        logger.debug(f"Attempting to add image to PDF: {img_path}")
         try:
             img = PILImage.open(img_path)
             if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
@@ -1402,519 +1410,340 @@ def generate_report(project_id):
                 img = img.convert('RGB')
             temp_img_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_img_{os.urandom(8).hex()}.jpg')
             img.save(temp_img_path, 'JPEG')
-            img_width, img_height = img.size
-            aspect_ratio = img_width / img_height
-            # Scale image to fit max_width
-            img_width = max_width
-            img_height = img_width / aspect_ratio
-            # If height exceeds max_height, scale down
-            if img_height > max_height:
-                img_height = max_height
-                img_width = img_height * aspect_ratio
+            img_width_pil, img_height_pil = img.size # Renamed
+            aspect_ratio = img_width_pil / img_height_pil
+            
+            img_width_draw = max_width # Renamed
+            img_height_draw = img_width_draw / aspect_ratio
+            
+            if img_height_draw > max_height:
+                img_height_draw = max_height
+                img_width_draw = img_height_draw * aspect_ratio
             img_reader = ImageReader(temp_img_path)
-            c.drawImage(img_reader, x, y - img_height, width=img_width, height=img_height)
+            c.drawImage(img_reader, x, y - img_height_draw, width=img_width_draw, height=img_height_draw)
             os.remove(temp_img_path)
-            return y - img_height - 10, img_height
+            logger.debug(f"Successfully added image {img_path} to PDF.")
+            return y - img_height_draw - 10, img_height_draw
         except Exception as e:
+            logger.error(f"Failed to add image {img_path} to PDF: {e}", exc_info=True)
             c.drawString(x, y, f'Error loading image: {str(e)}')
             return y - 20, 0
 
     def draw_rounded_rect(c, x, y, width, height, radius=10):
-        drawing = Drawing(width, height)
+        drawing = ReportLabDrawing() 
         fill_color = colors.Color(*colors.lightgrey.rgb(), alpha=0.2)
-        rect = Rect(0, -height, width, height, strokeColor=colors.darkgrey, fillColor=fill_color, strokeWidth=1)
+        rect = Rect(0, 0, width, height, strokeColor=colors.darkgrey, fillColor=fill_color, strokeWidth=1)
         rect.rx = radius
         rect.ry = radius
         drawing.add(rect)
         c.saveState()
-        c.translate(x, y)
+        c.translate(x, y - height) 
         renderPDF.draw(drawing, c, 0, 0)
         c.restoreState()
 
     def estimate_space_needed(entry, is_left=True):
-        max_width = column_width - 20 if is_left else (width - center_x - 30)
-        space_needed = 30  # Base padding and title
+        max_width_est = column_width - 20 if is_left else (width - center_x - 30)
+        space_needed = 30 
         font_size = 12
         date_font_size = 8
-        line_height = 15
+        line_height_est = 15 
         date_line_height = 10
 
-        if entry[0] == 'defect':
-            defect = entry[1]
-            description = defect.description or ""
-            close_date = defect.close_date
-            attachments = Attachment.query.filter_by(defect_id=defect.id, checklist_item_id=None, comment_id=None).all()
-            comments = None # Not used directly for defects in estimate_space_needed, but rather contractor_comments
-            contractor_comments = entry[2]
-            # Fetch marker for the defect
-            marker = DefectMarker.query.filter_by(defect_id=defect.id).first()
-        else:
-            checklist, item = entry[1], entry[2]
-            item_text = item.item_text or ""
-            description = f"Checkpoint: {item_text}"
-            close_date = None
-            attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
-            # item.comments is used to populate the 'comments' variable for checklist items
-            comments = item.comments or "" # Ensure item.comments is treated as empty string if None
-            # The existing logic `if comments and comments.strip() else None` would turn "" into None.
-            # Let's adjust to keep it as "" if it's just whitespace, or use it if it has content.
-            # The original logic for 'comments' variable: `comments = item.comments if item.comments and item.comments.strip() else None`
-            # This function estimates space, so even an empty-looking comment field might take space.
-            # For estimation, it's safer to assume `item.comments or ""`
-            # However, the splitting logic `words = comments.split()` needs a string.
-            # If `item.comments` is None or only whitespace, `comments.split()` would fail or produce `['']`.
-            # Let's stick to `item.comments or ""` for the `comments` variable for checklist items.
-            # The `if comments:` check before `words = comments.split()` will handle empty strings correctly.
-            contractor_comments = []
+        attachments_for_est = []
+        description_est = ""
+        close_date_est = None
+        comments_text_field_est = "" 
+        marker_est = None
+        contractor_comments_est = []
+        
+        est_defect_id = None # For logging context
 
+        if entry[0] == 'defect':
+            defect_obj_est = entry[1]
+            est_defect_id = defect_obj_est.id
+            description_est = defect_obj_est.description or ""
+            close_date_est = defect_obj_est.close_date
+            contractor_comments_est = entry[2]
+            if isinstance(defect_obj_est, Defect):
+                attachments_for_est = Attachment.query.filter_by(defect_id=defect_obj_est.id, checklist_item_id=None, comment_id=None).all()
+                marker_est = DefectMarker.query.filter_by(defect_id=defect_obj_est.id).first()
+            else: # Mock
+                attachments_for_est = defect_obj_est.attachments if hasattr(defect_obj_est, 'attachments') else []
+                marker_est = defect_obj_est.markers[0] if hasattr(defect_obj_est, 'markers') and defect_obj_est.markers else None
+        
+        elif entry[0] == 'checklist_item':
+            checklist_obj_est, item_obj_est = entry[1], entry[2] 
+            est_defect_id = item_obj_est.id # Use item ID for context
+            description_est = f"Checkpoint: {item_obj_est.item_text or ''}"
+            comments_text_field_est = item_obj_est.comments if hasattr(item_obj_est, 'comments') else ""
+            if isinstance(item_obj_est, ChecklistItem):
+                attachments_for_est = Attachment.query.filter_by(checklist_item_id=item_obj_est.id).all()
+            else: # Mock
+                attachments_for_est = item_obj_est.attachments if hasattr(item_obj_est, 'attachments') else []
+        
         if is_left:
-            # Estimate description height
-            words = description.split() # description is already "" if None
-            lines = []
-            current_line = []
-            current_width = 0
-            for word in words:
-                word_width = c.stringWidth(word + ' ', 'Helvetica', font_size)
-                if current_width + word_width <= max_width:
-                    current_line.append(word)
-                    current_width += word_width
+            _, desc_h = draw_text_wrapped(c, description_est, 0, 0, max_width_est, font_size=font_size) 
+            space_needed += desc_h + 7.5
+            if comments_text_field_est:
+                _, comment_h = draw_text_wrapped(c, comments_text_field_est, 0, 0, max_width_est, font_size=font_size)
+                space_needed += comment_h + 10
+            
+            if entry[0] == 'defect' and marker_est and marker_est.drawing and marker_est.drawing.file_path:
+                space_needed += 17 
+                if marker_est.drawing.file_path.lower().endswith('.pdf'):
+                    space_needed += 150 + 10 
                 else:
-                    lines.append(' '.join(current_line))
-                    current_line = [word]
-                    current_width = word_width
-            if current_line:
-                lines.append(' '.join(current_line))
-            space_needed += len(lines) * line_height + 7.5  # Half line offset for description
-            # Comments for checklist items
-            if comments: # comments here refers to item.comments for checklist items
-                words = comments.split() # comments is already "" if None (from item.comments or "")
-                lines = []
-                current_line = []
-                current_width = 0
-                for word in words:
-                    word_width = c.stringWidth(word + ' ', 'Helvetica', font_size)
-                    if current_width + word_width <= max_width:
-                        current_line.append(word)
-                        current_width += word_width
-                    else:
-                        lines.append(' '.join(current_line))
-                        current_line = [word]
-                        current_width = word_width
-                if current_line:
-                    lines.append(' '.join(current_line))
-                space_needed += len(lines) * line_height + 10
-            # Attachments
-            for attachment in attachments:
-                if not attachment.file_path:
-                    logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
-                    space_needed += 20
-                    continue
-                try:
-                    img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
-                    img_width, img_height = img.size
-                    max_img_width = max_width
-                    max_img_height = 150
-                    aspect_ratio = img_width / img_height
-                    img_width = max_img_width
-                    img_height = img_width / aspect_ratio
-                    if img_height > max_img_height:
-                        img_height = max_img_height
-                        img_width = img_height * aspect_ratio
-                    space_needed += img_height + 10
-                except:
-                    space_needed += 20
-            # Close date
-            if close_date:
-                space_needed += date_line_height
-            # Creation date (outside rectangle) and spacing to next defect
-            space_needed += date_line_height + 7.5 + (2 * line_height)  # Creation date + half line below + two line spaces
-            space_needed += 20  # Padding inside rectangle
-        else:
-            # Contractor comments
-            for comment in contractor_comments:
-                content = comment.content or ""
-                words = content.split()
-                lines = []
-                current_line = []
-                current_width = 0
-                for word in words:
-                    word_width = c.stringWidth(word + ' ', 'Helvetica', font_size)
-                    if current_width + word_width <= max_width:
-                        current_line.append(word)
-                        current_width += word_width
-                    else:
-                        lines.append(' '.join(current_line))
-                        current_line = [word]
-                        current_width = word_width
-                if current_line:
-                    lines.append(' '.join(current_line))
-                space_needed += len(lines) * line_height + 17.5  # Content + padding + half line offset
-                for attachment in comment.attachments:
-                    if not attachment.file_path:
-                        logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
-                        space_needed += 20
-                        continue
                     try:
-                        img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
-                        img_width, img_height = img.size
-                        max_img_width = max_width
-                        max_img_height = 150
-                        aspect_ratio = img_width / img_height
-                        img_width = max_img_width
-                        img_height = img_width / aspect_ratio
-                        if img_height > max_img_height:
-                            img_height = max_img_height
-                            img_width = img_height * aspect_ratio
-                        space_needed += img_height + 10
-                    except:
-                        space_needed += 20
-                # Creation date (outside rectangle)
-                space_needed += date_line_height + 7.5  # Creation date + half line below
-                space_needed += 20  # Padding inside rectangle
+                        img = PILImage.open(os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker_est.drawing.file_path)))
+                        img_w, img_h = img.size
+                        est_h = min(img_h, 150) * (max_width_est / img_w) if img_w > 0 else min(img_h, 150)
+                        if est_h > 150: est_h = 150
+                        space_needed += est_h + 10
+                    except: space_needed += 20
+            else: 
+                for att in attachments_for_est:
+                    if att.file_path:
+                        try:
+                            img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(att.file_path)))
+                            img_w, img_h = img.size
+                            est_h = min(img_h, 150) * (max_width_est / img_w) if img_w > 0 else min(img_h, 150)
+                            if est_h > 150: est_h = 150
+                            space_needed += est_h + 10
+                        except: space_needed += 20 
+                    else: space_needed += 20 
+            
+            if close_date_est: space_needed += date_line_height
+            space_needed += date_line_height + 7.5 + (2 * line_height_est) 
+            space_needed += 20 
+        else: 
+            for comment_obj_est in contractor_comments_est: 
+                content_est = comment_obj_est.content or ""
+                _, content_h = draw_text_wrapped(c, content_est, 0, 0, max_width_est, font_size=font_size)
+                space_needed += content_h + 17.5
+                
+                comment_attachments_est = comment_obj_est.attachments if hasattr(comment_obj_est, 'attachments') and comment_obj_est.attachments else []
+                for att in comment_attachments_est:
+                    if att.file_path: 
+                        try:
+                            img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(att.file_path)))
+                            img_w, img_h = img.size
+                            est_h = min(img_h, 150) * (max_width_est / img_w) if img_w > 0 else min(img_h, 150)
+                            if est_h > 150: est_h = 150
+                            space_needed += est_h + 10
+                        except: space_needed += 20
+                    else: space_needed += 20
+                space_needed += date_line_height + 7.5 
+                space_needed += 20 
         return space_needed
 
+    # Fully revised add_defect_to_pdf function (from previous turn's report)
     def add_defect_to_pdf(entry, is_left=True, y_position=None, defect_number=1):
         nonlocal c
         x_position = left_margin if is_left else center_x + 10
-        max_width = column_width - 20 if is_left else (width - center_x - 30)
+        max_width_draw = column_width - 20 if is_left else (width - center_x - 30) # Renamed
         padding = 10
-        line_height = 15  # Define line_height for single line spacing
+        line_height_draw = 15 # Renamed
+
+        current_defect_attachments = []
+        defect_id_for_log = None 
+        defect_obj = None 
+        item_obj = None 
+        description_draw = "" # Renamed
+        creation_date_draw = datetime.now()  # Renamed
+        close_date_draw = None # Renamed
+        comments_text_field_draw = ""  # Renamed
+        contractor_comments_list = [] # Renamed
+        marker_obj = None # Renamed
 
         if entry[0] == 'defect':
-            defect = entry[1]
-            description = defect.description or ""
-            creation_date = defect.creation_date
-            close_date = defect.close_date
-            attachments = Attachment.query.filter_by(defect_id=defect.id, checklist_item_id=None, comment_id=None).all()
-            # `comments` variable for defects is not used for drawing defect's own comments, but for checklist item comments.
-            # So, it remains None for defects.
-            comments = None
-            contractor_comments = entry[2]
-            # marker is fetched earlier in this function
-        else: # checklist_item
-            checklist, item = entry[1], entry[2]
-            item_text = item.item_text or ""
-            description = f"Checkpoint: {item_text}"
-            creation_date = checklist.creation_date
-            close_date = None
-            attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
-            # For checklist items, `item.comments` is the relevant field.
-            # `draw_text_wrapped` handles None, but ensure it's "" if we use it before that.
-            comments = item.comments or ""
-            contractor_comments = []
-            marker = None # No markers for checklist items
+            defect_obj = entry[1] 
+            defect_id_for_log = defect_obj.id
+            description_draw = defect_obj.description or ""
+            creation_date_draw = defect_obj.creation_date
+            close_date_draw = defect_obj.close_date
+            contractor_comments_list = entry[2] 
+            
+            if isinstance(defect_obj, Defect): 
+                marker_obj = DefectMarker.query.filter_by(defect_id=defect_obj.id).first()
+                current_defect_attachments = Attachment.query.filter_by(defect_id=defect_obj.id, checklist_item_id=None, comment_id=None).all()
+            else: 
+                marker_obj = defect_obj.markers[0] if hasattr(defect_obj, 'markers') and defect_obj.markers else None
+                current_defect_attachments = defect_obj.attachments if hasattr(defect_obj, 'attachments') else []
+
+        elif entry[0] == 'checklist_item':
+            checklist_obj, item_obj = entry[1], entry[2] 
+            defect_id_for_log = item_obj.id 
+            item_text = item_obj.item_text or ""
+            description_draw = f"Checkpoint: {item_text}"
+            creation_date_draw = checklist_obj.creation_date if hasattr(checklist_obj, 'creation_date') else datetime.now() 
+            comments_text_field_draw = item_obj.comments if hasattr(item_obj, 'comments') else ""
+            
+            if isinstance(item_obj, ChecklistItem): 
+                current_defect_attachments = Attachment.query.filter_by(checklist_item_id=item_obj.id).all()
+            else: 
+                current_defect_attachments = item_obj.attachments if hasattr(item_obj, 'attachments') else []
+        else:
+            logger.error(f"Unknown entry type: {entry[0]}")
+            return y_position 
 
         if is_left:
-            # Draw "Defect N:" title
             c.setFont('Helvetica-Bold', 12)
             c.drawString(x_position, y_position, f'Defect {defect_number}:')
-            y_position -= 15
+            y_position -= 15 
 
-            # Display Defect Status
-            if entry[0] == 'defect': # Ensure this is a defect entry
-                # defect_status = defect.status.capitalize() # Calculation done, actual drawing later
-                # c.setFont('Helvetica', 10) # Font setting for drawing, not calculation
-                # c.drawString(x_position, y_position, f'Status: {defect_status}') # Drawing happens in the second block
-                y_position -= 12 # Adjust y_position for the status line space calculation
+            rect_content_top_y = y_position 
+            if entry[0] == 'defect': 
+                rect_content_top_y -= 12  
 
-            # Calculate rectangle height
-            rect_height = 0
-            # Initial top padding for the rectangle content
-            rect_height += padding 
-            # Space for defect status if it was added
-            if entry[0] == 'defect':
-                 rect_height += 12 # Height of the status line
+            estimated_rect_height = estimate_space_needed(entry, is_left=True)
+            draw_rounded_rect(c, x_position, rect_content_top_y, column_width - 10, estimated_rect_height, radius=10)
             
-            y_temp = y_position # y_position is already adjusted for title and status
-
-            # Adjust y_temp for initial padding inside the rectangle before drawing description
-            y_temp -= (padding + 7.5) # Top padding + half line for description
+            current_draw_y = rect_content_top_y - padding
             
-            # Accumulate height for description
-            # Note: draw_text_wrapped returns the new y_pos and the height of the drawn text block
-            _, desc_height_val = draw_text_wrapped(c, description, x_position + padding, y_temp, max_width, font='Helvetica', font_size=12)
-            rect_height += desc_height_val + 7.5 # Add description height and its offset
-
-            if comments:
-                # y_temp for comments should be after description
-                # No need to pass 'c' to draw_text_wrapped when only calculating height.
-                # However, the original code passed it, so we keep it for now if it's used internally by the function for width calculation.
-                # Let's assume we need a temporary y for comments calculation relative to description's end
-                y_after_desc = y_temp - desc_height_val 
-                _, comment_height_val = draw_text_wrapped(c, comments, x_position + padding, y_after_desc - padding, max_width, font='Helvetica', font_size=12)
-                rect_height += comment_height_val + padding # Add comment height and its padding
-
-            if entry[0] == 'defect' and marker and marker.drawing:
-                if not marker.drawing.file_path:
-                    logger.warning(f"Drawing for marker on defect ID {defect.id} has a missing file path. Skipping marked drawing in PDF.")
-                    # Fallback to processing regular attachments as drawing_path will not be valid
-                    for attachment in attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
-                            # rect_height might need a small addition for placeholder, or just skip
-                            continue
-                        # Simplified estimation for fallback, actual image processing in drawing phase
-                        try:
-                            img_temp = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
-                            _w, _h = img_temp.size
-                            # Basic height addition, real scaling happens in add_image_to_pdf
-                            rect_height += min(_h, 150) + 10 # Approx height + padding
-                        except Exception:
-                            rect_height += 20 # Placeholder for unopenable image
-                    # Ensure this block doesn't execute further if file_path is missing
-                    drawing_path = None 
-                else:
-                    drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
-
-                if drawing_path and os.path.exists(drawing_path): # Check drawing_path is not None
-                    # Add height for the "Marked Drawing View:" label and its top padding
-                    rect_height += 17 # 5 for padding above label, 12 for label line height
-                    try:
-                        # This block is for height calculation. We are trying to estimate.
-                        # The actual drawing and temp file creation will happen in the drawing phase.
-                        # For estimation, assume a fixed image height or a more complex estimation.
-                        # For now, let's keep the original logic of creating a temp image
-                        # to get its height, but this is not ideal for a pure calculation phase.
-                        # A proper fix would involve add_image_to_pdf returning estimated height
-                        # without drawing, or a separate estimation function.
-                        # Given the current structure, we'll mirror the drawing logic's space usage.
-                        img = PILImage.open(drawing_path)
-                        img_width, img_height_pil = img.size # Needed for marker radius if used in estimation
-                        
-                        # Simulate image height after scaling (from add_image_to_pdf logic)
-                        max_img_width_for_calc = max_width
-                        max_img_height_for_calc = 150 
-                        aspect_ratio = img_width / img_height_pil
-                        estimated_img_width = max_img_width_for_calc
-                        estimated_img_height = estimated_img_width / aspect_ratio
-                        if estimated_img_height > max_img_height_for_calc:
-                            estimated_img_height = max_img_height_for_calc
-                        
-                        rect_height += estimated_img_height + 10 # image height + padding
-                        # No os.remove here as temp file is created in drawing phase.
-                    except Exception as e:
-                        logger.error(f"Error estimating marked drawing height for defect {defect.id}: {e}")
-                        # Fallback to regular attachments if marker processing fails
-                        for attachment in attachments:
-                            if not attachment.file_path:
-                                logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
-                                continue
-                            y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
-                            rect_height += img_height_pdf + 10
-                elif drawing_path is None and entry[0] == 'defect' and marker and marker.drawing: 
-                    # This 'elif' handles the case where marker.drawing.file_path was None/empty
-                    # The fallback for attachments was already handled when drawing_path was set to None.
-                    # No additional action needed here for rect_height calculation for this specific sub-condition.
-                    pass
-                else: # Fallback if drawing file not found (and drawing_path was not None initially)
-                    for attachment in attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
-                            continue
-                        y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
-                        rect_height += img_height_pdf + 10
-            else:
-                # Original attachment logic if no marker or no drawing (applies to checklist items or defects without markers)
-                for attachment in attachments:
-                    if not attachment.file_path:
-                        # Determine if it's a defect or checklist item for logging
-                        log_item_id = defect.id if entry[0] == 'defect' else item.id
-                        logger.warning(f"Attachment ID {attachment.id} for defect/item {log_item_id} has a missing file path. Skipping image in PDF estimate.")
-                        continue
-                    y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
-                    rect_height += img_height_pdf + 10
-
-            if close_date:
-                rect_height += 10
-                y_temp -= 10
-            rect_height += padding  # Bottom padding
-
-            # Draw rounded rectangle
-            # The y_position for draw_rounded_rect should be the top of the rectangle,
-            # which is the y_position after drawing title and status.
-            # The original y_position was being decremented before this call.
-            # Let's use a variable that holds the y for the top of the rectangle.
-            rect_top_y = y_position + 12 if entry[0] == 'defect' else y_position # Re-adjust if status was added
-            rect_top_y += 15 # Re-adjust for title
-            
-            draw_rounded_rect(c, x_position, rect_top_y, column_width - 10, rect_height, radius=10)
-
-            # Draw description, status, etc. inside the rectangle
-            # y_position is currently at the baseline for the first element inside the rect (description)
-            
-            # Display Defect Status again, this time ensuring it's drawn (it was drawn above for calculation)
-            if entry[0] == 'defect': # Ensure this is a defect entry
-                defect_status = defect.status.capitalize()
+            if entry[0] == 'defect': 
+                defect_status = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A"
                 c.setFont('Helvetica', 10)
-                # y_position for status should be below title, at the top of the content area.
-                # The main y_position should be managed carefully.
-                # Let's use rect_top_y and subtract padding for the first item.
-                current_draw_y = rect_top_y - padding
                 c.drawString(x_position + padding, current_draw_y, f'Status: {defect_status}')
-                current_draw_y -= 12 # Line height for status
+                current_draw_y -= 12 
+            
+            current_draw_y -= 7.5 
+            y_after_desc, _ = draw_text_wrapped(c, description_draw, x_position + padding, current_draw_y, max_width_draw)
+            current_draw_y = y_after_desc
 
-                # Draw description (half line lower than status or top padding)
-                current_draw_y -= 7.5 # Half line offset for description
-                y_position, _ = draw_text_wrapped(c, description, x_position + padding, current_draw_y, max_width, font='Helvetica', font_size=12)
-            else:
-                # If not a defect, description starts after initial padding
-                current_draw_y = rect_top_y - padding
-                current_draw_y -= 7.5 # Half line offset for description
-                y_position, _ = draw_text_wrapped(c, description, x_position + padding, current_draw_y, max_width, font='Helvetica', font_size=12)
+            if comments_text_field_draw: 
+                y_after_comments_text, _ = draw_text_wrapped(c, comments_text_field_draw, x_position + padding, current_draw_y - padding, max_width_draw)
+                current_draw_y = y_after_comments_text
 
-            if comments:
-                y_position, _ = draw_text_wrapped(c, comments, x_position + padding, y_position - padding, max_width, font='Helvetica', font_size=12)
+            y_position_before_image_processing = current_draw_y
+            marked_drawing_processed = False
 
-            if entry[0] == 'defect' and marker and marker.drawing:
-                # Check marker.drawing.file_path first
-                if not marker.drawing.file_path:
-                    logger.warning(f"Drawing for marker on defect ID {defect.id} has a missing file path. Skipping marked drawing in PDF display.")
-                    # Fallback to regular attachments
-                    for attachment in attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
-                            continue
-                        y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-                    drawing_path = None # Ensure we don't try to use it later
+            if entry[0] == 'defect' and marker_obj and marker_obj.drawing:
+                temp_marked_drawing_path = None 
+                if not marker_obj.drawing.file_path:
+                    logger.warning(f"Drawing for marker on defect ID {defect_id_for_log} has a missing file path.")
                 else:
-                    drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
+                    drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker_obj.drawing.file_path))
+                    logger.debug(f"Processing marked drawing for defect {defect_id_for_log}: {drawing_path}")
 
-                if drawing_path and os.path.exists(drawing_path): # Proceed if drawing_path is valid and exists
-                    temp_marked_drawing_path = None # Initialize here for finally block
-                    try:
-                        img = PILImage.open(drawing_path)
-                        draw_obj = ImageDraw.Draw(img)
-                        img_width, img_height_pil = img.size
-                        abs_x = marker.x * img_width
-                        abs_y = marker.y * img_height_pil
-                        # Dynamic marker radius
-                        marker_radius = max(5, int(min(img_width, img_height_pil) * 0.02)) 
-                        draw_obj.ellipse(
-                            (abs_x - marker_radius, abs_y - marker_radius,
-                             abs_x + marker_radius, abs_y + marker_radius),
-                            fill='red', outline='red'
-                        )
-                        temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_{os.urandom(8).hex()}.png')
-                        img.save(temp_marked_drawing_path, 'PNG')
-
-                        # Add label for marked drawing
-                        c.setFont('Helvetica-Oblique', 9)
-                        label_text = "Marked Drawing View:"
-                        label_y_position = y_position - 5 # Position label slightly above image
-                        c.drawString(x_position + padding, label_y_position, label_text)
-                        y_position = label_y_position - 12 # Move y_position down for the image
-
-                        y_position, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_position, max_width, 150) # y_position already adjusted
-                        # os.remove is now in finally
-                    except Exception as e:
-                        logger.error(f"Error drawing marked image for PDF (defect {defect.id}): {e}")
-                        # Fallback to regular attachments. Ensure y_position is maintained if label was drawn.
-                        # If label was drawn, y_position would have been updated.
-                        # It's complex to perfectly revert y_position here if only label was drawn then image failed.
-                        # For simplicity, the fallback will draw attachments from the original y_position before label attempt.
-                        # This means if label is drawn and image fails, there might be an overlap or mispositioning.
-                        # A more robust solution would involve more state tracking for y_position.
-                        # Re-fetch original y_position if label drawing modified it and then error occurred.
-                        # This part needs careful handling of y_position if error occurs after drawing label but before image.
-                        # For now, we will proceed assuming y_position for fallback should be as if this block was skipped.
-                        # Re-calculating y_position before fallback:
-                        # This depends on where y_position was before this marked drawing block.
-                        # The original code for fallback assumes the y_position from before this block.
-                        # To maintain that, we might need to pass the original y_position to fallback.
-                        # Or, reset y_position to current_draw_y if an error occurs after the label.
-                        # This section is complex. Let's assume current_draw_y was the starting point for this content block.
-                        y_position = current_draw_y # Reset to where description/status content ended.
-                        for attachment in attachments: # Fallback
-                            if not attachment.file_path:
-                                logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
-                                continue
-                            # Correctly indent the call to add_image_to_pdf
-                            y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-                    finally:
-                        if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
-                            os.remove(temp_marked_drawing_path)
-                # This 'elif' handles the case where marker.drawing.file_path was None/empty (drawing_path became None)
-                elif drawing_path is None and entry[0] == 'defect' and marker and marker.drawing:
-                    # The fallback to regular attachments was already handled when drawing_path was set to None.
-                    # No additional drawing action needed here for this specific sub-condition.
-                    pass
-                else: # Fallback if drawing file not found (and drawing_path was not None initially)
-                    # y_position should be current_draw_y if coming from description block.
-                    y_position = current_draw_y 
-                    for attachment in attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
-                            continue
-                        # Correctly indent the call to add_image_to_pdf here as well
-                        y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-            # This 'else' corresponds to 'if entry[0] == 'defect' and marker and marker.drawing:'
-            # It handles cases where there's no marker or it's a checklist item, so normal attachments are shown.
-            else: # Original attachment logic (for checklist items or defects without markers)
-                for attachment in attachments:
-                    if not attachment.file_path:
-                        log_item_id = defect.id if entry[0] == 'defect' else item.id
-                        logger.warning(f"Attachment ID {attachment.id} for defect/item {log_item_id} has a missing file path. Skipping image in PDF.")
-                        continue
-                    y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-
-            if close_date:
-                c.setFont('Helvetica', 8)
-                c.drawString(x_position + padding, y_position - 10, f'Close Date: {close_date.strftime("%Y-%m-%d %H:%M:%S")}')
-                y_position -= 10
-            y_position -= padding
-            # Draw creation date below rectangle
-            c.setFont('Helvetica', 8)
-            creation_date_y = y_position - 7.5
-            c.drawString(x_position + padding, creation_date_y, f'Creation Date: {creation_date.strftime("%Y-%m-%d %H:%M:%S")}')
-            # Store the y_position of the creation date to calculate the next defect's position
-            y_left = creation_date_y - (2 * line_height)  # Two line spaces (30 points) below creation date
-        else:
-            if contractor_comments:
-                c.setFont('Helvetica-Bold', 12)
-                c.drawString(x_position, y_position, 'Contractors Reply:')
-                y_position -= 15
-                for comment in contractor_comments:
-                    # Calculate rectangle height
-                    rect_height = 0
-                    y_temp = y_position
-                    y_temp -= (padding + 7.5)  # Top padding + half line for comment
-                    y_temp, content_height = draw_text_wrapped(c, comment.content, x_position + padding, y_temp, max_width, font='Helvetica', font_size=12)
-                    rect_height += content_height + padding + 7.5
-                    for attachment in comment.attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for comment ID {comment.id} has a missing file path. Skipping image in PDF estimate.")
-                            # rect_height might need a small addition for placeholder, or just skip
-                            continue
-                        # Simplified estimation for fallback, actual image processing in drawing phase
+                    if os.path.exists(drawing_path) and marker_obj.drawing.file_path.lower().endswith('.pdf'):
+                        logger.debug(f"Attempting to convert PDF page to image: {drawing_path}")
                         try:
-                            img_temp = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
-                            _w, _h = img_temp.size
-                            rect_height += min(_h, 150) + 10 # Approx height + padding
-                        except Exception:
-                            rect_height += 20 # Placeholder for unopenable image
-                    rect_height += padding
+                            # Removed: if defect_id_for_log == 3: raise Exception("Simulated PDF conversion error for testing TC3") 
+                            
+                            images_from_path = convert_from_path(drawing_path, first_page=1, last_page=1, poppler_path=None)
+                            if images_from_path:
+                                logger.debug(f"Successfully converted PDF page to image: {drawing_path}")
+                                img = images_from_path[0]
+                                img = img.convert('RGB')
+                                draw_obj_pil = ImageDraw.Draw(img) # Renamed
+                                img_width_pil, img_height_pil = img.size 
+                                abs_x = marker_obj.x * img_width_pil
+                                abs_y = marker_obj.y * img_height_pil
+                                marker_radius = max(5, int(min(img_width_pil, img_height_pil) * 0.02))
+                                draw_obj_pil.ellipse((abs_x - marker_radius, abs_y - marker_radius, abs_x + marker_radius, abs_y + marker_radius), fill='red', outline='red')
+                                temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_pdf_{os.urandom(8).hex()}.png')
+                                img.save(temp_marked_drawing_path, 'PNG')
+                                logger.debug(f"Saved marked drawing to temporary file: {temp_marked_drawing_path}")
+                                
+                                c.setFont('Helvetica-Oblique', 9)
+                                label_text = "Marked Drawing View:"
+                                label_y_draw_pos = y_position_before_image_processing - 5 
+                                c.drawString(x_position + padding, label_y_draw_pos, label_text)
+                                y_after_label = label_y_draw_pos - 12 
+                                current_draw_y, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_after_label, max_width_draw, 150)
+                                marked_drawing_processed = True
+                            else:
+                                logger.error(f"PDF conversion yielded no images for {drawing_path} on defect {defect_id_for_log}.")
+                                current_draw_y = y_position_before_image_processing # Reset if no images
+                        except Exception as e:
+                            logger.error(f"PDF to image conversion failed for {drawing_path} (defect {defect_id_for_log}): {e}", exc_info=True)
+                            current_draw_y = y_position_before_image_processing 
+                        finally:
+                            if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
+                                os.remove(temp_marked_drawing_path)
+                                logger.debug(f"Deleted temporary marked drawing: {temp_marked_drawing_path}")
+                    elif os.path.exists(drawing_path): 
+                        logger.info(f"Marker drawing {drawing_path} for defect {defect_id_for_log} is not a PDF. Will attempt fallback to attachments.")
+                        current_draw_y = y_position_before_image_processing
+            
+            if not marked_drawing_processed: 
+                # If marked drawing wasn't processed (failed, not PDF, or no marker), use current_defect_attachments
+                if not (entry[0] == 'defect' and marker_obj and marker_obj.drawing): # if it wasn't a marked drawing attempt block
+                     current_draw_y = y_position_before_image_processing # ensure we start from after text
 
-                    # Draw rounded rectangle
-                    draw_rounded_rect(c, x_position, y_position, width - center_x - 20, rect_height, radius=10)
+                logger.debug(f"Processing/Falling back to regular attachments for {entry[0]} {defect_id_for_log}")
+                logger.debug(f"Attachments for {entry[0]} {defect_id_for_log}: {current_defect_attachments}")
+                for attachment_item in current_defect_attachments:
+                    if not attachment_item.file_path:
+                        logger.warning(f"Attachment ID {getattr(attachment_item, 'id', 'N/A')} for {entry[0]} {defect_id_for_log} has a missing file path.")
+                        continue
+                    logger.debug(f"Processing attachment item for {entry[0]} {defect_id_for_log}: {attachment_item.file_path}")
+                    current_draw_y, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_item.file_path)), x_position + padding, current_draw_y - 10, max_width_draw, 150)
 
-                    # Draw content
-                    y_position -= (padding + 7.5)
-                    content = comment.content or ""
-                    y_position, _ = draw_text_wrapped(c, content, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
-                    for attachment in comment.attachments:
-                        if not attachment.file_path:
-                            logger.warning(f"Attachment ID {attachment.id} for comment ID {comment.id} has a missing file path. Skipping image in PDF.")
+            # Final y position after all text and images within the content area of the rect
+            final_content_y_in_rect = current_draw_y 
+            
+            if close_date_draw:
+                c.setFont('Helvetica', 8)
+                c.drawString(x_position + padding, final_content_y_in_rect - 10, f'Close Date: {close_date_draw.strftime("%Y-%m-%d %H:%M:%S")}')
+            
+            # Creation date is drawn *below* the rectangle
+            creation_date_y_final = rect_content_top_y - estimated_rect_height - 7.5 
+            
+            c.setFont('Helvetica', 8)
+            creation_date_str = creation_date_draw.strftime("%Y-%m-%d %H:%M:%S") if isinstance(creation_date_draw, datetime) else str(creation_date_draw)
+            c.drawString(x_position + padding, creation_date_y_final, f'Creation Date: {creation_date_str}')
+            y_left = creation_date_y_final - (2 * line_height_draw) 
+        
+        else: # not is_left (right column for contractor comments)
+            y_right = y_position 
+            if contractor_comments_list:
+                c.setFont('Helvetica-Bold', 12)
+                contractor_y_start = y_position 
+                c.drawString(x_position, contractor_y_start, 'Contractors Reply:')
+                contractor_y_start -= 15
+                
+                current_comment_block_y = contractor_y_start
+
+                for comment_obj_item in contractor_comments_list: # Renamed
+                    # Estimate height for this specific comment block for its own rounded_rect
+                    est_rect_height_comment = padding 
+                    temp_content_est = comment_obj_item.content or ""
+                    _, temp_content_h_est = draw_text_wrapped(c, temp_content_est, 0,0, max_width_draw, font_size=12) 
+                    est_rect_height_comment += temp_content_h_est + 7.5
+                    
+                    temp_comment_attachments = comment_obj_item.attachments if hasattr(comment_obj_item, 'attachments') and comment_obj_item.attachments else []
+                    for att in temp_comment_attachments:
+                        if att.file_path: est_rect_height_comment += 150 + 10 
+                        else: est_rect_height_comment += 20 
+                    est_rect_height_comment += 10 # date height
+                    est_rect_height_comment += padding 
+                    
+                    draw_rounded_rect(c, x_position, current_comment_block_y, width - center_x - 20, est_rect_height_comment, radius=10)
+
+                    y_draw_in_comment_rect = current_comment_block_y - (padding + 7.5)
+                    content = comment_obj_item.content or ""
+                    y_after_comment_text, _ = draw_text_wrapped(c, content, x_position + padding, y_draw_in_comment_rect, max_width_draw, font='Helvetica', font_size=12)
+                    y_draw_in_comment_rect = y_after_comment_text
+                    
+                    for attachment_item in temp_comment_attachments:
+                        if not attachment_item.file_path:
+                            logger.warning(f"Attachment ID {getattr(attachment_item, 'id', 'N/A')} for comment ID {comment_obj_item.id} has a missing file path.")
                             continue
-                        y_position, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-                    y_position -= padding
-                    # Draw creation date below rectangle
+                        logger.debug(f"Processing attachment for comment {comment_obj_item.id}: {attachment_item.file_path}")
+                        y_after_img, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_item.file_path)), x_position + padding, y_draw_in_comment_rect - 10, max_width_draw, 150)
+                        y_draw_in_comment_rect = y_after_img
+                    
+                    y_draw_in_comment_rect -= padding
                     c.setFont('Helvetica', 8)
-                    c.drawString(x_position + padding, y_position - 7.5, f'Creation Date: {comment.created_at.strftime("%Y-%m-%d %H:%M:%S")}')
-                    y_position -= (10 + 7.5)  # Creation date height + half line
-            else:
-                y_position -= rect_height if 'rect_height' in locals() else 0
-            y_right = y_position
-        # Return the y_position for the next defect, ensuring two line spaces from the left column's creation date
+                    comment_created_at = comment_obj_item.created_at if hasattr(comment_obj_item, 'created_at') else datetime.now()
+                    c.drawString(x_position + padding, y_draw_in_comment_rect - 7.5, f'Creation Date: {comment_created_at.strftime("%Y-%m-%d %H:%M:%S")}')
+                    
+                    current_comment_block_y = current_comment_block_y - est_rect_height_comment - 10 
+                
+                y_right = current_comment_block_y 
+            else: 
+                y_right = y_position 
         return y_left if is_left else y_right
 
     c.setFont('Helvetica-Bold', 16)
@@ -1984,6 +1813,7 @@ def generate_report(project_id):
         with open(temp_path, 'wb') as f:
             f.write(pdf_buffer.read())
         pdf_buffer.close()
+        logger.info(f"Saving PDF report to: {temp_path}")
 
         # Serve the PDF, forcing download prompt
         response = send_file(
@@ -2005,20 +1835,21 @@ def generate_report(project_id):
             try:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
-                    logger.info(f'Cleaned up temporary report file: {temp_path}')
+                    # Ensure this log is consistent and clear about context
+                    logger.info(f'Cleaned up temporary report file after serving: {temp_path}')
             except Exception as e:
-                logger.error(f'Error cleaning up temporary report file {temp_path}: {str(e)}')
+                logger.error(f'Error cleaning up temporary report file {temp_path} after serving: {str(e)}')
 
         response.call_on_close(cleanup)
         return response
     except Exception as e:
-        logger.error(f'Error generating or serving PDF report for project {project_id}: {str(e)}')
+        logger.error(f'Error generating or serving PDF report for project {project_id}: {str(e)}', exc_info=True)
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                logger.info(f'Cleaned up temporary report file after error: {temp_path}')
+                logger.info(f'Cleaned up temporary report file after error during generation/serving: {temp_path}')
             except Exception as ex:
-                logger.error(f'Error cleaning up temporary report file {temp_path}: {str(ex)}')
+                logger.error(f'Error cleaning up temporary report file {temp_path} after error: {str(ex)}')
         flash(f'Error generating report: {str(e)}', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
 
@@ -2159,3 +1990,5 @@ def view_attachment(attachment_id):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+# --------------- End Temporary Test Route --------------- # This line (and everything above it including the __main__ guard) should be the end of the file.
