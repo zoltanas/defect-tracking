@@ -59,8 +59,12 @@
                         {% for defect in defects %}
                             <a href="{{ url_for('defect_detail', defect_id=defect.id) }}" class="block bg-gray-50 p-5 rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300 border-t border-l border-r border-gray-200">
                                 <h3 class="text-lg font-semibold text-primary mb-2 truncate" title="{{ defect.description }}">{{ defect.description }}</h3>
-                                {% if defect.first_thumbnail_path %}
-                                    <div class="my-2"> {# Margin for spacing #}
+                                {% if defect.first_thumbnail_path and defect.first_attachment_file_path and defect.first_attachment_id %}
+                                    <div class="my-2 cursor-pointer" onclick="openImagePopup('{{ url_for('static', filename=defect.first_attachment_file_path) }}', '{{ defect.first_attachment_id }}', '/draw/'); event.preventDefault(); event.stopPropagation();">
+                                        <img src="{{ url_for('static', filename=defect.first_thumbnail_path) }}" alt="Defect Thumbnail" class="w-full h-auto max-h-40 object-contain rounded-md bg-gray-100 pointer-events-none">
+                                    </div>
+                                {% elif defect.first_thumbnail_path %} {# Fallback if new attributes are missing #}
+                                    <div class="my-2">
                                         <img src="{{ url_for('static', filename=defect.first_thumbnail_path) }}" alt="Defect Thumbnail" class="w-full h-auto max-h-40 object-contain rounded-md bg-gray-100">
                                     </div>
                                 {% endif %}

@@ -132,5 +132,17 @@
             </div>
         {% endif %}
     {% endwith %}
+
+    <!-- Image Popup Modal -->
+    <div id="imagePopupModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50">
+        <div class="rounded-lg bg-white p-8 shadow-xl">
+            <img id="popupImage" src="" alt="Popup Image" class="mx-auto block max-h-[70vh] max-w-full">
+            <div class="mt-4 flex justify-around">
+                <a id="editImageButton" href="#" class="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-700">Edit image</a>
+                <button id="cancelImagePopupButton" class="rounded bg-gray-300 px-4 py-2 hover:bg-gray-400">Close</button>
+                <button id="closeImagePopupButton" class="rounded bg-red-500 px-4 py-2 text-white hover:bg-red-700">Close</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

@@ -465,10 +465,14 @@ def project_detail(project_id):
 
     for defect in defects:
         defect.first_thumbnail_path = None
+        defect.first_attachment_file_path = None
+        defect.first_attachment_id = None
         defect.has_marker = False
         if defect.attachments:
             first_attachment = defect.attachments[0]
             defect.first_thumbnail_path = first_attachment.thumbnail_path
+            defect.first_attachment_file_path = first_attachment.file_path
+            defect.first_attachment_id = first_attachment.id
 
         defect.marker_data = None
         if defect.markers:
