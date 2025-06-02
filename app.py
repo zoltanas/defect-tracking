@@ -1505,6 +1505,10 @@ def generate_report(project_id):
                 space_needed += len(lines) * line_height + 10
             # Attachments
             for attachment in attachments:
+                if not attachment.file_path:
+                    logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
+                    space_needed += 20
+                    continue
                 try:
                     img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
                     img_width, img_height = img.size
@@ -1546,6 +1550,10 @@ def generate_report(project_id):
                     lines.append(' '.join(current_line))
                 space_needed += len(lines) * line_height + 17.5  # Content + padding + half line offset
                 for attachment in comment.attachments:
+                if not attachment.file_path:
+                    logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
+                    space_needed += 20
+                    continue
                     try:
                         img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
                         img_width, img_height = img.size
@@ -1637,8 +1645,28 @@ def generate_report(project_id):
                 rect_height += comment_height_val + padding # Add comment height and its padding
 
             if entry[0] == 'defect' and marker and marker.drawing:
-                drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
-                if os.path.exists(drawing_path):
+                if not marker.drawing.file_path:
+                    logger.warning(f"Drawing for marker on defect ID {defect.id} has a missing file path. Skipping marked drawing in PDF.")
+                    # Fallback to processing regular attachments as drawing_path will not be valid
+                    for attachment in attachments:
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
+                            # rect_height might need a small addition for placeholder, or just skip
+                            continue
+                        # Simplified estimation for fallback, actual image processing in drawing phase
+                        try:
+                            img_temp = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
+                            _w, _h = img_temp.size
+                            # Basic height addition, real scaling happens in add_image_to_pdf
+                            rect_height += min(_h, 150) + 10 # Approx height + padding
+                        except Exception:
+                            rect_height += 20 # Placeholder for unopenable image
+                    # Ensure this block doesn't execute further if file_path is missing
+                    drawing_path = None 
+                else:
+                    drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
+
+                if drawing_path and os.path.exists(drawing_path): # Check drawing_path is not None
                     # Add height for the "Marked Drawing View:" label and its top padding
                     rect_height += 17 # 5 for padding above label, 12 for label line height
                     try:
@@ -1668,16 +1696,31 @@ def generate_report(project_id):
                         logger.error(f"Error estimating marked drawing height for defect {defect.id}: {e}")
                         # Fallback to regular attachments if marker processing fails
                         for attachment in attachments:
+                            if not attachment.file_path:
+                                logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
+                                continue
                             y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
                             rect_height += img_height_pdf + 10
-                else:
-                    # Fallback if drawing file not found
+                elif drawing_path is None and entry[0] == 'defect' and marker and marker.drawing: 
+                    # This 'elif' handles the case where marker.drawing.file_path was None/empty
+                    # The fallback for attachments was already handled when drawing_path was set to None.
+                    # No additional action needed here for rect_height calculation for this specific sub-condition.
+                    pass
+                else: # Fallback if drawing file not found (and drawing_path was not None initially)
                     for attachment in attachments:
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for defect/item {defect.id} has a missing file path. Skipping image in PDF estimate.")
+                            continue
                         y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
                         rect_height += img_height_pdf + 10
             else:
-                # Original attachment logic if no marker or no drawing
+                # Original attachment logic if no marker or no drawing (applies to checklist items or defects without markers)
                 for attachment in attachments:
+                    if not attachment.file_path:
+                        # Determine if it's a defect or checklist item for logging
+                        log_item_id = defect.id if entry[0] == 'defect' else item.id
+                        logger.warning(f"Attachment ID {attachment.id} for defect/item {log_item_id} has a missing file path. Skipping image in PDF estimate.")
+                        continue
                     y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
                     rect_height += img_height_pdf + 10
 
@@ -1723,8 +1766,20 @@ def generate_report(project_id):
                 y_position, _ = draw_text_wrapped(c, comments, x_position + padding, y_position - padding, max_width, font='Helvetica', font_size=12)
 
             if entry[0] == 'defect' and marker and marker.drawing:
-                drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
-                if os.path.exists(drawing_path):
+                # Check marker.drawing.file_path first
+                if not marker.drawing.file_path:
+                    logger.warning(f"Drawing for marker on defect ID {defect.id} has a missing file path. Skipping marked drawing in PDF display.")
+                    # Fallback to regular attachments
+                    for attachment in attachments:
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
+                            continue
+                        y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+                    drawing_path = None # Ensure we don't try to use it later
+                else:
+                    drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
+
+                if drawing_path and os.path.exists(drawing_path): # Proceed if drawing_path is valid and exists
                     temp_marked_drawing_path = None # Initialize here for finally block
                     try:
                         img = PILImage.open(drawing_path)
@@ -1770,21 +1825,36 @@ def generate_report(project_id):
                         # This section is complex. Let's assume current_draw_y was the starting point for this content block.
                         y_position = current_draw_y # Reset to where description/status content ended.
                         for attachment in attachments: # Fallback
+                            if not attachment.file_path:
+                                logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
+                                continue
                             # Correctly indent the call to add_image_to_pdf
                             y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
                     finally:
                         if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
                             os.remove(temp_marked_drawing_path)
-                else: # Fallback if drawing not found
+                # This 'elif' handles the case where marker.drawing.file_path was None/empty (drawing_path became None)
+                elif drawing_path is None and entry[0] == 'defect' and marker and marker.drawing:
+                    # The fallback to regular attachments was already handled when drawing_path was set to None.
+                    # No additional drawing action needed here for this specific sub-condition.
+                    pass
+                else: # Fallback if drawing file not found (and drawing_path was not None initially)
                     # y_position should be current_draw_y if coming from description block.
                     y_position = current_draw_y 
                     for attachment in attachments:
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for defect {defect.id} has a missing file path. Skipping image in PDF.")
+                            continue
                         # Correctly indent the call to add_image_to_pdf here as well
                         y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
             # This 'else' corresponds to 'if entry[0] == 'defect' and marker and marker.drawing:'
             # It handles cases where there's no marker or it's a checklist item, so normal attachments are shown.
-            else: # Original attachment logic
+            else: # Original attachment logic (for checklist items or defects without markers)
                 for attachment in attachments:
+                    if not attachment.file_path:
+                        log_item_id = defect.id if entry[0] == 'defect' else item.id
+                        logger.warning(f"Attachment ID {attachment.id} for defect/item {log_item_id} has a missing file path. Skipping image in PDF.")
+                        continue
                     y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
 
             if close_date:
@@ -1811,8 +1881,17 @@ def generate_report(project_id):
                     y_temp, content_height = draw_text_wrapped(c, comment.content, x_position + padding, y_temp, max_width, font='Helvetica', font_size=12)
                     rect_height += content_height + padding + 7.5
                     for attachment in comment.attachments:
-                        y_temp, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
-                        rect_height += img_height + 10
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for comment ID {comment.id} has a missing file path. Skipping image in PDF estimate.")
+                            # rect_height might need a small addition for placeholder, or just skip
+                            continue
+                        # Simplified estimation for fallback, actual image processing in drawing phase
+                        try:
+                            img_temp = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
+                            _w, _h = img_temp.size
+                            rect_height += min(_h, 150) + 10 # Approx height + padding
+                        except Exception:
+                            rect_height += 20 # Placeholder for unopenable image
                     rect_height += padding
 
                     # Draw rounded rectangle
@@ -1823,6 +1902,9 @@ def generate_report(project_id):
                     content = comment.content or ""
                     y_position, _ = draw_text_wrapped(c, content, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
                     for attachment in comment.attachments:
+                        if not attachment.file_path:
+                            logger.warning(f"Attachment ID {attachment.id} for comment ID {comment.id} has a missing file path. Skipping image in PDF.")
+                            continue
                         y_position, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
                     y_position -= padding
                     # Draw creation date below rectangle
