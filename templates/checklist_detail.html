@@ -45,11 +45,14 @@
                                       hover:file:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-primary">
                         {% set item_attachments = item.attachments %}
                         {% if item_attachments %}
-                            <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                            <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"> {# Adjusted grid columns for potentially smaller items, and gap #}
                                 {% for attachment in item_attachments %}
-                                <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="relative group cursor-pointer">
-                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Thumbnail" class="w-full h-20 object-cover rounded-md border border-gray-200 pointer-events-none">
-                                    {# Link to delete attachment can be added here if functionality exists #}
+                                <div role="button"
+                                     class="w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150"
+                                     onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');">
+                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}"
+                                         alt="Thumbnail for attachment {{ attachment.id }}"
+                                         class="max-w-full max-h-full object-contain pointer-events-none">
                                 </div>
                                 {% endfor %}
                             </div>
