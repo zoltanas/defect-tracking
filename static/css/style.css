@@ -24,9 +24,9 @@
     height: auto; /* Allow image to scale based on its aspect ratio */
     object-fit: contain; /* Crucial for maintaining aspect ratio without cropping */
     display: block; /* Remove extra space below image if it were inline */
-    margin-left: auto; /* Center image horizontally */
-    margin-right: auto; /* Center image horizontally */
-    border-radius: 0.5rem; /* Optional: if you want rounded corners for the image */
+    margin-left: auto;      /* Centers the image horizontally if it's narrower than container */
+    margin-right: auto;     /* Centers the image horizontally */
+    border-radius: 0.375rem; /* equivalent to Tailwind's rounded-md, if desired */
 }
 
 /* Styling for buttons within the popup for better visibility and usability */
