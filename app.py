@@ -1054,6 +1054,87 @@ def delete_checklist_attachment(checklist_id, attachment_id):
         flash(f'Error deleting attachment: {str(e)}', 'error')
     return redirect(url_for('checklist_detail', checklist_id=checklist_id))
 
+@app.route('/delete_image/<int:attachment_id>', methods=['DELETE'])
+@login_required
+def delete_image_route(attachment_id):
+    attachment = db.session.get(Attachment, attachment_id)
+    if not attachment:
+        return jsonify({'status': 'error', 'message': 'Attachment not found.'}), 404
+
+    project_id = None
+    permission_ok = False
+
+    if attachment.defect_id:
+        defect = db.session.get(Defect, attachment.defect_id)
+        if not defect:
+            return jsonify({'status': 'error', 'message': 'Associated defect not found.'}), 404
+        project_id = defect.project_id
+        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+        if access and current_user.role == 'admin':
+            permission_ok = True
+        else:
+            return jsonify({'status': 'error', 'message': 'Permission denied to delete this defect attachment.'}), 403
+
+    elif attachment.checklist_item_id:
+        checklist_item = db.session.get(ChecklistItem, attachment.checklist_item_id)
+        if not checklist_item or not checklist_item.checklist:
+            return jsonify({'status': 'error', 'message': 'Associated checklist item or checklist not found.'}), 404
+        project_id = checklist_item.checklist.project_id
+        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+        if access and current_user.role == 'admin':
+            permission_ok = True
+        else:
+            return jsonify({'status': 'error', 'message': 'Permission denied to delete this checklist attachment.'}), 403
+
+    elif attachment.comment_id:
+        comment = db.session.get(Comment, attachment.comment_id)
+        if not comment or not comment.defect: # Assuming comments are always linked to defects for project context
+            return jsonify({'status': 'error', 'message': 'Associated comment or defect not found.'}), 404
+        project_id = comment.defect.project_id
+        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+        if not access:
+             return jsonify({'status': 'error', 'message': 'No project access.'}), 403 # Should not happen if other checks pass
+        if current_user.role == 'admin' or comment.user_id == current_user.id:
+            permission_ok = True
+        else:
+            return jsonify({'status': 'error', 'message': 'Permission denied to delete this comment attachment.'}), 403
+    else:
+        # Orphaned or unknown context
+        return jsonify({'status': 'error', 'message': 'Cannot determine attachment context or invalid attachment.'}), 400
+
+    if not permission_ok: # Should be caught by specific context checks, but as a safeguard
+        return jsonify({'status': 'error', 'message': 'Permission denied.'}), 403
+
+    # Delete files
+    try:
+        if attachment.file_path:
+            full_file_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path))
+            if os.path.exists(full_file_path):
+                os.remove(full_file_path)
+                logger.info(f"Deleted file: {full_file_path}")
+        if attachment.thumbnail_path:
+            full_thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.thumbnail_path))
+            if os.path.exists(full_thumbnail_path):
+                os.remove(full_thumbnail_path)
+                logger.info(f"Deleted thumbnail: {full_thumbnail_path}")
+    except Exception as e:
+        app.logger.error(f"Error deleting physical files for attachment {attachment_id}: {str(e)}")
+        # Depending on policy, you might want to stop if files can't be deleted.
+        # For now, we log and proceed to DB deletion.
+        # return jsonify({'status': 'error', 'message': f'Error deleting image files: {str(e)}'}), 500
+
+    # Delete database record
+    try:
+        db.session.delete(attachment)
+        db.session.commit()
+        logger.info(f"Deleted attachment {attachment_id} from database.")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting attachment {attachment_id} from database: {str(e)}")
+        return jsonify({'status': 'error', 'message': 'Error deleting image from database.'}), 500
+
+    return jsonify({'status': 'success', 'message': 'Image deleted successfully'}), 200
+
 @app.route('/templates')
 @login_required
 def template_list():

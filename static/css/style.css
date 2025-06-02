@@ -18,10 +18,14 @@
 }
 
 #popupImage {
-    max-width: 90%; /* Max width relative to its container */
-    max-height: 70vh; /* Max height relative to viewport height */
-    display: block; /* Remove extra space below image */
-    margin: auto; /* Center image */
+    max-width: 100%; /* Ensure it doesn't exceed modal content width */
+    max-height: 75vh; /* Adjust max height to 75% of viewport height */
+    width: auto; /* Allow image to scale based on its aspect ratio */
+    height: auto; /* Allow image to scale based on its aspect ratio */
+    object-fit: contain; /* Crucial for maintaining aspect ratio without cropping */
+    display: block; /* Remove extra space below image if it were inline */
+    margin-left: auto; /* Center image horizontally */
+    margin-right: auto; /* Center image horizontally */
     border-radius: 0.5rem; /* Optional: if you want rounded corners for the image */
 }
 
