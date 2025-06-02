@@ -1352,6 +1352,8 @@ def generate_report(project_id):
             attachments = Attachment.query.filter_by(defect_id=defect.id, checklist_item_id=None, comment_id=None).all()
             comments = None
             contractor_comments = entry[2]
+            # Fetch marker for the defect
+            marker = DefectMarker.query.filter_by(defect_id=defect.id).first()
         else:
             checklist, item = entry[1], entry[2]
             description = f"Checkpoint: {item.item_text}"
@@ -1480,6 +1482,7 @@ def generate_report(project_id):
             attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
             comments = item.comments if item.comments and item.comments.strip() else None
             contractor_comments = []
+            marker = None # No markers for checklist items
 
         if is_left:
             # Draw "Defect N:" title
@@ -1496,9 +1499,48 @@ def generate_report(project_id):
             if comments:
                 y_temp, comment_height = draw_text_wrapped(c, comments, x_position + padding, y_temp - padding, max_width, font='Helvetica', font_size=12)
                 rect_height += comment_height + padding
-            for attachment in attachments:
-                y_temp, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
-                rect_height += img_height + 10
+
+            if entry[0] == 'defect' and marker and marker.drawing:
+                drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
+                if os.path.exists(drawing_path):
+                    try:
+                        img = PILImage.open(drawing_path)
+                        draw_obj = ImageDraw.Draw(img)
+                        img_width, img_height_pil = img.size
+                        # Scale normalized coordinates
+                        abs_x = marker.x * img_width
+                        abs_y = marker.y * img_height_pil
+                        # Draw a red circle marker
+                        marker_radius = 10 # Adjust as needed
+                        draw_obj.ellipse(
+                            (abs_x - marker_radius, abs_y - marker_radius,
+                             abs_x + marker_radius, abs_y + marker_radius),
+                            fill='red', outline='red'
+                        )
+                        # Save modified image temporarily
+                        temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_{os.urandom(8).hex()}.png')
+                        img.save(temp_marked_drawing_path, 'PNG')
+
+                        y_temp, img_height_pdf = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_temp - 10, max_width, 150)
+                        rect_height += img_height_pdf + 10
+                        os.remove(temp_marked_drawing_path)
+                    except Exception as e:
+                        logger.error(f"Error processing marked drawing for defect {defect.id}: {e}")
+                        # Fallback to regular attachments if marker processing fails
+                        for attachment in attachments:
+                            y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
+                            rect_height += img_height_pdf + 10
+                else:
+                    # Fallback if drawing file not found
+                    for attachment in attachments:
+                        y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
+                        rect_height += img_height_pdf + 10
+            else:
+                # Original attachment logic if no marker or no drawing
+                for attachment in attachments:
+                    y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
+                    rect_height += img_height_pdf + 10
+
             if close_date:
                 rect_height += 10
                 y_temp -= 10
@@ -1512,8 +1554,38 @@ def generate_report(project_id):
             y_position, _ = draw_text_wrapped(c, description, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
             if comments:
                 y_position, _ = draw_text_wrapped(c, comments, x_position + padding, y_position - padding, max_width, font='Helvetica', font_size=12)
-            for attachment in attachments:
-                y_position, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+
+            if entry[0] == 'defect' and marker and marker.drawing:
+                drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
+                if os.path.exists(drawing_path):
+                    try:
+                        img = PILImage.open(drawing_path)
+                        draw_obj = ImageDraw.Draw(img)
+                        img_width, img_height_pil = img.size
+                        abs_x = marker.x * img_width
+                        abs_y = marker.y * img_height_pil
+                        marker_radius = 10
+                        draw_obj.ellipse(
+                            (abs_x - marker_radius, abs_y - marker_radius,
+                             abs_x + marker_radius, abs_y + marker_radius),
+                            fill='red', outline='red'
+                        )
+                        temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_{os.urandom(8).hex()}.png')
+                        img.save(temp_marked_drawing_path, 'PNG')
+
+                        y_position, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_position - 10, max_width, 150)
+                        os.remove(temp_marked_drawing_path)
+                    except Exception as e:
+                        logger.error(f"Error drawing marked image for PDF (defect {defect.id}): {e}")
+                        for attachment in attachments: # Fallback
+                            y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+                else: # Fallback if drawing not found
+                    for attachment in attachments:
+                        y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+            else: # Original attachment logic
+                for attachment in attachments:
+                    y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+
             if close_date:
                 c.setFont('Helvetica', 8)
                 c.drawString(x_position + padding, y_position - 10, f'Close Date: {close_date.strftime("%Y-%m-%d %H:%M:%S")}')
