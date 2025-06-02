@@ -35,6 +35,9 @@
             color: white !important;
         }
     </style>
+    <script type="text/javascript">
+        const csrfToken = "{{ csrf_token() }}";
+    </script>
     <script src="{{ url_for('static', filename='js/popup.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -132,5 +135,17 @@
             </div>
         {% endif %}
     {% endwith %}
+
+    <!-- Image Popup Modal -->
+    <div id="imagePopupModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50">
+        <div id="imagePopupContentArea" class="rounded-lg bg-white p-8 shadow-xl"> <!-- Added ID here -->
+            <img id="popupImage" src="" alt="Popup Image" class="mx-auto block"> <!-- Removed max-h, max-w classes -->
+            <div class="mt-4 flex justify-around">
+                <a id="editImageButton" href="#" class="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-700">Edit image</a>
+                <button id="deleteImageButton" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Delete image</button>
+                <button id="closeImagePopupButton" class="rounded px-4 py-2">Close</button> {# Removed Tailwind bg/hover classes for CSS override #}
+            </div>
+        </div>
+    </div>
 </body>
 </html>
