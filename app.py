@@ -1770,6 +1770,8 @@ def generate_report(project_id):
                         # This section is complex. Let's assume current_draw_y was the starting point for this content block.
                         y_position = current_draw_y # Reset to where description/status content ended.
                         for attachment in attachments: # Fallback
+                            # Correctly indent the call to add_image_to_pdf
+                            y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
                     finally:
                         if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
                             os.remove(temp_marked_drawing_path)
@@ -1777,10 +1779,10 @@ def generate_report(project_id):
                     # y_position should be current_draw_y if coming from description block.
                     y_position = current_draw_y 
                     for attachment in attachments:
-                            y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
-                else: # Fallback if drawing not found
-                    for attachment in attachments:
+                        # Correctly indent the call to add_image_to_pdf here as well
                         y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
+            # This 'else' corresponds to 'if entry[0] == 'defect' and marker and marker.drawing:'
+            # It handles cases where there's no marker or it's a checklist item, so normal attachments are shown.
             else: # Original attachment logic
                 for attachment in attachments:
                     y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
