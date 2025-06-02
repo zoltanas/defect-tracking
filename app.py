@@ -1276,6 +1276,8 @@ def generate_report(project_id):
     column_width = (width - left_margin - (width - right_margin)) / 2
 
     def draw_text_wrapped(c, text, x, y, max_width, line_height=15, font='Helvetica', font_size=12):
+        if text is None:
+            text = ""
         c.setFont(font, font_size)
         words = text.split()
         lines = []
@@ -1347,24 +1349,35 @@ def generate_report(project_id):
 
         if entry[0] == 'defect':
             defect = entry[1]
-            description = defect.description
+            description = defect.description or ""
             close_date = defect.close_date
             attachments = Attachment.query.filter_by(defect_id=defect.id, checklist_item_id=None, comment_id=None).all()
-            comments = None
+            comments = None # Not used directly for defects in estimate_space_needed, but rather contractor_comments
             contractor_comments = entry[2]
             # Fetch marker for the defect
             marker = DefectMarker.query.filter_by(defect_id=defect.id).first()
         else:
             checklist, item = entry[1], entry[2]
-            description = f"Checkpoint: {item.item_text}"
+            item_text = item.item_text or ""
+            description = f"Checkpoint: {item_text}"
             close_date = None
             attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
-            comments = item.comments if item.comments and item.comments.strip() else None
+            # item.comments is used to populate the 'comments' variable for checklist items
+            comments = item.comments or "" # Ensure item.comments is treated as empty string if None
+            # The existing logic `if comments and comments.strip() else None` would turn "" into None.
+            # Let's adjust to keep it as "" if it's just whitespace, or use it if it has content.
+            # The original logic for 'comments' variable: `comments = item.comments if item.comments and item.comments.strip() else None`
+            # This function estimates space, so even an empty-looking comment field might take space.
+            # For estimation, it's safer to assume `item.comments or ""`
+            # However, the splitting logic `words = comments.split()` needs a string.
+            # If `item.comments` is None or only whitespace, `comments.split()` would fail or produce `['']`.
+            # Let's stick to `item.comments or ""` for the `comments` variable for checklist items.
+            # The `if comments:` check before `words = comments.split()` will handle empty strings correctly.
             contractor_comments = []
 
         if is_left:
             # Estimate description height
-            words = description.split()
+            words = description.split() # description is already "" if None
             lines = []
             current_line = []
             current_width = 0
@@ -1381,8 +1394,8 @@ def generate_report(project_id):
                 lines.append(' '.join(current_line))
             space_needed += len(lines) * line_height + 7.5  # Half line offset for description
             # Comments for checklist items
-            if comments:
-                words = comments.split()
+            if comments: # comments here refers to item.comments for checklist items
+                words = comments.split() # comments is already "" if None (from item.comments or "")
                 lines = []
                 current_line = []
                 current_width = 0
@@ -1423,7 +1436,8 @@ def generate_report(project_id):
         else:
             # Contractor comments
             for comment in contractor_comments:
-                words = comment.content.split()
+                content = comment.content or ""
+                words = content.split()
                 lines = []
                 current_line = []
                 current_width = 0
@@ -1468,19 +1482,25 @@ def generate_report(project_id):
 
         if entry[0] == 'defect':
             defect = entry[1]
-            description = defect.description
+            description = defect.description or ""
             creation_date = defect.creation_date
             close_date = defect.close_date
             attachments = Attachment.query.filter_by(defect_id=defect.id, checklist_item_id=None, comment_id=None).all()
+            # `comments` variable for defects is not used for drawing defect's own comments, but for checklist item comments.
+            # So, it remains None for defects.
             comments = None
             contractor_comments = entry[2]
-        else:
+            # marker is fetched earlier in this function
+        else: # checklist_item
             checklist, item = entry[1], entry[2]
-            description = f"Checkpoint: {item.item_text}"
+            item_text = item.item_text or ""
+            description = f"Checkpoint: {item_text}"
             creation_date = checklist.creation_date
             close_date = None
             attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
-            comments = item.comments if item.comments and item.comments.strip() else None
+            # For checklist items, `item.comments` is the relevant field.
+            # `draw_text_wrapped` handles None, but ensure it's "" if we use it before that.
+            comments = item.comments or ""
             contractor_comments = []
             marker = None # No markers for checklist items
 
@@ -1619,7 +1639,8 @@ def generate_report(project_id):
 
                     # Draw content
                     y_position -= (padding + 7.5)
-                    y_position, _ = draw_text_wrapped(c, comment.content, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
+                    content = comment.content or ""
+                    y_position, _ = draw_text_wrapped(c, content, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
                     for attachment in comment.attachments:
                         y_position, img_height = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
                     y_position -= padding
@@ -1644,19 +1665,42 @@ def generate_report(project_id):
             c.drawString(left_margin, y_position, f'{title}: {len(defect_list)}')
             y_position -= 20
             for idx, entry in enumerate(defect_list, 1):
-                space_needed_left = estimate_space_needed(entry, is_left=True)
-                space_needed_right = estimate_space_needed(entry, is_left=False)
-                total_space_needed = max(space_needed_left, space_needed_right)
-                if y_position - total_space_needed < 50:
-                    c.showPage()
-                    y_position = height - 50
-                    c.setFont('Helvetica', 12)
-                # Add left column (defect details)
-                y_left = add_defect_to_pdf(entry, is_left=True, y_position=y_position, defect_number=idx)
-                # Add right column (contractor comments)
-                y_right = add_defect_to_pdf(entry, is_left=False, y_position=y_position)
-                # Use y_left for the next defect to ensure two line spaces from creation date
-                y_position = y_left
+                entry_description = ""
+                try:
+                    if entry[0] == 'defect':
+                        defect_id = entry[1].id
+                        entry_description = f"Defect ID {defect_id}"
+                    elif entry[0] == 'checklist_item':
+                        checklist_name = entry[1].name
+                        item_id = entry[2].id
+                        entry_description = f"Checklist Item ID {item_id} from Checklist '{checklist_name}'"
+                    else:
+                        entry_description = "Unknown entry type"
+
+                    space_needed_left = estimate_space_needed(entry, is_left=True)
+                    space_needed_right = estimate_space_needed(entry, is_left=False)
+                    total_space_needed = max(space_needed_left, space_needed_right)
+
+                    if y_position - total_space_needed < 50:
+                        c.showPage()
+                        y_position = height - 50
+                        c.setFont('Helvetica', 12) # Reset font after page break
+
+                    # Add left column (defect details)
+                    y_left = add_defect_to_pdf(entry, is_left=True, y_position=y_position, defect_number=idx)
+                    # Add right column (contractor comments)
+                    # y_right is not strictly needed here if y_left dictates the next position
+                    _ = add_defect_to_pdf(entry, is_left=False, y_position=y_position)
+
+                    # Use y_left for the next defect to ensure two line spaces from creation date
+                    y_position = y_left
+                except Exception as e:
+                    logger.error(f"Error processing entry {entry_description} for PDF report: {e}", exc_info=True)
+                    # Advance y_position slightly to avoid potential overlap if the error was in drawing
+                    # This is a simple recovery; complex layouts might need more sophisticated handling.
+                    # For now, we just ensure the loop continues and errors are logged.
+                    # y_position -= 20 # Optional: advance a bit to make space for an error message or avoid overlap
+                    continue # Continue to the next entry
         return y_position
 
     if filter_status == 'All':
