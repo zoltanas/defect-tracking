@@ -1550,10 +1550,10 @@ def generate_report(project_id):
                     lines.append(' '.join(current_line))
                 space_needed += len(lines) * line_height + 17.5  # Content + padding + half line offset
                 for attachment in comment.attachments:
-                if not attachment.file_path:
-                    logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
-                    space_needed += 20
-                    continue
+                    if not attachment.file_path:
+                        logger.warning(f"Attachment ID {attachment.id} has a missing file path. Skipping space estimation for this image.")
+                        space_needed += 20
+                        continue
                     try:
                         img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)))
                         img_width, img_height = img.size
