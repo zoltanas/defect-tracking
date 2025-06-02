@@ -693,7 +693,9 @@ def defect_detail(defect_id):
 
         # Handle POST requests
         if request.method == 'POST':
-            if 'delete' in request.form:
+            action = request.form.get('action')
+
+            if action == 'delete_defect':
                 if access.role != 'admin':
                     logger.warning(f"User {current_user.id} attempted to delete defect {defect_id} without admin role")
                     flash('Only admins can delete defects.', 'error')
@@ -717,108 +719,197 @@ def defect_detail(defect_id):
                 flash('Defect deleted successfully!', 'success')
                 return redirect(url_for('project_detail', project_id=project_id))
 
-            if request.form.get('action') == 'add_comment':
+            elif action == 'add_comment':
                 content = request.form.get('comment_content', '').strip()
                 if content:
                     comment = Comment(defect_id=defect_id, user_id=current_user.id, content=content)
                     db.session.add(comment)
-                    db.session.commit()
+                    db.session.commit() # Commit comment to get comment.id for attachments
                     attachment_ids = []
                     if 'photos' in request.files:
                         files = request.files.getlist('photos')
                         for file in files:
                             if file and allowed_file(file.filename):
                                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                # Ensure comment.id is available
                                 filename = secure_filename(f'comment_{comment.id}_{timestamp}_{file.filename}')
-                                file_path = os.path.join('images', filename)
-                                full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                                file_path_for_db = os.path.join('images', filename) # Relative path for DB
+                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Full path for saving
                                 thumbnail_filename = f'thumb_{filename}'
-                                thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
+                                thumbnail_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename) # Full path for saving thumb
+                                thumbnail_path_for_db = os.path.join('images', thumbnail_filename) # Relative path for DB
+
                                 try:
                                     img = PILImage.open(file)
                                     img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                                     img = img.convert('RGB')
-                                    img.save(full_path, quality=85, optimize=True)
-                                    os.chmod(full_path, 0o644)
-                                    create_thumbnail(full_path, thumbnail_path)
-                                    attachment = Attachment(comment_id=comment.id, file_path=file_path, thumbnail_path=f'images/{thumbnail_filename}')
+                                    img.save(full_disk_path, quality=85, optimize=True)
+                                    os.chmod(full_disk_path, 0o644)
+                                    create_thumbnail(full_disk_path, thumbnail_disk_path)
+                                    
+                                    attachment = Attachment(comment_id=comment.id, 
+                                                            file_path=file_path_for_db, 
+                                                            thumbnail_path=thumbnail_path_for_db)
                                     db.session.add(attachment)
-                                    db.session.commit()
+                                    db.session.commit() # Commit each attachment
                                     attachment_ids.append(attachment.id)
                                 except Exception as e:
-                                    logger.error(f'Error processing file {file.filename}: {str(e)}')
-                                    flash(f'Error uploading file {file.filename}: {str(e)}', 'error')
-                                    db.session.rollback()
-                                    continue
+                                    logger.error(f'Error processing file {file.filename} for comment {comment.id} on defect {defect_id}: {str(e)}')
+                                    flash(f'Error uploading file {file.filename}.', 'error')
+                                    db.session.rollback() # Rollback this attachment's transaction
+                                    continue # Continue with other files
                     if attachment_ids:
-                        logger.info(f"Comment with attachments added to defect {defect_id}")
+                        logger.info(f"Comment with {len(attachment_ids)} attachments added to defect {defect_id}")
+                        # Redirect to draw tool for the first attachment, then back to defect detail
                         return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect_id)))
-                    logger.info(f"Comment added to defect {defect_id}")
+                    
+                    logger.info(f"Comment added to defect {defect_id} (no attachments or attachments processed).")
                     flash('Comment added successfully!', 'success')
                 else:
                     logger.warning(f"Empty comment submitted for defect {defect_id}")
                     flash('Comment cannot be empty.', 'error')
+                # This redirect should be here, after processing the comment (or lack thereof)
+                return redirect(url_for('defect_detail', defect_id=defect_id))
 
-            elif 'description' in request.form:
+            elif action == 'edit_defect': # Corresponds to the main "Save Changes" form
                 if access.role not in ['admin', 'expert']:
-                    logger.warning(f"User {current_user.id} attempted to edit defect {defect_id} without permission")
                     flash('You do not have permission to edit defects.', 'error')
                     return redirect(url_for('defect_detail', defect_id=defect_id))
-                description = request.form.get('description', '').strip()
-                status = request.form.get('status', '').lower()
-                if not description:
-                    logger.warning(f"Empty description submitted for defect {defect_id}")
-                    flash('Description is required!', 'error')
-                    return redirect(url_for('defect_detail', defect_id=defect_id))
-                defect.description = description
-                if status in ['open', 'closed']:
-                    if status == 'closed' and defect.creator_id != current_user.id and access.role != 'admin':
-                        logger.warning(f"User {current_user.id} attempted to close defect {defect_id} without permission")
-                        flash('You can only close defects you created.', 'error')
-                        return redirect(url_for('defect_detail', defect_id=defect_id))
-                    defect.status = status
-                    if status == 'closed' and not defect.close_date:
-                        defect.close_date = datetime.now()
-                    elif status == 'open':
-                        defect.close_date = None
-                db.session.commit()
-                logger.info(f"Defect {defect_id} updated: description={description}, status={status}")
-                flash('Defect updated successfully!', 'success')
 
-            return redirect(url_for('defect_detail', defect_id=defect_id))
+                error_occurred = False
+                
+                # --- Update Defect Properties ---
+                new_description = request.form.get('description', '').strip()
+                new_status = request.form.get('status', defect.status).lower()
 
-        # Fetch attachments and comments
+                if not new_description:
+                    flash('Description cannot be empty.', 'error')
+                    error_occurred = True
+                else:
+                    defect.description = new_description
+                
+                if not error_occurred: # Only proceed if description was okay
+                    if new_status in ['open', 'closed']:
+                        if defect.status != new_status:
+                            if new_status == 'closed':
+                                if defect.creator_id != current_user.id and access.role != 'admin':
+                                    flash('Only the defect creator or an admin can close this defect.', 'error')
+                                    error_occurred = True
+                                else:
+                                    defect.status = new_status
+                                    defect.close_date = datetime.now()
+                            else: # new_status == 'open'
+                                defect.status = new_status
+                                defect.close_date = None
+                    else:
+                        flash('Invalid status value.', 'error')
+                        error_occurred = True
+               
+                # --- Handle Marker Data (only if no prior errors) ---
+                if not error_occurred:
+                    drawing_id_str = request.form.get('drawing_id')
+                    marker_x_str = request.form.get('marker_x')
+                    marker_y_str = request.form.get('marker_y')
+                    # page_num_str = request.form.get('page_num') # If page numbers are implemented
+
+                    if drawing_id_str and marker_x_str and marker_y_str:
+                        try:
+                            drawing_id_val = int(drawing_id_str)
+                            marker_x_val = float(marker_x_str)
+                            marker_y_val = float(marker_y_str)
+                            # page_num = int(page_num_str) if page_num_str and page_num_str.isdigit() else 1
+
+                            if not (0 <= marker_x_val <= 1 and 0 <= marker_y_val <= 1):
+                                flash('Marker coordinates must be between 0 and 1.', 'error')
+                                error_occurred = True
+                            else:
+                                existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
+                                if existing_marker:
+                                    existing_marker.drawing_id = drawing_id_val
+                                    existing_marker.x = marker_x_val
+                                    existing_marker.y = marker_y_val
+                                    # existing_marker.page_num = page_num
+                                    logger.info(f"Updated marker for defect {defect_id}")
+                                else:
+                                    new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val) #, page_num=page_num)
+                                    db.session.add(new_marker)
+                                    logger.info(f"Created new marker for defect {defect_id}")
+                        except ValueError:
+                            flash('Invalid marker data format (e.g., non-numeric values).', 'error')
+                            error_occurred = True
+                            logger.warning(f"ValueError for marker data, defect {defect_id}: drawing_id='{drawing_id_str}', x='{marker_x_str}', y='{marker_y_str}'")
+                   
+                    elif not drawing_id_str: # If drawing_id is empty, remove existing marker
+                        existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
+                        if existing_marker:
+                            db.session.delete(existing_marker)
+                            logger.info(f"Deleted marker for defect {defect_id} as no drawing was selected.")
+                
+                if error_occurred:
+                    db.session.rollback()
+                else:
+                    db.session.commit()
+                    flash('Defect updated successfully!', 'success')
+                
+                return redirect(url_for('defect_detail', defect_id=defect_id))
+            
+            else:
+                # Handle cases where no specific action matched or 'action' was not 'delete_defect' or 'add_comment'
+                # This also covers the old 'description' in request.form check if it's not part of 'edit_defect' action explicitly
+                if 'description' in request.form and action != 'edit_defect':
+                     # This case might occur if a form is submitted with 'description' but not action='edit_defect'
+                     # For now, we'll treat it as an edit attempt, but log it.
+                     logger.warning(f"Defect edit attempt for defect_id {defect_id} without action='edit_defect'. Form keys: {list(request.form.keys())}")
+                     # Redirect to avoid unintended processing, or handle as a specific case if necessary.
+                     # For safety, let's assume it might be an incomplete/malformed request and redirect.
+                     flash("Potential issue with form submission. Please try again.", "warning")
+
+                logger.warning(f"Unhandled POST action '{action}' for defect_id {defect_id}. Redirecting.")
+                return redirect(url_for('defect_detail', defect_id=defect_id))
+
+        # --- GET Request Processing ---
+        # Fetch attachments and comments (already present from previous structure)
         attachments = Attachment.query.filter_by(defect_id=defect_id, checklist_item_id=None, comment_id=None).all()
         comments = Comment.query.filter_by(defect_id=defect_id).order_by(Comment.created_at.asc()).all()
+        
+        # Fetch project drawings for the dropdown
+        project_drawings = Drawing.query.filter_by(project_id=defect.project.id).all()
+        drawings_data_for_template = [{'id': d.id, 'name': d.name, 'file_path': d.file_path} for d in project_drawings]
 
-        # Fetch marker and drawing
+        # Fetch marker and drawing (already present from previous structure)
         marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-        drawing = None
+        drawing = None # drawing object itself is not explicitly passed, marker_data contains path
         marker_data = None
         if marker:
-            drawing = Drawing.query.get(marker.drawing_id)
-            if drawing:
+            # Ensure drawing is loaded if marker exists, to get file_path
+            # The original code already does Drawing.query.get(marker.drawing_id)
+            # So, if marker.drawing is accessed, it should be loaded or an error would occur.
+            # For safety, explicitly load if needed, though current structure seems okay.
+            drawing_obj = db.session.get(Drawing, marker.drawing_id) # Use db.session.get for PK lookup
+            if drawing_obj:
                 marker_data = {
                     'drawing_id': marker.drawing_id,
                     'x': marker.x,
                     'y': marker.y,
-                    'file_path': drawing.file_path
+                    'file_path': drawing_obj.file_path # Use path from the fetched drawing object
+                    # 'page_num': getattr(marker, 'page_num', 1) # If page_num is implemented
                 }
-                logger.debug(f"Defect {defect_id} - Marker data: {marker_data}")
+                logger.debug(f"Defect {defect_id} - Marker data for display: {marker_data}")
             else:
-                logger.warning(f"Drawing {marker.drawing_id} not found for defect {defect_id}")
+                logger.warning(f"Drawing with ID {marker.drawing_id} not found for marker on defect {defect_id}. Marker will not be displayed correctly.")
         else:
             logger.debug(f"No marker found for defect {defect_id}")
 
-        logger.info(f"Rendering defect_detail for defect {defect_id}")
+        logger.info(f"Rendering defect_detail for defect {defect_id} (GET request or after POST error without redirect)")
         return render_template(
             'defect_detail.html',
             defect=defect,
             attachments=attachments,
             comments=comments,
             user_role=access.role,
-            marker=marker_data,
+            marker=marker_data, # This is for displaying existing marker
             project=defect.project,
+            drawings=drawings_data_for_template, # This is for the dropdown
             csrf_token_value=generate_csrf()
         )
 
