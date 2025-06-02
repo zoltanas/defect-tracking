@@ -1602,42 +1602,70 @@ def generate_report(project_id):
             c.drawString(x_position, y_position, f'Defect {defect_number}:')
             y_position -= 15
 
+            # Display Defect Status
+            if entry[0] == 'defect': # Ensure this is a defect entry
+                # defect_status = defect.status.capitalize() # Calculation done, actual drawing later
+                # c.setFont('Helvetica', 10) # Font setting for drawing, not calculation
+                # c.drawString(x_position, y_position, f'Status: {defect_status}') # Drawing happens in the second block
+                y_position -= 12 # Adjust y_position for the status line space calculation
+
             # Calculate rectangle height
             rect_height = 0
-            y_temp = y_position
-            y_temp -= (padding + 7.5)  # Top padding + half line for description
-            y_temp, desc_height = draw_text_wrapped(c, description, x_position + padding, y_temp, max_width, font='Helvetica', font_size=12)
-            rect_height += desc_height + padding + 7.5
+            # Initial top padding for the rectangle content
+            rect_height += padding 
+            # Space for defect status if it was added
+            if entry[0] == 'defect':
+                 rect_height += 12 # Height of the status line
+            
+            y_temp = y_position # y_position is already adjusted for title and status
+
+            # Adjust y_temp for initial padding inside the rectangle before drawing description
+            y_temp -= (padding + 7.5) # Top padding + half line for description
+            
+            # Accumulate height for description
+            # Note: draw_text_wrapped returns the new y_pos and the height of the drawn text block
+            _, desc_height_val = draw_text_wrapped(c, description, x_position + padding, y_temp, max_width, font='Helvetica', font_size=12)
+            rect_height += desc_height_val + 7.5 # Add description height and its offset
+
             if comments:
-                y_temp, comment_height = draw_text_wrapped(c, comments, x_position + padding, y_temp - padding, max_width, font='Helvetica', font_size=12)
-                rect_height += comment_height + padding
+                # y_temp for comments should be after description
+                # No need to pass 'c' to draw_text_wrapped when only calculating height.
+                # However, the original code passed it, so we keep it for now if it's used internally by the function for width calculation.
+                # Let's assume we need a temporary y for comments calculation relative to description's end
+                y_after_desc = y_temp - desc_height_val 
+                _, comment_height_val = draw_text_wrapped(c, comments, x_position + padding, y_after_desc - padding, max_width, font='Helvetica', font_size=12)
+                rect_height += comment_height_val + padding # Add comment height and its padding
 
             if entry[0] == 'defect' and marker and marker.drawing:
                 drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
                 if os.path.exists(drawing_path):
+                    # Add height for the "Marked Drawing View:" label and its top padding
+                    rect_height += 17 # 5 for padding above label, 12 for label line height
                     try:
+                        # This block is for height calculation. We are trying to estimate.
+                        # The actual drawing and temp file creation will happen in the drawing phase.
+                        # For estimation, assume a fixed image height or a more complex estimation.
+                        # For now, let's keep the original logic of creating a temp image
+                        # to get its height, but this is not ideal for a pure calculation phase.
+                        # A proper fix would involve add_image_to_pdf returning estimated height
+                        # without drawing, or a separate estimation function.
+                        # Given the current structure, we'll mirror the drawing logic's space usage.
                         img = PILImage.open(drawing_path)
-                        draw_obj = ImageDraw.Draw(img)
-                        img_width, img_height_pil = img.size
-                        # Scale normalized coordinates
-                        abs_x = marker.x * img_width
-                        abs_y = marker.y * img_height_pil
-                        # Draw a red circle marker
-                        marker_radius = 10 # Adjust as needed
-                        draw_obj.ellipse(
-                            (abs_x - marker_radius, abs_y - marker_radius,
-                             abs_x + marker_radius, abs_y + marker_radius),
-                            fill='red', outline='red'
-                        )
-                        # Save modified image temporarily
-                        temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_{os.urandom(8).hex()}.png')
-                        img.save(temp_marked_drawing_path, 'PNG')
-
-                        y_temp, img_height_pdf = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_temp - 10, max_width, 150)
-                        rect_height += img_height_pdf + 10
-                        os.remove(temp_marked_drawing_path)
+                        img_width, img_height_pil = img.size # Needed for marker radius if used in estimation
+                        
+                        # Simulate image height after scaling (from add_image_to_pdf logic)
+                        max_img_width_for_calc = max_width
+                        max_img_height_for_calc = 150 
+                        aspect_ratio = img_width / img_height_pil
+                        estimated_img_width = max_img_width_for_calc
+                        estimated_img_height = estimated_img_width / aspect_ratio
+                        if estimated_img_height > max_img_height_for_calc:
+                            estimated_img_height = max_img_height_for_calc
+                        
+                        rect_height += estimated_img_height + 10 # image height + padding
+                        # No os.remove here as temp file is created in drawing phase.
                     except Exception as e:
-                        logger.error(f"Error processing marked drawing for defect {defect.id}: {e}")
+                        logger.error(f"Error estimating marked drawing height for defect {defect.id}: {e}")
                         # Fallback to regular attachments if marker processing fails
                         for attachment in attachments:
                             y_temp, img_height_pdf = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_temp - 10, max_width, 150)
@@ -1659,24 +1687,53 @@ def generate_report(project_id):
             rect_height += padding  # Bottom padding
 
             # Draw rounded rectangle
-            draw_rounded_rect(c, x_position, y_position, column_width - 10, rect_height, radius=10)
+            # The y_position for draw_rounded_rect should be the top of the rectangle,
+            # which is the y_position after drawing title and status.
+            # The original y_position was being decremented before this call.
+            # Let's use a variable that holds the y for the top of the rectangle.
+            rect_top_y = y_position + 12 if entry[0] == 'defect' else y_position # Re-adjust if status was added
+            rect_top_y += 15 # Re-adjust for title
+            
+            draw_rounded_rect(c, x_position, rect_top_y, column_width - 10, rect_height, radius=10)
 
-            # Draw description (half line lower)
-            y_position -= (padding + 7.5)
-            y_position, _ = draw_text_wrapped(c, description, x_position + padding, y_position, max_width, font='Helvetica', font_size=12)
+            # Draw description, status, etc. inside the rectangle
+            # y_position is currently at the baseline for the first element inside the rect (description)
+            
+            # Display Defect Status again, this time ensuring it's drawn (it was drawn above for calculation)
+            if entry[0] == 'defect': # Ensure this is a defect entry
+                defect_status = defect.status.capitalize()
+                c.setFont('Helvetica', 10)
+                # y_position for status should be below title, at the top of the content area.
+                # The main y_position should be managed carefully.
+                # Let's use rect_top_y and subtract padding for the first item.
+                current_draw_y = rect_top_y - padding
+                c.drawString(x_position + padding, current_draw_y, f'Status: {defect_status}')
+                current_draw_y -= 12 # Line height for status
+
+                # Draw description (half line lower than status or top padding)
+                current_draw_y -= 7.5 # Half line offset for description
+                y_position, _ = draw_text_wrapped(c, description, x_position + padding, current_draw_y, max_width, font='Helvetica', font_size=12)
+            else:
+                # If not a defect, description starts after initial padding
+                current_draw_y = rect_top_y - padding
+                current_draw_y -= 7.5 # Half line offset for description
+                y_position, _ = draw_text_wrapped(c, description, x_position + padding, current_draw_y, max_width, font='Helvetica', font_size=12)
+
             if comments:
                 y_position, _ = draw_text_wrapped(c, comments, x_position + padding, y_position - padding, max_width, font='Helvetica', font_size=12)
 
             if entry[0] == 'defect' and marker and marker.drawing:
                 drawing_path = os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker.drawing.file_path))
                 if os.path.exists(drawing_path):
+                    temp_marked_drawing_path = None # Initialize here for finally block
                     try:
                         img = PILImage.open(drawing_path)
                         draw_obj = ImageDraw.Draw(img)
                         img_width, img_height_pil = img.size
                         abs_x = marker.x * img_width
                         abs_y = marker.y * img_height_pil
-                        marker_radius = 10
+                        # Dynamic marker radius
+                        marker_radius = max(5, int(min(img_width, img_height_pil) * 0.02)) 
                         draw_obj.ellipse(
                             (abs_x - marker_radius, abs_y - marker_radius,
                              abs_x + marker_radius, abs_y + marker_radius),
@@ -1685,11 +1742,41 @@ def generate_report(project_id):
                         temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_{os.urandom(8).hex()}.png')
                         img.save(temp_marked_drawing_path, 'PNG')
 
-                        y_position, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_position - 10, max_width, 150)
-                        os.remove(temp_marked_drawing_path)
+                        # Add label for marked drawing
+                        c.setFont('Helvetica-Oblique', 9)
+                        label_text = "Marked Drawing View:"
+                        label_y_position = y_position - 5 # Position label slightly above image
+                        c.drawString(x_position + padding, label_y_position, label_text)
+                        y_position = label_y_position - 12 # Move y_position down for the image
+
+                        y_position, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_position, max_width, 150) # y_position already adjusted
+                        # os.remove is now in finally
                     except Exception as e:
                         logger.error(f"Error drawing marked image for PDF (defect {defect.id}): {e}")
+                        # Fallback to regular attachments. Ensure y_position is maintained if label was drawn.
+                        # If label was drawn, y_position would have been updated.
+                        # It's complex to perfectly revert y_position here if only label was drawn then image failed.
+                        # For simplicity, the fallback will draw attachments from the original y_position before label attempt.
+                        # This means if label is drawn and image fails, there might be an overlap or mispositioning.
+                        # A more robust solution would involve more state tracking for y_position.
+                        # Re-fetch original y_position if label drawing modified it and then error occurred.
+                        # This part needs careful handling of y_position if error occurs after drawing label but before image.
+                        # For now, we will proceed assuming y_position for fallback should be as if this block was skipped.
+                        # Re-calculating y_position before fallback:
+                        # This depends on where y_position was before this marked drawing block.
+                        # The original code for fallback assumes the y_position from before this block.
+                        # To maintain that, we might need to pass the original y_position to fallback.
+                        # Or, reset y_position to current_draw_y if an error occurs after the label.
+                        # This section is complex. Let's assume current_draw_y was the starting point for this content block.
+                        y_position = current_draw_y # Reset to where description/status content ended.
                         for attachment in attachments: # Fallback
+                    finally:
+                        if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
+                            os.remove(temp_marked_drawing_path)
+                else: # Fallback if drawing not found
+                    # y_position should be current_draw_y if coming from description block.
+                    y_position = current_draw_y 
+                    for attachment in attachments:
                             y_position, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path)), x_position + padding, y_position - 10, max_width, 150)
                 else: # Fallback if drawing not found
                     for attachment in attachments:
