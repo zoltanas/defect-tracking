@@ -17,16 +17,29 @@
        are already applied in layout.html. Add additional styles if needed. */
 }
 
+#imagePopupContentArea {
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* Helps center the content vertically */
+    align-items: center;   /* Helps center the content horizontally */
+    overflow: auto;      /* Allow scrolling for the modal content if overall content overflows */
+    max-height: 90vh;    /* Max height for the entire white modal box */
+    background-color: white; /* Already set by Tailwind, but being explicit */
+    padding: 2rem;           /* p-8 equivalent from Tailwind, explicit */
+    border-radius: 0.5rem;   /* rounded-lg equivalent, explicit */
+    /* box-shadow is complex to replicate exactly, rely on Tailwind's shadow-xl on the element for now */
+}
+
 #popupImage {
-    max-width: 100%; /* Ensure it doesn't exceed modal content width */
-    max-height: 75vh; /* Adjust max height to 75% of viewport height */
-    width: auto; /* Allow image to scale based on its aspect ratio */
-    height: auto; /* Allow image to scale based on its aspect ratio */
-    object-fit: contain; /* Crucial for maintaining aspect ratio without cropping */
-    display: block; /* Remove extra space below image if it were inline */
-    margin-left: auto;      /* Centers the image horizontally if it's narrower than container */
-    margin-right: auto;     /* Centers the image horizontally */
-    border-radius: 0.375rem; /* equivalent to Tailwind's rounded-md, if desired */
+    display: block !important;
+    max-width: 100% !important;
+    max-height: 75vh !important; /* Max height relative to viewport */
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    margin-left: auto !important; /* Centering if width is less than 100% */
+    margin-right: auto !important;
+    border-radius: 0.375rem !important; /* Optional: consistent rounding */
 }
 
 /* Styling for buttons within the popup for better visibility and usability */
@@ -47,18 +60,17 @@
     background-color: #2563eb; /* Tailwind: hover:bg-blue-700 */
 }
 
-#cancelImagePopupButton {
-    background-color: #9ca3af; /* Tailwind: bg-gray-400 */
-    color: #1f2937; /* Tailwind: text-gray-800 or similar for contrast */
-}
-#cancelImagePopupButton:hover {
-    background-color: #6b7280; /* Tailwind: hover:bg-gray-500 */
-}
+/* Styles for #cancelImagePopupButton are removed as this ID is no longer in use for primary modal buttons */
 
 #closeImagePopupButton {
-    background-color: #ef4444; /* Tailwind: bg-red-500 */
-    color: white;
+    background-color: #A0AEC0 !important; /* Tailwind gray-500 (slightly adjusted from prompt's gray-400 for better visibility as a button) */
+    color: #1a202c !important;           /* Tailwind gray-800 or a suitable dark text color */
+    border: 1px solid #718096 !important; /* Optional: Tailwind gray-600 border */
+    /* Padding and border-radius are handled by Tailwind classes 'rounded px-4 py-2' on the HTML element */
 }
+
 #closeImagePopupButton:hover {
-    background-color: #dc2626; /* Tailwind: hover:bg-red-600 */
+    background-color: #718096 !important; /* Tailwind gray-600 */
+    color: white !important;             /* Text color on hover */
+    border-color: #4A5568 !important;    /* Optional: Tailwind gray-700 border on hover */
 }
