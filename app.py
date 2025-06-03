@@ -1324,14 +1324,14 @@ def generate_report(project_id): # Restored original signature
 
     # Original data fetching logic restored
     defects_query = Defect.query.filter_by(project_id=project_id)
-        if filter_status == 'Open':
-            defects = defects_query.filter_by(status='open').all()
-        elif filter_status == 'Closed':
-            defects = defects_query.filter_by(status='closed').all()
-        else:
-            defects = defects_query.all()
+    if filter_status == 'Open':
+        defects = defects_query.filter_by(status='open').all()
+    elif filter_status == 'Closed':
+        defects = defects_query.filter_by(status='closed').all()
+    else:
+        defects = defects_query.all()
 
-        checklists = Checklist.query.filter_by(project_id=project_id).all()
+    checklists = Checklist.query.filter_by(project_id=project_id).all()
         checklist_items_to_report = []
         for checklist in checklists:
             items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
