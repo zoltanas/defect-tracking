@@ -1311,7 +1311,7 @@ def delete_template(template_id):
 def generate_report(project_id): # Restored original signature
     filter_status = request.args.get('filter', 'All') # Use request.args for filter_status
     logger.info(f"Generating PDF report for project ID: {project_id} with filter: {filter_status}")
-    
+
     # Original project fetching logic restored
     project = db.session.get(Project, project_id)
     if not project:
@@ -1412,10 +1412,10 @@ def generate_report(project_id): # Restored original signature
             img.save(temp_img_path, 'JPEG')
             img_width_pil, img_height_pil = img.size # Renamed
             aspect_ratio = img_width_pil / img_height_pil
-            
+
             img_width_draw = max_width # Renamed
             img_height_draw = img_width_draw / aspect_ratio
-            
+
             if img_height_draw > max_height:
                 img_height_draw = max_height
                 img_width_draw = img_height_draw * aspect_ratio
@@ -1430,32 +1430,32 @@ def generate_report(project_id): # Restored original signature
             return y - 20, 0
 
     def draw_rounded_rect(c, x, y, width, height, radius=10):
-        drawing = ReportLabDrawing() 
+        drawing = ReportLabDrawing()
         fill_color = colors.Color(*colors.lightgrey.rgb(), alpha=0.2)
         rect = Rect(0, 0, width, height, strokeColor=colors.darkgrey, fillColor=fill_color, strokeWidth=1)
         rect.rx = radius
         rect.ry = radius
         drawing.add(rect)
         c.saveState()
-        c.translate(x, y - height) 
+        c.translate(x, y - height)
         renderPDF.draw(drawing, c, 0, 0)
         c.restoreState()
 
     def estimate_space_needed(entry, is_left=True):
         max_width_est = column_width - 20 if is_left else (width - center_x - 30)
-        space_needed = 30 
+        space_needed = 30
         font_size = 12
         date_font_size = 8
-        line_height_est = 15 
+        line_height_est = 15
         date_line_height = 10
 
         attachments_for_est = []
         description_est = ""
         close_date_est = None
-        comments_text_field_est = "" 
+        comments_text_field_est = ""
         marker_est = None
         contractor_comments_est = []
-        
+
         est_defect_id = None # For logging context
 
         if entry[0] == 'defect':
@@ -1470,9 +1470,9 @@ def generate_report(project_id): # Restored original signature
             else: # Mock
                 attachments_for_est = defect_obj_est.attachments if hasattr(defect_obj_est, 'attachments') else []
                 marker_est = defect_obj_est.markers[0] if hasattr(defect_obj_est, 'markers') and defect_obj_est.markers else None
-        
+
         elif entry[0] == 'checklist_item':
-            checklist_obj_est, item_obj_est = entry[1], entry[2] 
+            checklist_obj_est, item_obj_est = entry[1], entry[2]
             est_defect_id = item_obj_est.id # Use item ID for context
             description_est = f"Checkpoint: {item_obj_est.item_text or ''}"
             comments_text_field_est = item_obj_est.comments if hasattr(item_obj_est, 'comments') else ""
@@ -1480,18 +1480,18 @@ def generate_report(project_id): # Restored original signature
                 attachments_for_est = Attachment.query.filter_by(checklist_item_id=item_obj_est.id).all()
             else: # Mock
                 attachments_for_est = item_obj_est.attachments if hasattr(item_obj_est, 'attachments') else []
-        
+
         if is_left:
-            _, desc_h = draw_text_wrapped(c, description_est, 0, 0, max_width_est, font_size=font_size) 
+            _, desc_h = draw_text_wrapped(c, description_est, 0, 0, max_width_est, font_size=font_size)
             space_needed += desc_h + 7.5
             if comments_text_field_est:
                 _, comment_h = draw_text_wrapped(c, comments_text_field_est, 0, 0, max_width_est, font_size=font_size)
                 space_needed += comment_h + 10
-            
+
             if entry[0] == 'defect' and marker_est and marker_est.drawing and marker_est.drawing.file_path:
-                space_needed += 17 
+                space_needed += 17
                 if marker_est.drawing.file_path.lower().endswith('.pdf'):
-                    space_needed += 150 + 10 
+                    space_needed += 150 + 10
                 else:
                     try:
                         img = PILImage.open(os.path.join(app.config['DRAWING_FOLDER'], os.path.basename(marker_est.drawing.file_path)))
@@ -1500,7 +1500,7 @@ def generate_report(project_id): # Restored original signature
                         if est_h > 150: est_h = 150
                         space_needed += est_h + 10
                     except: space_needed += 20
-            else: 
+            else:
                 for att in attachments_for_est:
                     if att.file_path:
                         try:
@@ -1509,21 +1509,21 @@ def generate_report(project_id): # Restored original signature
                             est_h = min(img_h, 150) * (max_width_est / img_w) if img_w > 0 else min(img_h, 150)
                             if est_h > 150: est_h = 150
                             space_needed += est_h + 10
-                        except: space_needed += 20 
-                    else: space_needed += 20 
-            
+                        except: space_needed += 20
+                    else: space_needed += 20
+
             if close_date_est: space_needed += date_line_height
-            space_needed += date_line_height + 7.5 + (2 * line_height_est) 
-            space_needed += 20 
-        else: 
-            for comment_obj_est in contractor_comments_est: 
+            space_needed += date_line_height + 7.5 + (2 * line_height_est)
+            space_needed += 20
+        else:
+            for comment_obj_est in contractor_comments_est:
                 content_est = comment_obj_est.content or ""
                 _, content_h = draw_text_wrapped(c, content_est, 0, 0, max_width_est, font_size=font_size)
                 space_needed += content_h + 17.5
-                
+
                 comment_attachments_est = comment_obj_est.attachments if hasattr(comment_obj_est, 'attachments') and comment_obj_est.attachments else []
                 for att in comment_attachments_est:
-                    if att.file_path: 
+                    if att.file_path:
                         try:
                             img = PILImage.open(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(att.file_path)))
                             img_w, img_h = img.size
@@ -1532,8 +1532,8 @@ def generate_report(project_id): # Restored original signature
                             space_needed += est_h + 10
                         except: space_needed += 20
                     else: space_needed += 20
-                space_needed += date_line_height + 7.5 
-                space_needed += 20 
+                space_needed += date_line_height + 7.5
+                space_needed += 20
         return space_needed
 
     # Fully revised add_defect_to_pdf function (from previous turn's report)
@@ -1545,9 +1545,9 @@ def generate_report(project_id): # Restored original signature
         line_height_draw = 15 # Renamed
 
         current_defect_attachments = []
-        defect_id_for_log = None 
-        defect_obj = None 
-        item_obj = None 
+        defect_id_for_log = None
+        defect_obj = None
+        item_obj = None
         description_draw = "" # Renamed
         creation_date_draw = datetime.now()  # Renamed
         close_date_draw = None # Renamed
@@ -1556,61 +1556,61 @@ def generate_report(project_id): # Restored original signature
         marker_obj = None # Renamed
 
         if entry[0] == 'defect':
-            defect_obj = entry[1] 
+            defect_obj = entry[1]
             defect_id_for_log = defect_obj.id
             description_draw = defect_obj.description or ""
             creation_date_draw = defect_obj.creation_date
             close_date_draw = defect_obj.close_date
-            contractor_comments_list = entry[2] 
-            
-            if isinstance(defect_obj, Defect): 
+            contractor_comments_list = entry[2]
+
+            if isinstance(defect_obj, Defect):
                 marker_obj = DefectMarker.query.filter_by(defect_id=defect_obj.id).first()
                 current_defect_attachments = Attachment.query.filter_by(defect_id=defect_obj.id, checklist_item_id=None, comment_id=None).all()
-            else: 
+            else:
                 marker_obj = defect_obj.markers[0] if hasattr(defect_obj, 'markers') and defect_obj.markers else None
                 current_defect_attachments = defect_obj.attachments if hasattr(defect_obj, 'attachments') else []
 
         elif entry[0] == 'checklist_item':
-            checklist_obj, item_obj = entry[1], entry[2] 
-            defect_id_for_log = item_obj.id 
+            checklist_obj, item_obj = entry[1], entry[2]
+            defect_id_for_log = item_obj.id
             item_text = item_obj.item_text or ""
             description_draw = f"Checkpoint: {item_text}"
-            creation_date_draw = checklist_obj.creation_date if hasattr(checklist_obj, 'creation_date') else datetime.now() 
+            creation_date_draw = checklist_obj.creation_date if hasattr(checklist_obj, 'creation_date') else datetime.now()
             comments_text_field_draw = item_obj.comments if hasattr(item_obj, 'comments') else ""
-            
-            if isinstance(item_obj, ChecklistItem): 
+
+            if isinstance(item_obj, ChecklistItem):
                 current_defect_attachments = Attachment.query.filter_by(checklist_item_id=item_obj.id).all()
-            else: 
+            else:
                 current_defect_attachments = item_obj.attachments if hasattr(item_obj, 'attachments') else []
         else:
             logger.error(f"Unknown entry type: {entry[0]}")
-            return y_position 
+            return y_position
 
         if is_left:
             c.setFont('Helvetica-Bold', 12)
             c.drawString(x_position, y_position, f'Defect {defect_number}:')
-            y_position -= 15 
+            y_position -= 15
 
-            rect_content_top_y = y_position 
-            if entry[0] == 'defect': 
-                rect_content_top_y -= 12  
+            rect_content_top_y = y_position
+            if entry[0] == 'defect':
+                rect_content_top_y -= 12
 
             estimated_rect_height = estimate_space_needed(entry, is_left=True)
             draw_rounded_rect(c, x_position, rect_content_top_y, column_width - 10, estimated_rect_height, radius=10)
             
             current_draw_y = rect_content_top_y - padding
             
-            if entry[0] == 'defect': 
+            if entry[0] == 'defect':
                 defect_status = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A"
                 c.setFont('Helvetica', 10)
                 c.drawString(x_position + padding, current_draw_y, f'Status: {defect_status}')
-                current_draw_y -= 12 
-            
-            current_draw_y -= 7.5 
+                current_draw_y -= 12
+
+            current_draw_y -= 7.5
             y_after_desc, _ = draw_text_wrapped(c, description_draw, x_position + padding, current_draw_y, max_width_draw)
             current_draw_y = y_after_desc
 
-            if comments_text_field_draw: 
+            if comments_text_field_draw:
                 y_after_comments_text, _ = draw_text_wrapped(c, comments_text_field_draw, x_position + padding, current_draw_y - padding, max_width_draw)
                 current_draw_y = y_after_comments_text
 
@@ -1618,7 +1618,7 @@ def generate_report(project_id): # Restored original signature
             marked_drawing_processed = False
 
             if entry[0] == 'defect' and marker_obj and marker_obj.drawing:
-                temp_marked_drawing_path = None 
+                temp_marked_drawing_path = None
                 if not marker_obj.drawing.file_path:
                     logger.warning(f"Drawing for marker on defect ID {defect_id_for_log} has a missing file path.")
                 else:
@@ -1628,15 +1628,15 @@ def generate_report(project_id): # Restored original signature
                     if os.path.exists(drawing_path) and marker_obj.drawing.file_path.lower().endswith('.pdf'):
                         logger.debug(f"Attempting to convert PDF page to image: {drawing_path}")
                         try:
-                            # Removed: if defect_id_for_log == 3: raise Exception("Simulated PDF conversion error for testing TC3") 
-                            
+                            # Removed: if defect_id_for_log == 3: raise Exception("Simulated PDF conversion error for testing TC3")
+
                             images_from_path = convert_from_path(drawing_path, first_page=1, last_page=1, poppler_path=None)
                             if images_from_path:
                                 logger.debug(f"Successfully converted PDF page to image: {drawing_path}")
                                 img = images_from_path[0]
                                 img = img.convert('RGB')
                                 draw_obj_pil = ImageDraw.Draw(img) # Renamed
-                                img_width_pil, img_height_pil = img.size 
+                                img_width_pil, img_height_pil = img.size
                                 abs_x = marker_obj.x * img_width_pil
                                 abs_y = marker_obj.y * img_height_pil
                                 marker_radius = max(5, int(min(img_width_pil, img_height_pil) * 0.02))
@@ -1644,12 +1644,12 @@ def generate_report(project_id): # Restored original signature
                                 temp_marked_drawing_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_marked_pdf_{os.urandom(8).hex()}.png')
                                 img.save(temp_marked_drawing_path, 'PNG')
                                 logger.debug(f"Saved marked drawing to temporary file: {temp_marked_drawing_path}")
-                                
+
                                 c.setFont('Helvetica-Oblique', 9)
                                 label_text = "Marked Drawing View:"
-                                label_y_draw_pos = y_position_before_image_processing - 5 
+                                label_y_draw_pos = y_position_before_image_processing - 5
                                 c.drawString(x_position + padding, label_y_draw_pos, label_text)
-                                y_after_label = label_y_draw_pos - 12 
+                                y_after_label = label_y_draw_pos - 12
                                 current_draw_y, _ = add_image_to_pdf(c, temp_marked_drawing_path, x_position + padding, y_after_label, max_width_draw, 150)
                                 marked_drawing_processed = True
                             else:
@@ -1657,16 +1657,16 @@ def generate_report(project_id): # Restored original signature
                                 current_draw_y = y_position_before_image_processing # Reset if no images
                         except Exception as e:
                             logger.error(f"PDF to image conversion failed for {drawing_path} (defect {defect_id_for_log}): {e}", exc_info=True)
-                            current_draw_y = y_position_before_image_processing 
+                            current_draw_y = y_position_before_image_processing
                         finally:
                             if temp_marked_drawing_path and os.path.exists(temp_marked_drawing_path):
                                 os.remove(temp_marked_drawing_path)
                                 logger.debug(f"Deleted temporary marked drawing: {temp_marked_drawing_path}")
-                    elif os.path.exists(drawing_path): 
+                    elif os.path.exists(drawing_path):
                         logger.info(f"Marker drawing {drawing_path} for defect {defect_id_for_log} is not a PDF. Will attempt fallback to attachments.")
                         current_draw_y = y_position_before_image_processing
-            
-            if not marked_drawing_processed: 
+
+            if not marked_drawing_processed:
                 # If marked drawing wasn't processed (failed, not PDF, or no marker), use current_defect_attachments
                 if not (entry[0] == 'defect' and marker_obj and marker_obj.drawing): # if it wasn't a marked drawing attempt block
                      current_draw_y = y_position_before_image_processing # ensure we start from after text
@@ -1681,51 +1681,51 @@ def generate_report(project_id): # Restored original signature
                     current_draw_y, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_item.file_path)), x_position + padding, current_draw_y - 10, max_width_draw, 150)
 
             # Final y position after all text and images within the content area of the rect
-            final_content_y_in_rect = current_draw_y 
-            
+            final_content_y_in_rect = current_draw_y
+
             if close_date_draw:
                 c.setFont('Helvetica', 8)
                 c.drawString(x_position + padding, final_content_y_in_rect - 10, f'Close Date: {close_date_draw.strftime("%Y-%m-%d %H:%M:%S")}')
-            
+
             # Creation date is drawn *below* the rectangle
-            creation_date_y_final = rect_content_top_y - estimated_rect_height - 7.5 
-            
+            creation_date_y_final = rect_content_top_y - estimated_rect_height - 7.5
+
             c.setFont('Helvetica', 8)
             creation_date_str = creation_date_draw.strftime("%Y-%m-%d %H:%M:%S") if isinstance(creation_date_draw, datetime) else str(creation_date_draw)
             c.drawString(x_position + padding, creation_date_y_final, f'Creation Date: {creation_date_str}')
-            y_left = creation_date_y_final - (2 * line_height_draw) 
-        
+            y_left = creation_date_y_final - (2 * line_height_draw)
+
         else: # not is_left (right column for contractor comments)
-            y_right = y_position 
+            y_right = y_position
             if contractor_comments_list:
                 c.setFont('Helvetica-Bold', 12)
-                contractor_y_start = y_position 
+                contractor_y_start = y_position
                 c.drawString(x_position, contractor_y_start, 'Contractors Reply:')
                 contractor_y_start -= 15
-                
+
                 current_comment_block_y = contractor_y_start
 
                 for comment_obj_item in contractor_comments_list: # Renamed
                     # Estimate height for this specific comment block for its own rounded_rect
-                    est_rect_height_comment = padding 
+                    est_rect_height_comment = padding
                     temp_content_est = comment_obj_item.content or ""
-                    _, temp_content_h_est = draw_text_wrapped(c, temp_content_est, 0,0, max_width_draw, font_size=12) 
+                    _, temp_content_h_est = draw_text_wrapped(c, temp_content_est, 0,0, max_width_draw, font_size=12)
                     est_rect_height_comment += temp_content_h_est + 7.5
-                    
+
                     temp_comment_attachments = comment_obj_item.attachments if hasattr(comment_obj_item, 'attachments') and comment_obj_item.attachments else []
                     for att in temp_comment_attachments:
-                        if att.file_path: est_rect_height_comment += 150 + 10 
-                        else: est_rect_height_comment += 20 
+                        if att.file_path: est_rect_height_comment += 150 + 10
+                        else: est_rect_height_comment += 20
                     est_rect_height_comment += 10 # date height
-                    est_rect_height_comment += padding 
-                    
+                    est_rect_height_comment += padding
+
                     draw_rounded_rect(c, x_position, current_comment_block_y, width - center_x - 20, est_rect_height_comment, radius=10)
 
                     y_draw_in_comment_rect = current_comment_block_y - (padding + 7.5)
                     content = comment_obj_item.content or ""
                     y_after_comment_text, _ = draw_text_wrapped(c, content, x_position + padding, y_draw_in_comment_rect, max_width_draw, font='Helvetica', font_size=12)
                     y_draw_in_comment_rect = y_after_comment_text
-                    
+
                     for attachment_item in temp_comment_attachments:
                         if not attachment_item.file_path:
                             logger.warning(f"Attachment ID {getattr(attachment_item, 'id', 'N/A')} for comment ID {comment_obj_item.id} has a missing file path.")
@@ -1733,17 +1733,17 @@ def generate_report(project_id): # Restored original signature
                         logger.debug(f"Processing attachment for comment {comment_obj_item.id}: {attachment_item.file_path}")
                         y_after_img, _ = add_image_to_pdf(c, os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_item.file_path)), x_position + padding, y_draw_in_comment_rect - 10, max_width_draw, 150)
                         y_draw_in_comment_rect = y_after_img
-                    
+
                     y_draw_in_comment_rect -= padding
                     c.setFont('Helvetica', 8)
                     comment_created_at = comment_obj_item.created_at if hasattr(comment_obj_item, 'created_at') else datetime.now()
                     c.drawString(x_position + padding, y_draw_in_comment_rect - 7.5, f'Creation Date: {comment_created_at.strftime("%Y-%m-%d %H:%M:%S")}')
-                    
-                    current_comment_block_y = current_comment_block_y - est_rect_height_comment - 10 
-                
-                y_right = current_comment_block_y 
-            else: 
-                y_right = y_position 
+
+                    current_comment_block_y = current_comment_block_y - est_rect_height_comment - 10
+
+                y_right = current_comment_block_y
+            else:
+                y_right = y_position
         return y_left if is_left else y_right
 
     c.setFont('Helvetica-Bold', 16)
