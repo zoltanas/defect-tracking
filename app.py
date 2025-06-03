@@ -1332,37 +1332,37 @@ def generate_report(project_id): # Restored original signature
         defects = defects_query.all()
 
     checklists = Checklist.query.filter_by(project_id=project_id).all()
-        checklist_items_to_report = []
-        for checklist in checklists:
-            items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
-            for item in items:
-                item_status = 'closed' if item.is_checked else 'open'
-                if filter_status == 'Open' and item_status != 'open':
-                    continue
-                elif filter_status == 'Closed' and item_status != 'closed':
-                    continue
-                checklist_items_to_report.append((checklist, item, item_status))
+    checklist_items_to_report = []
+    for checklist in checklists:
+        items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
+        for item in items:
+            item_status = 'closed' if item.is_checked else 'open'
+            if filter_status == 'Open' and item_status != 'open':
+                continue
+            elif filter_status == 'Closed' and item_status != 'closed':
+                continue
+            checklist_items_to_report.append((checklist, item, item_status))
 
-        if not defects and not checklist_items_to_report:
-            flash('No defects or checklist items found to generate a report.', 'error')
-            return redirect(url_for('project_detail', project_id=project_id))
+    if not defects and not checklist_items_to_report:
+        flash('No defects or checklist items found to generate a report.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id))
 
-        open_defects = []
-        closed_defects = []
-        for defect in defects: # Changed variable name to avoid clash
-            contractor_comments_list = Comment.query.filter_by(defect_id=defect.id).join(User).filter(User.role == 'contractor').all()
-            if defect.status == 'open':
-                open_defects.append(('defect', defect, contractor_comments_list))
-            else:
-                closed_defects.append(('defect', defect, contractor_comments_list))
-        for checklist, item, item_status in checklist_items_to_report:
-            if item_status == 'open':
-                open_defects.append(('checklist_item', checklist, item, []))
-            else:
-                closed_defects.append(('checklist_item', checklist, item, []))
+    open_defects = []
+    closed_defects = []
+    for defect in defects: # Changed variable name to avoid clash
+        contractor_comments_list = Comment.query.filter_by(defect_id=defect.id).join(User).filter(User.role == 'contractor').all()
+        if defect.status == 'open':
+            open_defects.append(('defect', defect, contractor_comments_list))
+        else:
+            closed_defects.append(('defect', defect, contractor_comments_list))
+    for checklist, item, item_status in checklist_items_to_report:
+        if item_status == 'open':
+            open_defects.append(('checklist_item', checklist, item, []))
+        else:
+            closed_defects.append(('checklist_item', checklist, item, []))
 
-        open_defects.sort(key=lambda x: x[1].creation_date if x[0] == 'defect' else x[1].creation_date)
-        closed_defects.sort(key=lambda x: (x[1].close_date if x[1].close_date else x[1].creation_date) if x[0] == 'defect' else x[1].creation_date, reverse=True)
+    open_defects.sort(key=lambda x: x[1].creation_date if x[0] == 'defect' else x[1].creation_date)
+    closed_defects.sort(key=lambda x: (x[1].close_date if x[1].close_date else x[1].creation_date) if x[0] == 'defect' else x[1].creation_date, reverse=True)
 
     logger.info(f"Found {len(open_defects)} open items and {len(closed_defects)} closed items for the report.")
 
