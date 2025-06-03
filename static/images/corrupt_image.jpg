@@ -1,0 +1,4 @@
+This is not a valid JPEG image. It's just a text file.
+If Pillow tries to open this, it should fail.
+The PDF report should show a placeholder.
+CORRUPTJPEG

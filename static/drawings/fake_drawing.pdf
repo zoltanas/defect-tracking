@@ -1,0 +1,4 @@
+This is not a PDF file. It's a text file named .pdf.
+pdf2image should fail to convert this.
+The PDF report should show a placeholder for the marked drawing.
+FAKEPDF
