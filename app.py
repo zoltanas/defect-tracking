@@ -1484,7 +1484,7 @@ def generate_report(project_id): # Restored original signature
         return y, len(lines) * line_height
 
     def add_image_to_pdf(c, img_path, x, y, max_width, max_height):
-        logger.debug(f"Attempting to add image to PDF: {img_path}")
+        logger.info(f"add_image_to_pdf: Processing image path: '{img_path}', MaxWidth: {max_width}, MaxHeight: {max_height}")
         temp_img_path = None # Initialize to prevent UnboundLocalError
         try:
             img = PILImage.open(img_path)
@@ -1509,7 +1509,7 @@ def generate_report(project_id): # Restored original signature
             img_reader = ImageReader(temp_img_path) # This can also fail
             c.drawImage(img_reader, x, y - img_height_draw_final, width=img_width_draw_final, height=img_height_draw_final)
             actual_drawn_height = img_height_draw_final
-            logger.debug(f"Successfully added image {img_path} to PDF. Drawn size: {img_width_draw_final}x{img_height_draw_final}")
+            logger.info(f"add_image_to_pdf: Successfully drew image '{img_path}'. Drawn image height: {actual_drawn_height}")
 
         except FileNotFoundError:
             logger.error(f"Image file not found: {img_path}", exc_info=True)
@@ -1518,7 +1518,7 @@ def generate_report(project_id): # Restored original signature
             c.drawString(x, y - 12, placeholder_text)
             c.setFillColorRGB(0, 0, 0) # Reset to black
             actual_drawn_height = 15 # Height of the placeholder text line
-            logger.debug(f"Drawing placeholder for missing image: {img_path}")
+            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to FileNotFoundError. Placeholder text height: {actual_drawn_height}")
         except (PILImage.UnidentifiedImageError, ValueError) as pil_e: # Catch PIL specific errors and general ValueErrors from PIL
             logger.error(f"PIL Error processing image {img_path}: {pil_e}", exc_info=True)
             placeholder_text = f"[Image not available: {os.path.basename(img_path)} (Format Error)]"
@@ -1526,7 +1526,7 @@ def generate_report(project_id): # Restored original signature
             c.drawString(x, y - 12, placeholder_text)
             c.setFillColorRGB(0, 0, 0)
             actual_drawn_height = 15
-            logger.debug(f"Drawing placeholder for unidentifiable image: {img_path}")
+            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to PILImage.UnidentifiedImageError or ValueError. Placeholder text height: {actual_drawn_height}")
         except Exception as e: # Catch other errors (e.g., from ReportLab ImageReader or drawImage)
             logger.error(f"General failure to add image {img_path} to PDF: {e}", exc_info=True)
             placeholder_text = f"[Image not available: {os.path.basename(img_path)} (Load Error)]"
@@ -1534,7 +1534,7 @@ def generate_report(project_id): # Restored original signature
             c.drawString(x, y - 12, placeholder_text)
             c.setFillColorRGB(0, 0, 0)
             actual_drawn_height = 15
-            logger.debug(f"Drawing placeholder due to general image load error: {img_path}")
+            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to Exception. Placeholder text height: {actual_drawn_height}")
         finally:
             if temp_img_path and os.path.exists(temp_img_path):
                 try:
@@ -1702,6 +1702,9 @@ def generate_report(project_id): # Restored original signature
     # Fully revised add_defect_to_pdf function (from previous turn's report)
     def add_defect_to_pdf(entry, is_left=True, y_position=None, defect_number=1):
         nonlocal c
+        # Store original y_position for logging at entry
+        y_position_original_passed_in = y_position
+
         x_position = left_margin if is_left else center_x + PADDING_MD
         max_width_content = column_width - (2 * PADDING_SM) if is_left else (width - center_x - PADDING_MD - PADDING_SM)
         # padding refers to internal padding for rounded_rects
@@ -1710,8 +1713,8 @@ def generate_report(project_id): # Restored original signature
 
         attachments_to_draw = []
         entry_type_for_log = entry[0]
-        id_for_log = None
-        defect_obj = None
+        id_for_log = None # Will be set for defect or checklist item
+        defect_obj = None # Will be set for defect
         item_obj = None
         checklist_obj_for_item = None
         description_content = "" # Renamed from description_draw
@@ -1737,7 +1740,10 @@ def generate_report(project_id): # Restored original signature
                 if fetched_creator:
                     creator_username_content = fetched_creator.username
 
-            logger.info(f"add_defect_to_pdf: Processing Defect ID {defect_obj.id}, Desc: '{description_content[:30] if description_content else 'Empty Description'}...', Status: {defect_obj.status}, Creator: {creator_username_content}")
+            # Ensure defect_status_display is defined here for logging
+            defect_status_display = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A" # Used in ENTRY log
+            if is_left and entry[0] == 'defect': # Logging specific to left column defect processing
+                 logger.info(f"add_defect_to_pdf (ENTRY): Defect ID {id_for_log}, Desc: '{description_content[:30] if description_content else 'Empty Description'}...', Status: {defect_status_display}, Creator: {creator_username_content}, Received y_position: {y_position_original_passed_in}")
 
             if isinstance(defect_obj, Defect):
                 marker_obj_data = DefectMarker.query.filter_by(defect_id=defect_obj.id).first()
@@ -1766,24 +1772,23 @@ def generate_report(project_id): # Restored original signature
             return y_position
 
         if is_left:
-            logger.info(f"add_defect_to_pdf (left col): Defect ID {id_for_log}, initial y_position: {y_position}")
+            # y_position is the parameter passed to the function. It's stored in y_position_original_passed_in for the ENTRY log.
             c.setFont('Helvetica-Bold', 12)
-            # Title changes for checklist items
             title_text_display = ""
             if entry[0] == 'defect':
                 title_text_display = f'Defect {defect_number}:'
-            elif entry[0] == 'checklist_item':
+            elif entry[0] == 'checklist_item': # This log might be for checklist items if id_for_log is from there
                 title_text_display = f'Item {defect_number} (Checklist: {checklist_obj_for_item.name}):'
             c.drawString(x_position, y_position, title_text_display)
-            y_position -= PADDING_LG # Space after main title
-
-            rect_content_top_y = y_position # Y where the top border of the rounded rect will be
+            y_position -= PADDING_LG
             
-            current_draw_y = rect_content_top_y - rect_internal_padding # Starting Y for content INSIDE the rect
-            logger.debug(f"Defect ID {id_for_log}, current_draw_y before status (original location): {current_draw_y}")
+            if entry[0] == 'defect': # Log after title for defects
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, After title, y_pos for content start (rect_content_top_y effectively): {y_position}")
+
+            rect_content_top_y = y_position
+            current_draw_y = rect_content_top_y - rect_internal_padding
             # OLD STATUS/CREATOR DRAWING REMOVED FROM HERE
             # if entry[0] == 'defect':
-            #     # defect_status_display and creator_username_content are already defined earlier
             #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
             #     current_draw_y -= LINE_HEIGHT_SM
             #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
@@ -1802,18 +1807,21 @@ def generate_report(project_id): # Restored original signature
 
             # 2. Description
             # current_draw_y is already appropriately positioned after checklist status (if any) or just after top padding
-            current_draw_y -= PADDING_SM # Space before main description text (or use existing if checklist status was drawn)
-            logger.debug(f"Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}")
+            current_draw_y -= PADDING_SM
+            if entry[0] == 'defect': # Log before description for defects
+                 logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}, Description to draw: '{description_content[:50] if description_content else '[No description]'}'")
             c.setFont('Helvetica', 12)
             drawable_description = description_content if description_content else "[No description]"
             y_after_desc, _ = draw_text_wrapped(c, drawable_description, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
             current_draw_y = y_after_desc
-            if drawable_description != "[No description]" and description_content : # Add padding only if there was a description
-                 current_draw_y -= PADDING_SM # Space after description text
+            if entry[0] == 'defect': # Log after description for defects
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after description: {current_draw_y}")
+            if drawable_description != "[No description]" and description_content :
+                 current_draw_y -= PADDING_SM
 
             # 3. Checklist Item's own "Comments:" and comments text (if applicable)
             if item_comments_content:
-                current_draw_y -= PADDING_SM # Space before "Comments:" label
+                current_draw_y -= PADDING_SM
                 c.setFont('Helvetica-Oblique', 10)
                 c.drawString(x_position + rect_internal_padding, current_draw_y, "Comments:")
                 current_draw_y -= LINE_HEIGHT_SM
@@ -1823,7 +1831,8 @@ def generate_report(project_id): # Restored original signature
                 current_draw_y -= PADDING_SM # Space after item comments
 
             # 4. Marked Drawing OR Attachments
-            logger.debug(f"Defect ID {id_for_log}, current_draw_y before attachments/markers: {current_draw_y}")
+            if entry[0] == 'defect': # Log before images/markers for defects
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before images/markers: {current_draw_y}")
             marked_drawing_processed_successfully = False
             process_regular_attachments = True
 
@@ -1918,29 +1927,27 @@ def generate_report(project_id): # Restored original signature
                         # logger.info already in add_image_to_pdf if path is valid
 
                         current_draw_y, _ = add_image_to_pdf(c, attachment_full_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
-                elif entry[0] == 'defect' and not marker_obj_data :
-                     logger.debug(f"Defect {id_for_log} has no marked drawing and no regular attachments.")
-                elif entry[0] == 'checklist_item' and not attachments_to_draw:
-                     logger.debug(f"Checklist item {id_for_log} has no attachments.")
-                     # current_draw_y remains y_position_before_image_processing
+                # No explicit logging here if no attachments and no marker, already logged by debug above
+            if entry[0] == 'defect': # Log after images/markers for defects
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after images/markers: {current_draw_y}")
 
-
-            final_content_y_in_rect = current_draw_y # This is y after all content *inside* the rect, before dates
-
-            # NEW STATUS/CREATOR DRAWING LOCATION FOR DEFECTS
+            # 5. Defect Status and Defect Creator (if entry[0] == 'defect')
             if entry[0] == 'defect':
-                current_draw_y -= PADDING_SM # Add a little space before status/creator
-                c.setFont('Helvetica', 10) # Or appropriate font
-                # defect_status_display and creator_username_content are already defined earlier in the function
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before (bottom) Status/Creator: {current_draw_y}")
+                current_draw_y -= PADDING_MD
+                c.setFont('Helvetica', 10)
                 c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
                 current_draw_y -= LINE_HEIGHT_SM
                 c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
-                current_draw_y -= LINE_HEIGHT_SM # Space after creator, before dates
+                current_draw_y -= LINE_HEIGHT_SM
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after (bottom) Status/Creator: {current_draw_y}")
 
-            current_draw_y -= PADDING_MD # Space before date lines
-            logger.debug(f"Defect ID {id_for_log}, current_draw_y before date lines: {current_draw_y}")
+            # 6. Date lines
+            if entry[0] == 'defect': # Log before dates for defects
+                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before Dates: {current_draw_y}")
+            current_draw_y -= PADDING_MD
             date_y_position = current_draw_y
-            c.setFont('Helvetica', 8) # Font size for dates
+            c.setFont('Helvetica', 8)
             if entry[0] == 'defect' and close_date_content:
                 close_date_str = close_date_content.strftime("%Y-%m-%d %H:%M:%S") if isinstance(close_date_content, datetime) else "N/A"
                 c.drawString(x_position + rect_internal_padding, date_y_position, f'Close Date: {close_date_str}')
@@ -1948,12 +1955,14 @@ def generate_report(project_id): # Restored original signature
 
             creation_date_str = creation_date_content.strftime("%Y-%m-%d %H:%M:%S") if isinstance(creation_date_content, datetime) else str(creation_date_content)
             c.drawString(x_position + rect_internal_padding, date_y_position, f'Creation Date: {creation_date_str}')
-            # current_draw_y is now at the baseline of the last date line.
-            # y_left is the Y coordinate for the bottom of the drawn rectangle border for the left column item.
-            # This value is used by process_defects to position the next item.
-            # It represents the line just below the rounded rectangle.
-            # The new return value should be the y-coordinate that marks the bottom of all drawn content for the current item.
-            y_left = current_draw_y - rect_internal_padding # current_draw_y is at baseline of last content
+            current_draw_y = date_y_position - LINE_HEIGHT_SM # final_current_draw_y_before_return
+
+            if entry[0] == 'defect': # Log final current_draw_y for defects
+                 logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, final_current_draw_y before calculating return value: {current_draw_y}")
+
+            y_left = current_draw_y - rect_internal_padding # This is the y_value_for_next_item
+            if entry[0] == 'defect': # Log return value for defects
+                logger.info(f"add_defect_to_pdf (EXIT): Defect ID {id_for_log}, Returning y_for_next_item: {y_left}")
 
         else: # not is_left (right column, for defect contractor comments only)
             y_right = y_position # Default if no comments or not a defect
@@ -2062,11 +2071,11 @@ def generate_report(project_id): # Restored original signature
                     else:
                         entry_description_for_log = "Unknown entry type"
 
-                    logger.debug(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}")
+                    logger.info(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, Y_pos: {y_position}")
                     space_needed_left_col = estimate_space_needed(entry_data, is_left=True)
                     logger.info(f"process_defects: Estimated_rect_height (space_needed_left_col) for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}: {space_needed_left_col}")
-                    space_needed_right_col = 0 # Default for checklist items
-                    if entry_data[0] == 'defect': # Contractor comments only for defects
+                    space_needed_right_col = 0
+                    if entry_data[0] == 'defect':
                         space_needed_right_col = estimate_space_needed(entry_data, is_left=False)
 
                     required_space_for_item = max(space_needed_left_col, space_needed_right_col)
@@ -2086,11 +2095,10 @@ def generate_report(project_id): # Restored original signature
                         y_position -=20
 
 
-                    # Add left column (defect/checklist item details)
-                    # Pass current_item_number which is the sequential number for this report part
+                    logger.info(f"process_defects: Calling add_defect_to_pdf for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, current_item_number: {current_item_number}, y_position: {y_position}")
                     y_after_left_col = add_defect_to_pdf(entry_data, is_left=True, y_position=y_position, defect_number=current_item_number)
 
-                    if entry_data[0] == 'defect': # Only draw right column for defects
+                    if entry_data[0] == 'defect':
                         # Contractor comments (right column) start at the same y_position as the defect's left column content
                         # The return value of add_defect_to_pdf for the right column (y_right) is not currently used to adjust y_position further,
                         # as the primary layout driver is the left column's content height.
