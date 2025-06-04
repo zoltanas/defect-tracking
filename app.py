@@ -1310,6 +1310,7 @@ def delete_template(template_id):
 @login_required # Restored decorator
 def generate_report(project_id): # Restored original signature
     filter_status = request.args.get('filter', 'All') # Use request.args for filter_status
+    logger.info(f"Generating report with filter_status: {filter_status}")
     logger.info(f"Generating PDF report for project ID: {project_id} with filter: {filter_status}")
 
     # Original project fetching logic restored
@@ -1337,6 +1338,10 @@ def generate_report(project_id): # Restored original signature
                      sorted([d for d in all_defects_db if d.status == 'closed'],
                             key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
 
+    if defects_db:
+        logger.info(f"Fetched {len(defects_db)} defects from DB. Sample: {[(d.id, d.status) for d in defects_db[:3]]}")
+    else:
+        logger.info(f"Fetched {len(defects_db)} defects from DB.")
 
     checklists_db = Checklist.query.filter_by(project_id=project_id).order_by(Checklist.name.asc()).all()
     checklist_items_to_report = []
@@ -1431,6 +1436,8 @@ def generate_report(project_id): # Restored original signature
         sort_key_closed_items(x)[2] if x[0] == 'defect' else datetime.min # creation_date asc for defects
     ), reverse=True if any(item[0] == 'defect' for item in closed_items_for_report) else False)
 
+    logger.info(f"Number of 'defect' type items in open_items_for_report: {sum(1 for item in open_items_for_report if item[0] == 'defect')}")
+    logger.info(f"Number of 'defect' type items in closed_items_for_report: {sum(1 for item in closed_items_for_report if item[0] == 'defect')}")
 
     logger.info(f"Found {len(open_items_for_report)} open items and {len(closed_items_for_report)} closed items for the report.")
 
@@ -1594,7 +1601,10 @@ def generate_report(project_id): # Restored original signature
 
             # Description height
             _, desc_lines = draw_text_wrapped(c, description_text, 0, 0, max_width_est, line_height=line_height_regular_est, font_size=font_size_desc_est)
-            total_y_needed += desc_lines * line_height_regular_est + 7.5 # spacing after desc
+            description_block_height = desc_lines * line_height_regular_est
+            if desc_lines > 0:
+                description_block_height += 7.5 # Add spacing only if there's a description
+            total_y_needed += description_block_height
 
             # Checklist Item's own comments height
             if item_internal_comments:
@@ -1717,7 +1727,7 @@ def generate_report(project_id): # Restored original signature
                 if fetched_creator:
                     creator_username_content = fetched_creator.username
 
-            logger.info(f"Processing PDF: Type=Defect, ID={id_for_log}, Creator='{creator_username_content}', Desc='{description_content[:30]}...'")
+            logger.info(f"add_defect_to_pdf: Processing Defect ID {defect_obj.id}, Desc: '{description_content[:30] if description_content else 'Empty Description'}...', Status: {defect_obj.status}, Creator: {creator_username_content}")
 
             if isinstance(defect_obj, Defect):
                 marker_obj_data = DefectMarker.query.filter_by(defect_id=defect_obj.id).first()
@@ -1746,6 +1756,7 @@ def generate_report(project_id): # Restored original signature
             return y_position
 
         if is_left:
+            logger.info(f"add_defect_to_pdf (left col): Defect ID {id_for_log}, initial y_position: {y_position}")
             c.setFont('Helvetica-Bold', 12)
             # Title changes for checklist items
             title_text_display = ""
@@ -1759,7 +1770,7 @@ def generate_report(project_id): # Restored original signature
             rect_content_top_y = y_position # Y where the top border of the rounded rect will be
             
             current_draw_y = rect_content_top_y - rect_internal_padding # Starting Y for content INSIDE the rect
-
+            logger.debug(f"Defect ID {id_for_log}, current_draw_y before status: {current_draw_y}")
             # Draw Status, Creator (for defects) / Status (for checklist items)
             c.setFont('Helvetica', 10) # Font size for these metadata lines
             if entry[0] == 'defect':
@@ -1786,8 +1797,11 @@ def generate_report(project_id): # Restored original signature
             draw_rounded_rect(c, x_position, rect_content_top_y, column_width - PADDING_SM, estimated_rect_height, radius=PADDING_MD)
 
             current_draw_y -= PADDING_SM # Space before main description text
+            logger.debug(f"Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}")
             c.setFont('Helvetica', 12)
-            y_after_desc, _ = draw_text_wrapped(c, description_content, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
+            # Modify description_content if it's empty or None
+            drawable_description = description_content if description_content else "[No description]"
+            y_after_desc, _ = draw_text_wrapped(c, drawable_description, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
             current_draw_y = y_after_desc
 
             if item_comments_content: # For checklist item's own comments (not contractor replies)
@@ -1800,6 +1814,7 @@ def generate_report(project_id): # Restored original signature
                 y_after_item_comments, _ = draw_text_wrapped(c, item_comments_content, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
                 current_draw_y = y_after_item_comments
 
+            logger.debug(f"Defect ID {id_for_log}, current_draw_y before attachments/markers: {current_draw_y}")
             y_position_before_image_processing = current_draw_y # Save Y before images/markers start
             marked_drawing_processed_successfully = False
             process_regular_attachments = True # Assume we'll process regular attachments unless a marked drawing is successful
@@ -1908,6 +1923,7 @@ def generate_report(project_id): # Restored original signature
             final_content_y_in_rect = current_draw_y # This is y after all content *inside* the rect, before dates
 
             current_draw_y -= PADDING_MD # Space before date lines
+            logger.debug(f"Defect ID {id_for_log}, current_draw_y before date lines: {current_draw_y}")
             date_y_position = current_draw_y
             c.setFont('Helvetica', 8) # Font size for dates
             if entry[0] == 'defect' and close_date_content:
@@ -1921,7 +1937,8 @@ def generate_report(project_id): # Restored original signature
             # y_left is the Y coordinate for the bottom of the drawn rectangle border for the left column item.
             # This value is used by process_defects to position the next item.
             # It represents the line just below the rounded rectangle.
-            y_left = rect_content_top_y - estimated_rect_height
+            # The new return value should be the y-coordinate that marks the bottom of all drawn content for the current item.
+            y_left = current_draw_y - rect_internal_padding # current_draw_y is at baseline of last content
 
         else: # not is_left (right column, for defect contractor comments only)
             y_right = y_position # Default if no comments or not a defect
@@ -2030,7 +2047,9 @@ def generate_report(project_id): # Restored original signature
                     else:
                         entry_description_for_log = "Unknown entry type"
 
+                    logger.debug(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}")
                     space_needed_left_col = estimate_space_needed(entry_data, is_left=True)
+                    logger.info(f"process_defects: Estimated_rect_height (space_needed_left_col) for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}: {space_needed_left_col}")
                     space_needed_right_col = 0 # Default for checklist items
                     if entry_data[0] == 'defect': # Contractor comments only for defects
                         space_needed_right_col = estimate_space_needed(entry_data, is_left=False)
@@ -2058,11 +2077,12 @@ def generate_report(project_id): # Restored original signature
 
                     if entry_data[0] == 'defect': # Only draw right column for defects
                         # Contractor comments (right column) start at the same y_position as the defect's left column content
+                        # The return value of add_defect_to_pdf for the right column (y_right) is not currently used to adjust y_position further,
+                        # as the primary layout driver is the left column's content height.
                         _ = add_defect_to_pdf(entry_data, is_left=False, y_position=y_position)
 
                     # The next item should start based on the lowest point reached by the left column,
-                    # y_after_left_col already includes a buffer (line_height_content) below the drawn item.
-                    # We might want a slightly larger, more consistent buffer between distinct report items.
+                    # y_after_left_col is now the actual bottom of the drawn content in the left column (adjusted for padding).
                     y_position = y_after_left_col - SPACE_BETWEEN_ITEMS # Apply the defined inter-item spacing
                     current_item_number += 1
 
