@@ -1455,7 +1455,7 @@ def generate_report(project_id): # Restored original signature
     PADDING_LG = 15   # Large padding
     LINE_HEIGHT_STD = 15 # Standard line height for body text (e.g., description)
     LINE_HEIGHT_SM = 12  # Smaller line height for metadata (status, creator, dates, labels)
-    IMAGE_MAX_HEIGHT = 150 # Max height for displayed images
+    IMAGE_MAX_HEIGHT = 100 # Max height for displayed images
     SPACE_AFTER_IMAGE = PADDING_MD # Space after an image
     PLACEHOLDER_TEXT_HEIGHT = LINE_HEIGHT_STD # Assumed height for "[Image not available...]"
 
@@ -1583,15 +1583,21 @@ def generate_report(project_id): # Restored original signature
 
         # Heights for Status/Creator lines (fixed)
         if is_left:
+            total_y_needed = 0
+            # Initialize data based on entry type (defect or checklist_item)
+            description_text = ""
+            item_internal_comments = ""
+            marker_data_obj = None
+            attachments_list = []
+            # contractor_reply_list = [] # Not used for left column estimation
+
             if entry_type == 'defect':
-                total_y_needed += (line_height_small_est * 2) # Status & Creator
                 defect_obj_est = entry[1]
                 description_text = defect_obj_est.description or ""
+                # Ensure marker_data_obj is fetched correctly
                 marker_data_obj = DefectMarker.query.filter_by(defect_id=defect_obj_est.id).first() if isinstance(defect_obj_est, Defect) else (defect_obj_est.markers[0] if hasattr(defect_obj_est, 'markers') and defect_obj_est.markers else None)
                 attachments_list = Attachment.query.filter_by(defect_id=defect_obj_est.id, checklist_item_id=None, comment_id=None).all() if isinstance(defect_obj_est, Defect) else (defect_obj_est.attachments if hasattr(defect_obj_est, 'attachments') else [])
-                contractor_reply_list = entry[2] # This is for the right column, but needed for context if is_left is false
             elif entry_type == 'checklist_item':
-                total_y_needed += line_height_small_est # Status
                 _, item_obj_est = entry[1], entry[2]
                 description_text = item_obj_est.item_text or ""
                 item_internal_comments = item_obj_est.comments or ""
@@ -1599,41 +1605,39 @@ def generate_report(project_id): # Restored original signature
 
             total_y_needed += padding_est # Top padding inside rect
 
-            # Description height
-            _, desc_lines = draw_text_wrapped(c, description_text, 0, 0, max_width_est, line_height=line_height_regular_est, font_size=font_size_desc_est)
+            # 1. Checklist Item Status (if applicable, at the top)
+            if entry_type == 'checklist_item':
+                total_y_needed += line_height_small_est # Status height
+                total_y_needed += padding_est # Spacing after checklist status
+
+            # 2. Description height
+            drawable_description_est = description_text if description_text else "[No description]"
+            _, desc_lines = draw_text_wrapped(c, drawable_description_est, 0, 0, max_width_est, line_height=line_height_regular_est, font_size=font_size_desc_est)
             description_block_height = desc_lines * line_height_regular_est
-            if desc_lines > 0:
-                description_block_height += 7.5 # Add spacing only if there's a description
+            if desc_lines > 0: # Only add spacing if there's a description
+                description_block_height += padding_est # Use padding_est for spacing after description
             total_y_needed += description_block_height
 
-            # Checklist Item's own comments height
+            # 3. Checklist Item's own "Comments:" and comments text (if applicable)
             if item_internal_comments:
-                total_y_needed += label_height_est # "Comments:" label
+                total_y_needed += label_height_est # "Comments:" label height
                 _, item_comment_lines = draw_text_wrapped(c, item_internal_comments, 0, 0, max_width_est, line_height=line_height_small_est, font_size=font_size_comment_est)
                 total_y_needed += item_comment_lines * line_height_small_est + padding_est # Spacing after item comments
 
-            # Image/Marker Estimation
-            marked_drawing_shown_est = False
+            # 4. Marked Drawing OR Attachments
+            has_valid_marker_drawing = False
             if entry_type == 'defect' and marker_data_obj and marker_data_obj.drawing and marker_data_obj.drawing.file_path:
                 drawing_basename_est = os.path.basename(marker_data_obj.drawing.file_path)
                 drawing_full_path_est = os.path.join(app.config['DRAWING_FOLDER'], drawing_basename_est)
                 if os.path.exists(drawing_full_path_est):
-                    total_y_needed += label_height_est # "Marked Drawing View/Image:"
-                    if drawing_full_path_est.lower().endswith('.pdf'):
-                        total_y_needed += image_height_cap_est + 10 # Assumed height for converted PDF
-                    else: # Image marker
-                        try:
-                            img = PILImage.open(drawing_full_path_est)
-                            img_w, img_h = img.size
-                            est_h = min(img_h, image_height_cap_est) * (max_width_est / img_w) if img_w > 0 else min(img_h, image_height_cap_est)
-                            total_y_needed += min(est_h, image_height_cap_est) + 10
-                        except: total_y_needed += placeholder_height_est
-                    marked_drawing_shown_est = True
-                # If marked drawing file doesn't exist, we just fall through to regular attachments.
+                    has_valid_marker_drawing = True
+                    total_y_needed += label_height_est # "Marked Drawing View:" label
+                    # Estimate for one image (the marked drawing, possibly converted from PDF)
+                    total_y_needed += image_height_cap_est + SPACE_AFTER_IMAGE # Max height + spacing after
 
-            if not marked_drawing_shown_est and attachments_list:
-                total_y_needed += label_height_est # "Attached Images:" or "Attachments:"
-                for att in attachments_list:
+            if not has_valid_marker_drawing and attachments_list:
+                total_y_needed += label_height_est # "Attached Images:" or "Attachments:" label
+                for att in attachments_list: # Estimate for each attachment
                     if att.file_path:
                         att_basename_est = os.path.basename(att.file_path)
                         att_full_path_est = os.path.join(app.config['UPLOAD_FOLDER'], att_basename_est)
@@ -1642,18 +1646,24 @@ def generate_report(project_id): # Restored original signature
                                 img = PILImage.open(att_full_path_est)
                                 img_w, img_h = img.size
                                 est_h = min(img_h, image_height_cap_est) * (max_width_est / img_w) if img_w > 0 else min(img_h, image_height_cap_est)
-                                total_y_needed += min(est_h, image_height_cap_est) + 10
-                            except: total_y_needed += placeholder_height_est
-                        else: total_y_needed += placeholder_height_est # File not found
-                    else: total_y_needed += placeholder_height_est # No path
+                                total_y_needed += min(est_h, image_height_cap_est) + SPACE_AFTER_IMAGE
+                            except: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE
+                        else: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE # File not found
+                    else: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE # No path
 
-            # Date lines at the bottom of the content block
+            # 5. Defect Status and Defect Creator (if entry[0] == 'defect')
+            if entry_type == 'defect':
+                total_y_needed += padding_est # Space before status/creator block
+                total_y_needed += (line_height_small_est * 2) # Status & Creator lines
+                total_y_needed += padding_est # Space after status/creator (before dates)
+
+            # 6. Date lines (Creation Date, Close Date)
             total_y_needed += line_height_small_est # Creation Date
-            if entry_type == 'defect' and (entry[1].close_date if isinstance(entry[1], Defect) else getattr(entry[1], 'close_date', None)): # Check actual close_date
+            if entry_type == 'defect' and (entry[1].close_date if isinstance(entry[1], Defect) else getattr(entry[1], 'close_date', None)):
                 total_y_needed += line_height_small_est # Close Date
 
             total_y_needed += padding_est # Bottom padding inside rect
-            total_y_needed += line_height_regular_est # Spacing below the entire rect for this item
+            total_y_needed += line_height_regular_est # Spacing below the entire rect for this item (outer spacing)
             return total_y_needed
 
         else: # is_left is False (Contractor Comments for a defect)
@@ -1770,103 +1780,98 @@ def generate_report(project_id): # Restored original signature
             rect_content_top_y = y_position # Y where the top border of the rounded rect will be
             
             current_draw_y = rect_content_top_y - rect_internal_padding # Starting Y for content INSIDE the rect
-            logger.debug(f"Defect ID {id_for_log}, current_draw_y before status: {current_draw_y}")
-            # Draw Status, Creator (for defects) / Status (for checklist items)
-            c.setFont('Helvetica', 10) # Font size for these metadata lines
-            if entry[0] == 'defect':
-                defect_status_display = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A"
-                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
-                current_draw_y -= LINE_HEIGHT_SM
-                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
-                current_draw_y -= LINE_HEIGHT_SM
-            elif entry[0] == 'checklist_item':
+            logger.debug(f"Defect ID {id_for_log}, current_draw_y before status (original location): {current_draw_y}")
+            # OLD STATUS/CREATOR DRAWING REMOVED FROM HERE
+            # if entry[0] == 'defect':
+            #     # defect_status_display and creator_username_content are already defined earlier
+            #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
+            #     current_draw_y -= LINE_HEIGHT_SM
+            #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
+            #     current_draw_y -= LINE_HEIGHT_SM
+
+            # 1. Checklist Item Status (if applicable, at the top)
+            if entry[0] == 'checklist_item':
+                c.setFont('Helvetica', 10)
                 c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {item_status_content}')
                 current_draw_y -= LINE_HEIGHT_SM
+                current_draw_y -= PADDING_SM # Space after checklist status
 
-            # Now estimate space *after* these initial lines are accounted for.
-            # The estimate_space_needed function should ideally account for these fixed lines.
-            # For now, we draw them, then the description, then other variable content.
-            # The rounded rectangle's height will be based on estimate_space_needed.
-
-            # Recalculate rect_content_top_y to be the actual top of the rectangle based on content that *precedes* description
-            # The `current_draw_y` is now correctly positioned for the description.
-            # The `rect_content_top_y` should be `y_position` (which is after title).
-            # The estimated_rect_height needs to encompass all content starting from Status/Creator.
-
+            # The estimated_rect_height is calculated once and used for the rounded_rect
             estimated_rect_height = estimate_space_needed(entry, is_left=True)
             draw_rounded_rect(c, x_position, rect_content_top_y, column_width - PADDING_SM, estimated_rect_height, radius=PADDING_MD)
 
-            current_draw_y -= PADDING_SM # Space before main description text
+            # 2. Description
+            # current_draw_y is already appropriately positioned after checklist status (if any) or just after top padding
+            current_draw_y -= PADDING_SM # Space before main description text (or use existing if checklist status was drawn)
             logger.debug(f"Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}")
             c.setFont('Helvetica', 12)
-            # Modify description_content if it's empty or None
             drawable_description = description_content if description_content else "[No description]"
             y_after_desc, _ = draw_text_wrapped(c, drawable_description, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
             current_draw_y = y_after_desc
+            if drawable_description != "[No description]" and description_content : # Add padding only if there was a description
+                 current_draw_y -= PADDING_SM # Space after description text
 
-            if item_comments_content: # For checklist item's own comments (not contractor replies)
-                current_draw_y -= PADDING_MD # Space before "Comments:" label
+            # 3. Checklist Item's own "Comments:" and comments text (if applicable)
+            if item_comments_content:
+                current_draw_y -= PADDING_SM # Space before "Comments:" label
                 c.setFont('Helvetica-Oblique', 10)
                 c.drawString(x_position + rect_internal_padding, current_draw_y, "Comments:")
-                current_draw_y -= LINE_HEIGHT_SM # Move down past label
-
+                current_draw_y -= LINE_HEIGHT_SM
                 c.setFont('Helvetica', 10)
                 y_after_item_comments, _ = draw_text_wrapped(c, item_comments_content, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
                 current_draw_y = y_after_item_comments
+                current_draw_y -= PADDING_SM # Space after item comments
 
+            # 4. Marked Drawing OR Attachments
             logger.debug(f"Defect ID {id_for_log}, current_draw_y before attachments/markers: {current_draw_y}")
-            y_position_before_image_processing = current_draw_y # Save Y before images/markers start
             marked_drawing_processed_successfully = False
-            process_regular_attachments = True # Assume we'll process regular attachments unless a marked drawing is successful
+            process_regular_attachments = True
 
             if entry[0] == 'defect' and marker_obj_data and marker_obj_data.drawing and marker_obj_data.drawing.file_path:
-                # Construct full path for the drawing file
                 drawing_basename = os.path.basename(marker_obj_data.drawing.file_path)
                 drawing_full_path = os.path.join(app.config['DRAWING_FOLDER'], drawing_basename)
-                logger.info(f"Defect {id_for_log} has a marker. Drawing path: {drawing_full_path} (Original: {marker_obj_data.drawing.file_path})")
+                logger.info(f"Defect ID {id_for_log}: Attempting to process marked drawing. Path: {drawing_full_path}, Marker X: {marker_obj_data.x}, Y: {marker_obj_data.y}")
 
                 if not os.path.exists(drawing_full_path):
                     logger.error(f"Marked drawing file NOT FOUND: {drawing_full_path}")
-                    # Fallback to regular attachments will occur as marked_drawing_processed_successfully remains False
                 elif marker_obj_data.drawing.file_path.lower().endswith('.pdf'):
-                    logger.info(f"Attempting to process marked PDF: {drawing_full_path}")
-                    temp_marked_png_path = None # Path for the PNG image generated from PDF page + marker
+                    temp_marked_png_path = None
                     try:
-                        # Log poppler path (even if None, pdf2image handles it)
                         poppler_path_env = os.environ.get('POPPLER_PATH')
-                        logger.debug(f"Using Poppler path from env (if any): {poppler_path_env}")
-
+                        logger.info(f"Defect ID {id_for_log}: Calling convert_from_path for PDF: {drawing_full_path}. Poppler path from env: {poppler_path_env}")
                         images_from_path = convert_from_path(drawing_full_path, first_page=1, last_page=1, poppler_path=poppler_path_env)
+                        logger.info(f"Defect ID {id_for_log}: convert_from_path returned {len(images_from_path) if images_from_path is not None else 'None'} images.")
+
                         if images_from_path:
                             pil_image_from_pdf = images_from_path[0].convert('RGB')
                             draw_on_image = ImageDraw.Draw(pil_image_from_pdf)
                             img_w, img_h = pil_image_from_pdf.size
-
-                            # Apply marker
                             abs_marker_x = marker_obj_data.x * img_w
                             abs_marker_y = marker_obj_data.y * img_h
-                            radius = max(5, int(min(img_w, img_h) * 0.02)) # Dynamic radius
+                            radius = max(5, int(min(img_w, img_h) * 0.02))
                             draw_on_image.ellipse(
                                 (abs_marker_x - radius, abs_marker_y - radius, abs_marker_x + radius, abs_marker_y + radius),
                                 fill='red', outline='red'
                             )
-
                             temp_marked_png_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_marked_{id_for_log}_{os.urandom(4).hex()}.png")
+                            logger.info(f"Defect ID {id_for_log}: Saving marked PDF page to temporary PNG: {temp_marked_png_path}")
                             pil_image_from_pdf.save(temp_marked_png_path, 'PNG')
-                            logger.info(f"Saved marked PDF page as PNG: {temp_marked_png_path}")
 
-                            current_draw_y -= PADDING_SM # Space before "Marked Drawing" label
+                            current_draw_y -= PADDING_SM
                             c.setFont('Helvetica-Oblique', 9)
                             c.drawString(x_position + rect_internal_padding, current_draw_y, "Marked Drawing View:")
-                            current_draw_y -= LINE_HEIGHT_SM # Move past label
+                            current_draw_y -= LINE_HEIGHT_SM
 
+                            logger.info(f"Defect ID {id_for_log}: Calling add_image_to_pdf for the temporary marked PNG: {temp_marked_png_path}")
                             current_draw_y, _ = add_image_to_pdf(c, temp_marked_png_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
                             marked_drawing_processed_successfully = True
                             process_regular_attachments = False
                         else:
-                            logger.error(f"pdf2image conversion of {drawing_full_path} for defect {id_for_log} yielded no images.")
-                    except Exception as e_pdf_process:
-                        logger.error(f"Error processing marked PDF {drawing_full_path} for defect {id_for_log}: {e_pdf_process}", exc_info=True)
+                            logger.error(f"Defect ID {id_for_log}: Failed to convert PDF page to image. pdf2image returned no images.")
+                            marked_drawing_processed_successfully = False
+                    except Exception as e_conv:
+                        logger.error(f"Defect ID {id_for_log}: Error during PDF page conversion or marker drawing: {e_conv}", exc_info=True)
+                        marked_drawing_processed_successfully = False
                     finally:
                         if temp_marked_png_path and os.path.exists(temp_marked_png_path):
                             try:
@@ -1875,7 +1880,7 @@ def generate_report(project_id): # Restored original signature
                             except Exception as e_remove_tmp_png:
                                 logger.error(f"Failed to remove temp marked PNG {temp_marked_png_path}: {e_remove_tmp_png}")
                 else: # Marker drawing is not a PDF (e.g., an image with a marker - currently not supported by this flow, but path exists)
-                    logger.info(f"Marker drawing {drawing_full_path} for defect {id_for_log} is an image, not a PDF. Displaying this image as is (marker not dynamically drawn on it here).")
+                    logger.info(f"Marker drawing {drawing_full_path} for defect {id_for_log} is an image, not a PDF. Displaying this image as is (marker not dynamically drawn on it here).") # Existing log confirmed
                     current_draw_y -= PADDING_SM # Space before label
                     c.setFont('Helvetica-Oblique', 9)
                     c.drawString(x_position + rect_internal_padding, current_draw_y, "Marked Drawing (Image):")
@@ -1921,6 +1926,16 @@ def generate_report(project_id): # Restored original signature
 
 
             final_content_y_in_rect = current_draw_y # This is y after all content *inside* the rect, before dates
+
+            # NEW STATUS/CREATOR DRAWING LOCATION FOR DEFECTS
+            if entry[0] == 'defect':
+                current_draw_y -= PADDING_SM # Add a little space before status/creator
+                c.setFont('Helvetica', 10) # Or appropriate font
+                # defect_status_display and creator_username_content are already defined earlier in the function
+                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
+                current_draw_y -= LINE_HEIGHT_SM
+                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
+                current_draw_y -= LINE_HEIGHT_SM # Space after creator, before dates
 
             current_draw_y -= PADDING_MD # Space before date lines
             logger.debug(f"Defect ID {id_for_log}, current_draw_y before date lines: {current_draw_y}")
