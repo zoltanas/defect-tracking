@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Report - {{ project.name }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 10pt;
+            color: #333;
+            line-height: 1.4;
+        }
+        .container {
+            width: 100%;
+            margin: 0 auto;
+        }
+        .header, .footer {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+            font-size: 0.8em;
+            color: #777;
+        }
+        h1 {
+            font-size: 24pt;
+            color: #2c3e50;
+            margin-bottom: 0;
+        }
+        h2 {
+            font-size: 18pt;
+            color: #34495e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #bdc3c7;
+            padding-bottom: 5px;
+        }
+        h3 {
+            font-size: 14pt;
+            color: #7f8c8d;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        h4 {
+            font-size: 11pt;
+            color: #333;
+            margin-top: 15px;
+            margin-bottom: 5px;
+        }
+        p {
+            margin: 0 0 10px 0;
+        }
+        strong {
+            font-weight: bold;
+        }
+        .project-info {
+            margin-bottom: 25px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border: 1px solid #ecf0f1;
+            border-radius: 4px;
+        }
+        .project-info p {
+            margin: 5px 0;
+        }
+        .item-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #fff;
+            page-break-inside: avoid;
+        }
+        .item-card p {
+            margin: 3px 0;
+        }
+        .item-details {
+            margin-left: 10px;
+        }
+        .attachments, .comments-section, .markers-section {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #eee;
+        }
+        .attachments img, .comment-attachments img, .markers-section img {
+            max-width: 150px; /* Increased max-width for better visibility */
+            max-height: 150px; /* Increased max-height */
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        .comment {
+            padding: 8px;
+            border: 1px solid #f0f0f0;
+            margin-top: 8px;
+            border-radius: 3px;
+            background-color: #fdfdfd;
+        }
+        .comment p {
+            margin: 2px 0;
+        }
+        .no-data {
+            color: #777;
+            font-style: italic;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .status-open { color: #c0392b; }
+        .status-closed { color: #27ae60; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Project Report</h1>
+            <p><strong>Project:</strong> {{ project.name }}</p>
+        </div>
+
+        <div class="project-info">
+            <h3>Report Details</h3>
+            <p><strong>Generated on:</strong> {{ generation_date }}</p>
+            <p><strong>Filter Applied:</strong> {{ filter_status }}</p>
+        </div>
+
+        <div class="section defects-section">
+            <h2>Defects</h2>
+            {% if defects %}
+                {% for defect in defects %}
+                <div class="item-card">
+                    <h4>Defect #{{ defect.id }}: {{ defect.description }}</h4>
+                    <div class="item-details">
+                        <p><strong>Status:</strong> <span class="status-{{ defect.status.lower() }}">{{ defect.status }}</span></p>
+                        <p><strong>Creator:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}</p>
+                        <p><strong>Created Date:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</p>
+                        {% if defect.close_date %}
+                        <p><strong>Close Date:</strong> {{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                        {% endif %}
+
+                        {% if defect.markers %}
+                        <div class="markers-section">
+                            <p><strong>Marked Drawing:</strong>
+                                {% if defect.markers[0].drawing %}
+                                    {{ defect.markers[0].drawing.name }}
+                                {% else %}
+                                    Drawing information not available.
+                                {% endif %}
+                            </p>
+                            {% if defect.marked_drawing_image_path %}
+                                <img src="{{ url_for('static', filename=defect.marked_drawing_image_path, _external=True) }}" alt="Marked Drawing for Defect {{ defect.id }}">
+                            {% elif defect.markers[0].drawing and defect.markers[0].drawing.file_path %}
+                                <p><em>(Original drawing path: {{ defect.markers[0].drawing.file_path }}. Could not generate marked image.)</em></p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        {% set defect_direct_attachments = defect.attachments|selectattr('comment_id', 'none')|selectattr('checklist_item_id', 'none')|list %}
+                        {% if defect_direct_attachments %}
+                        <div class="attachments">
+                            <p><strong>Attachments:</strong></p>
+                            {% for attachment in defect_direct_attachments %}
+                                {% if attachment.thumbnail_path %}
+                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Thumbnail">
+                                {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
+                                    <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Attachment">
+                                {% else %}
+                                    <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        {% if defect.comments %}
+                        <div class="comments-section">
+                            <p><strong>Comments:</strong></p>
+                            {% for comment in defect.comments %}
+                            <div class="comment">
+                                <p><strong>{{ comment.user.username if comment.user else 'N/A' }}</strong> ({{ comment.created_at.strftime('%Y-%m-%d %H:%M:%S') if comment.created_at else 'N/A' }}):</p>
+                                <p>{{ comment.content }}</p>
+                                {% if comment.attachments %}
+                                <div class="comment-attachments">
+                                    {% for attachment in comment.attachments %}
+                                        {% if attachment.thumbnail_path %}
+                                            <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Comment Thumbnail">
+                                        {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
+                                            <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Comment Attachment">
+                                        {% else %}
+                                            <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-data">No defects match the current filter.</p>
+            {% endif %}
+        </div>
+
+        <div class="section checklists-section">
+            <h2>Checklists</h2>
+            {% if checklists %}
+                {% for chk_data in checklists %}
+                <div class="item-card">
+                    <h3>{{ chk_data.checklist_info.name }}</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Status</th>
+                                <th>Comments</th>
+                                <th>Attachments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for item in chk_data.items %}
+                            <tr>
+                                <td>{{ item.item_text }}</td>
+                                <td><span class="status-{{ 'closed' if item.is_checked else 'open' }}">{{ 'Checked' if item.is_checked else 'Unchecked' }}</span></td>
+                                <td>{{ item.comments if item.comments else '' }}</td>
+                                <td>
+                                    {% if item.attachments %}
+                                        {% for attachment in item.attachments %}
+                                            {% if attachment.thumbnail_path %}
+                                                <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Item Thumbnail">
+                                            {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
+                                                 <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Item Attachment">
+                                            {% else %}
+                                                <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                    <!-- No attachments -->
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-data">No checklists or items match the current filter.</p>
+            {% endif %}
+        </div>
+
+        <div class="footer">
+            <p>End of Report</p>
+        </div>
+    </div>
+</body>
+</html>

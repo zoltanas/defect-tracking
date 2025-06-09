@@ -4,10 +4,9 @@ flask-login==0.6.3
 flask-bcrypt==1.0.1
 gunicorn==22.0.0
 pillow==10.1.0
-reportlab==4.0.7
 itsdangerous==2.1.2
 sqlalchemy==2.0.23
 werkzeug==3.0.1
 Flask-WTF>=1.0.0
+WeasyPrint
 pdf2image
-poppler-utils
