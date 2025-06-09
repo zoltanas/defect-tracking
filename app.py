@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, Response, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, Response, send_from_directory, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
@@ -10,13 +10,8 @@ from werkzeug.utils import secure_filename
 import os
 import shutil
 from PIL import Image as PILImage, ImageDraw, ImageOps
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
-from reportlab.graphics.shapes import Drawing as ReportLabDrawing, Rect
-from reportlab.lib import colors
-from reportlab.graphics import renderPDF
 import io
+from weasyprint import HTML
 from pdf2image import convert_from_path
 import logging
 from sqlalchemy import inspect
@@ -1306,906 +1301,186 @@ def delete_template(template_id):
     flash('Template deleted successfully!', 'success')
     return redirect(url_for('template_list'))
 
-@app.route('/project/<int:project_id>/report')
-@login_required # Restored decorator
-def generate_report(project_id): # Restored original signature
-    filter_status = request.args.get('filter', 'All') # Use request.args for filter_status
-    logger.debug(f"generate_report: Called with project_id={project_id}, filter_status='{filter_status}'") # DEBUG LOG
-    logger.info(f"Generating report with filter_status: {filter_status}")
-    logger.info(f"Generating PDF report for project ID: {project_id} with filter: {filter_status}")
-
-    # Original project fetching logic restored
+@app.route('/project/<int:project_id>/new_report')
+@login_required
+def generate_new_report(project_id):
     project = db.session.get(Project, project_id)
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
+
     access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
     if not access:
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
 
-    # Fetch defects with creator eagerly loaded
-    defects_query = Defect.query.options(db.joinedload(Defect.creator)).filter_by(project_id=project_id)
-    logger.debug(f"generate_report: Initial defect query for project {project_id} found {len(defects_query.all())} defects.") # DEBUG LOG
+    logger.info(f"Starting new report generation for project ID: {project_id}")
+    filter_status = request.args.get('filter', 'All')
+    logger.info(f"Report filter status: {filter_status}")
+    generation_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    resolved_static_folder = app.static_folder
+
+    temp_report_images_dir = os.path.join(resolved_static_folder, 'images', 'report_temp')
+    os.makedirs(temp_report_images_dir, exist_ok=True)
+    logger.debug(f"Ensured temporary report image directory exists: {temp_report_images_dir}")
+
+    temp_files_to_clean = []
+
+    # Fetch defects
+    defects_query = Defect.query.options(
+        db.joinedload(Defect.creator),
+        db.joinedload(Defect.attachments),
+        db.joinedload(Defect.comments).joinedload(Comment.user),
+        db.joinedload(Defect.comments).joinedload(Comment.attachments),
+        db.joinedload(Defect.markers).joinedload(DefectMarker.drawing)
+    ).filter_by(project_id=project_id)
+
     if filter_status == 'Open':
-        # Sort open defects by creation date ascending
-        defects_db = defects_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
-        logger.debug(f"generate_report: After '{filter_status}' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
+        defects = defects_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
     elif filter_status == 'Closed':
-        # Sort closed defects by close date descending, then creation date ascending
-        defects_db = defects_query.filter_by(status='closed').order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
-        logger.debug(f"generate_report: After '{filter_status}' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
+        defects = defects_query.filter_by(status='closed').order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
     else: # All
-        # Fetch all, then sort in Python to group open first (by creation asc), then closed (by close date desc)
         all_defects_db = defects_query.order_by(Defect.creation_date.asc()).all()
-        logger.debug(f"generate_report: Before 'All' filter list comprehensions, all_defects_db contains {len(all_defects_db)} defects.") # DEBUG LOG
-        defects_db = sorted([d for d in all_defects_db if d.status == 'open'], key=lambda d: d.creation_date if d.creation_date else datetime.min) + \
-                     sorted([d for d in all_defects_db if d.status == 'closed'],
-                            key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
-        logger.debug(f"generate_report: After 'All' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
+        defects = sorted([d for d in all_defects_db if d.status == 'open'], key=lambda d: d.creation_date if d.creation_date else datetime.min) + \
+                    sorted([d for d in all_defects_db if d.status == 'closed'],
+                           key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
+    logger.info(f"Fetched {len(defects)} defects for the report.")
 
-    if defects_db:
-        logger.info(f"Fetched {len(defects_db)} defects from DB. Sample: {[(d.id, d.status) for d in defects_db[:3]]}")
-    else:
-        logger.info(f"Fetched {len(defects_db)} defects from DB.")
+    for defect in defects:
+        defect.marked_drawing_image_path = None # Ensure it's initialized
+        if defect.markers and defect.markers[0].drawing and defect.markers[0].drawing.file_path.lower().endswith('.pdf'):
+            marker = defect.markers[0]
+            drawing_db_path = marker.drawing.file_path # Path like 'drawings/drawing_name.pdf'
 
+            # Construct full path to the PDF drawing file
+            # Assuming drawing_db_path is relative to the app's root or a known base for drawings
+            # If DRAWING_FOLDER is absolute, this might need adjustment.
+            # For now, assume DRAWING_FOLDER is 'static/drawings' and drawing_db_path is 'drawings/file.pdf'
+            # We need the actual file system path.
+            pdf_filename = os.path.basename(drawing_db_path)
+            pdf_full_path = os.path.join(app.config['DRAWING_FOLDER'], pdf_filename)
+            logger.debug(f"Attempting PDF to image conversion for defect {defect.id}, drawing: {pdf_full_path}")
+
+            if os.path.exists(pdf_full_path):
+                try:
+                    images = convert_from_path(pdf_full_path, first_page=1, last_page=1, poppler_path=os.environ.get('POPPLER_PATH'))
+                    if images:
+                        pil_image = images[0].convert('RGB')
+                        draw_obj = ImageDraw.Draw(pil_image) # Renamed to avoid conflict
+                        img_w, img_h = pil_image.size
+                        abs_marker_x = marker.x * img_w
+                        abs_marker_y = marker.y * img_h
+                        radius = max(5, int(min(img_w, img_h) * 0.02))
+                        draw_obj.ellipse(
+                            (abs_marker_x - radius, abs_marker_y - radius, abs_marker_x + radius, abs_marker_y + radius),
+                            fill='red', outline='red'
+                        )
+
+                        # Use NamedTemporaryFile correctly to get a path within the desired directory
+                        with tempfile.NamedTemporaryFile(suffix='.png', dir=temp_report_images_dir, delete=False) as tmp_file:
+                            temp_image_abs_path = tmp_file.name
+
+                        pil_image.save(temp_image_abs_path)
+                        temp_files_to_clean.append(temp_image_abs_path)
+
+                        # Path relative to 'static' folder for url_for
+                        defect.marked_drawing_image_path = os.path.join('images', 'report_temp', os.path.basename(temp_image_abs_path))
+                        logger.info(f"Successfully generated marked drawing for defect {defect.id}: {defect.marked_drawing_image_path}")
+                    else:
+                        logger.warning(f"convert_from_path returned no images for PDF: {pdf_full_path}, defect {defect.id}")
+                except Exception as e:
+                    logger.error(f"Error during PDF to image conversion or drawing marker for defect {defect.id}, PDF: {pdf_full_path}. Error: {e}", exc_info=True)
+                    defect.marked_drawing_image_path = None # Ensure it's None if conversion failed
+            else:
+                logger.warning(f"Marked drawing PDF not found at path: {pdf_full_path} for defect {defect.id}")
+
+    # Fetch checklists
     checklists_db = Checklist.query.filter_by(project_id=project_id).order_by(Checklist.name.asc()).all()
-    checklist_items_to_report = []
-    for checklist_obj in checklists_db: # Renamed variable
-        # Sort checklist items by their text/ID for consistent order within a checklist
-        items_db = ChecklistItem.query.filter_by(checklist_id=checklist_obj.id).order_by(ChecklistItem.id.asc()).all()
-        for item_obj in items_db: # Renamed variable
+    report_checklists = []
+    for checklist_obj in checklists_db:
+        items_db = ChecklistItem.query.options(
+            db.joinedload(ChecklistItem.attachments)
+        ).filter_by(checklist_id=checklist_obj.id).order_by(ChecklistItem.id.asc()).all()
+
+        filtered_items = []
+        for item_obj in items_db:
             item_status_val = 'closed' if item_obj.is_checked else 'open'
             if filter_status == 'Open' and item_status_val != 'open':
                 continue
             elif filter_status == 'Closed' and item_status_val != 'closed':
                 continue
-            # Ensure checklist_obj has creation_date for sorting later if needed
-            if not hasattr(checklist_obj, 'creation_date') or not checklist_obj.creation_date:
-                 logger.warning(f"Checklist {checklist_obj.name} (ID: {checklist_obj.id}) missing creation_date, using fallback for report sorting.")
-                 # Provide a fallback if necessary, though Checklist model has default=datetime.now
-                 # checklist_obj.creation_date = datetime.min # Or some other default
-            checklist_items_to_report.append((checklist_obj, item_obj, item_status_val))
-
-    if not defects_db and not checklist_items_to_report: # Use fetched defect list
-        flash('No defects or checklist items found to generate a report.', 'error')
-        return redirect(url_for('project_detail', project_id=project_id))
-
-    open_items_for_report = []
-    closed_items_for_report = []
-
-    # Process Defects from defects_db
-    for defect_item_obj in defects_db: # Renamed variable
-        # Eagerly load contractor comments with their users and attachments
-        contractor_comments_list_db = Comment.query.options(
-            db.joinedload(Comment.user), # Eager load the User who made the comment
-            db.joinedload(Comment.attachments) # Eager load attachments for that comment
-        ).filter(
-            Comment.defect_id == defect_item_obj.id,
-            User.role == 'contractor' # Filter by User role
-        ).join(User).order_by(Comment.created_at.asc()).all() # Join User table to filter by role
-
-        if defect_item_obj.status == 'open':
-            open_items_for_report.append(('defect', defect_item_obj, contractor_comments_list_db))
-            logger.debug(f"generate_report: Defect ID {defect_item_obj.id} ('{defect_item_obj.description[:30] if defect_item_obj.description else 'N/A'}...') added to open_items_for_report.") # DEBUG LOG
-        else: # closed
-            closed_items_for_report.append(('defect', defect_item_obj, contractor_comments_list_db))
-            logger.debug(f"generate_report: Defect ID {defect_item_obj.id} ('{defect_item_obj.description[:30] if defect_item_obj.description else 'N/A'}...') added to closed_items_for_report.") # DEBUG LOG
-
-    # Process Checklist Items from checklist_items_to_report
-    for checklist_obj, item_obj, item_status_val in checklist_items_to_report:
-        # Checklist items don't have contractor comments in the same way defects do for the report
-        # The last element of the tuple is a placeholder for contractor_comments_list
-        if item_status_val == 'open':
-            open_items_for_report.append(('checklist_item', checklist_obj, item_obj, []))
-        else: # closed
-            closed_items_for_report.append(('checklist_item', checklist_obj, item_obj, []))
-
-    # Define sort keys
-    # Sort order: Defect (0) then ChecklistItem (1)
-    # Then by date (creation for open, close_date then creation for closed)
-    def sort_key_open_items(item_tuple):
-        item_type_sort_order = 0 if item_tuple[0] == 'defect' else 1
-        date_val = datetime.min
-        if item_tuple[0] == 'defect': # Defect object is item_tuple[1]
-            date_val = item_tuple[1].creation_date if item_tuple[1].creation_date else datetime.min
-        elif item_tuple[0] == 'checklist_item': # Checklist object is item_tuple[1]
-            # Checklist Items use their parent Checklist's creation_date for sorting purposes here.
-            date_val = item_tuple[1].creation_date if hasattr(item_tuple[1], 'creation_date') and item_tuple[1].creation_date else datetime.min
-        return (item_type_sort_order, date_val)
-
-    def sort_key_closed_items(item_tuple):
-        item_type_sort_order = 0 if item_tuple[0] == 'defect' else 1
-        primary_date_val = datetime.min # For defects: close_date (newest first, so use as is for sort then reverse)
-                                       # For checklist items: checklist creation_date
-        secondary_date_val = datetime.min # For defects: creation_date (oldest first if close_dates match)
-
-        if item_tuple[0] == 'defect': # Defect object is item_tuple[1]
-            primary_date_val = item_tuple[1].close_date if item_tuple[1].close_date else datetime.min # Newest closed date first
-            secondary_date_val = item_tuple[1].creation_date if item_tuple[1].creation_date else datetime.min
-            return (item_type_sort_order, primary_date_val, secondary_date_val) # Sort by close_date (primary), then creation_date (secondary)
-        elif item_tuple[0] == 'checklist_item': # Checklist object is item_tuple[1]
-            # For checklist items, "closing" is analogous to checking them off.
-            # We don't have a specific "close_date" for items.
-            # Sorting them by their checklist's creation date is a reasonable default.
-            # If a specific "checked_date" were available on ChecklistItem, it could be used.
-            primary_date_val = item_tuple[1].creation_date if hasattr(item_tuple[1], 'creation_date') and item_tuple[1].creation_date else datetime.min
-            return (item_type_sort_order, primary_date_val)
-
-
-    # Sort the lists
-    open_items_for_report.sort(key=sort_key_open_items)
-    # For closed items, sort by primary_date_val (close_date for defects) descending (newest first),
-    # then by secondary_date_val (creation_date for defects) ascending (oldest first for tie-break).
-    # Checklist items will be sorted by their checklist's creation date.
-    closed_items_for_report.sort(key=lambda x: (
-        sort_key_closed_items(x)[0], # item type
-        sort_key_closed_items(x)[1] if x[0] == 'defect' else (datetime.max - sort_key_closed_items(x)[1].replace(tzinfo=None) if sort_key_closed_items(x)[1] else datetime.min), # close_date desc for defects, checklist creation asc
-        sort_key_closed_items(x)[2] if x[0] == 'defect' else datetime.min # creation_date asc for defects
-    ), reverse=True if any(item[0] == 'defect' for item in closed_items_for_report) else False)
-
-    logger.debug(f"generate_report: Total 'defect' items in open_items_for_report: {sum(1 for item in open_items_for_report if item[0] == 'defect')}") # DEBUG LOG
-    logger.debug(f"generate_report: Total 'defect' items in closed_items_for_report: {sum(1 for item in closed_items_for_report if item[0] == 'defect')}") # DEBUG LOG
-    logger.info(f"Number of 'defect' type items in open_items_for_report: {sum(1 for item in open_items_for_report if item[0] == 'defect')}")
-    logger.info(f"Number of 'defect' type items in closed_items_for_report: {sum(1 for item in closed_items_for_report if item[0] == 'defect')}")
-
-    logger.info(f"Found {len(open_items_for_report)} open items and {len(closed_items_for_report)} closed items for the report.")
-
-    pdf_buffer = io.BytesIO()
-    c = canvas.Canvas(pdf_buffer, pagesize=letter)
-    width, height = letter # page width and height
-    left_margin = 50
-    right_margin = width - 50
-    center_x = width / 2
-    column_width = (width - left_margin - (width - right_margin)) / 2
-
-    # Define standard padding/spacing values
-    PADDING_SM = 5    # Small padding
-    PADDING_MD = 10   # Medium padding
-    PADDING_LG = 15   # Large padding
-    LINE_HEIGHT_STD = 15 # Standard line height for body text (e.g., description)
-    LINE_HEIGHT_SM = 12  # Smaller line height for metadata (status, creator, dates, labels)
-    IMAGE_MAX_HEIGHT = 100 # Max height for displayed images
-    SPACE_AFTER_IMAGE = PADDING_MD # Space after an image
-    PLACEHOLDER_TEXT_HEIGHT = LINE_HEIGHT_STD # Assumed height for "[Image not available...]"
-
-    def draw_text_wrapped(c, text, x, y, max_width, line_height=LINE_HEIGHT_STD, font='Helvetica', font_size=12):
-        if text is None:
-            text = ""
-        c.setFont(font, font_size)
-        words = text.split()
-        lines = []
-        current_line = []
-        current_width = 0
-        for word in words:
-            word_width = c.stringWidth(word + ' ', font, font_size)
-            if current_width + word_width <= max_width:
-                current_line.append(word)
-                current_width += word_width
-            else:
-                lines.append(' '.join(current_line))
-                current_line = [word]
-                current_width = word_width
-        if current_line:
-            lines.append(' '.join(current_line))
-        for line_text in lines: # Renamed loop variable
-            c.drawString(x, y, line_text)
-            y -= line_height
-        return y, len(lines) * line_height
-
-    def add_image_to_pdf(c, img_path, x, y, max_width, max_height):
-        logger.info(f"add_image_to_pdf: Processing image path: '{img_path}', MaxWidth: {max_width}, MaxHeight: {max_height}")
-        temp_img_path = None # Initialize to prevent UnboundLocalError
-        try:
-            img = PILImage.open(img_path)
-            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                background = PILImage.new('RGB', img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-                img = background
-            else:
-                img = img.convert('RGB')
-            temp_img_path = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_img_{os.urandom(8).hex()}.jpg')
-            img.save(temp_img_path, 'JPEG')
-            img_width_pil, img_height_pil = img.size
-            aspect_ratio = img_width_pil / img_height_pil
-
-            img_width_draw_final = max_width # Use a new variable for final drawing dimensions
-            img_height_draw_final = img_width_draw_final / aspect_ratio
-
-            if img_height_draw_final > max_height:
-                img_height_draw_final = max_height
-                img_width_draw_final = img_height_draw_final * aspect_ratio
-
-            img_reader = ImageReader(temp_img_path) # This can also fail
-            c.drawImage(img_reader, x, y - img_height_draw_final, width=img_width_draw_final, height=img_height_draw_final)
-            actual_drawn_height = img_height_draw_final
-            logger.info(f"add_image_to_pdf: Successfully drew image '{img_path}'. Drawn image height: {actual_drawn_height}")
-
-        except FileNotFoundError:
-            logger.error(f"Image file not found: {img_path}", exc_info=True)
-            placeholder_text = f"[Image not available: {os.path.basename(img_path)} (File Not Found)]"
-            c.setFillColorRGB(0.5, 0.5, 0.5) # Grey text for placeholder
-            c.drawString(x, y - 12, placeholder_text)
-            c.setFillColorRGB(0, 0, 0) # Reset to black
-            actual_drawn_height = 15 # Height of the placeholder text line
-            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to FileNotFoundError. Placeholder text height: {actual_drawn_height}")
-        except (PILImage.UnidentifiedImageError, ValueError) as pil_e: # Catch PIL specific errors and general ValueErrors from PIL
-            logger.error(f"PIL Error processing image {img_path}: {pil_e}", exc_info=True)
-            placeholder_text = f"[Image not available: {os.path.basename(img_path)} (Format Error)]"
-            c.setFillColorRGB(0.5, 0.5, 0.5)
-            c.drawString(x, y - 12, placeholder_text)
-            c.setFillColorRGB(0, 0, 0)
-            actual_drawn_height = 15
-            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to PILImage.UnidentifiedImageError or ValueError. Placeholder text height: {actual_drawn_height}")
-        except Exception as e: # Catch other errors (e.g., from ReportLab ImageReader or drawImage)
-            logger.error(f"General failure to add image {img_path} to PDF: {e}", exc_info=True)
-            placeholder_text = f"[Image not available: {os.path.basename(img_path)} (Load Error)]"
-            c.setFillColorRGB(0.5, 0.5, 0.5)
-            c.drawString(x, y - 12, placeholder_text)
-            c.setFillColorRGB(0, 0, 0)
-            actual_drawn_height = 15
-            logger.info(f"add_image_to_pdf: Drew placeholder for '{img_path}' due to Exception. Placeholder text height: {actual_drawn_height}")
-        finally:
-            if temp_img_path and os.path.exists(temp_img_path):
-                try:
-                    os.remove(temp_img_path)
-                    logger.debug(f"Successfully removed temporary image file: {temp_img_path}")
-                except Exception as e_remove:
-                    logger.error(f"Failed to remove temporary image file {temp_img_path}: {e_remove}")
-            # Return the y-position after drawing the image/placeholder and the actual height used.
-            return y - actual_drawn_height - 10, actual_drawn_height
-
-    def draw_rounded_rect(c, x, y, width, height, radius=10):
-        drawing = ReportLabDrawing()
-        fill_color = colors.Color(*colors.lightgrey.rgb(), alpha=0.2)
-        rect = Rect(0, 0, width, height, strokeColor=colors.darkgrey, fillColor=fill_color, strokeWidth=1)
-        rect.rx = radius
-        rect.ry = radius
-        drawing.add(rect)
-        c.saveState()
-        c.translate(x, y - height)
-        renderPDF.draw(drawing, c, 0, 0)
-        c.restoreState()
-
-    def estimate_space_needed(entry, is_left=True):
-        # This function estimates the vertical space needed for an entry in the PDF.
-        # It should mirror the drawing logic of add_defect_to_pdf as closely as possible.
-        max_width_est = column_width - 20 if is_left else (width - center_x - 30)
-        padding_est = 10
-        font_size_desc_est = 12
-        font_size_comment_est = 10
-        font_size_label_est = 9
-        line_height_regular_est = 15 # For description, standard text
-        line_height_small_est = 12   # For status, creator, item comments, date lines
-        image_height_cap_est = 150
-        placeholder_height_est = 15 + 10 # Placeholder text + spacing
-        label_height_est = 12 + 5 # Label for images/attachments + spacing
-
-        total_y_needed = 0
-
-        # Data extraction from entry (defect or checklist_item)
-        entry_type = entry[0]
-        description_text = ""
-        item_internal_comments = "" # Checklist item's own comments
-        marker_data_obj = None
-        attachments_list = []
-        contractor_reply_list = []
-
-        # Heights for Status/Creator lines (fixed)
-        if is_left:
-            total_y_needed = 0
-            # Initialize data based on entry type (defect or checklist_item)
-            description_text = ""
-            item_internal_comments = ""
-            marker_data_obj = None
-            attachments_list = []
-            # contractor_reply_list = [] # Not used for left column estimation
-
-            if entry_type == 'defect':
-                defect_obj_est = entry[1]
-                description_text = defect_obj_est.description or ""
-                # Ensure marker_data_obj is fetched correctly
-                marker_data_obj = DefectMarker.query.filter_by(defect_id=defect_obj_est.id).first() if isinstance(defect_obj_est, Defect) else (defect_obj_est.markers[0] if hasattr(defect_obj_est, 'markers') and defect_obj_est.markers else None)
-                attachments_list = Attachment.query.filter_by(defect_id=defect_obj_est.id, checklist_item_id=None, comment_id=None).all() if isinstance(defect_obj_est, Defect) else (defect_obj_est.attachments if hasattr(defect_obj_est, 'attachments') else [])
-            elif entry_type == 'checklist_item':
-                _, item_obj_est = entry[1], entry[2]
-                description_text = item_obj_est.item_text or ""
-                item_internal_comments = item_obj_est.comments or ""
-                attachments_list = Attachment.query.filter_by(checklist_item_id=item_obj_est.id).all() if isinstance(item_obj_est, ChecklistItem) else (item_obj_est.attachments if hasattr(item_obj_est, 'attachments') else [])
-
-            total_y_needed += padding_est # Top padding inside rect
-
-            # 1. Checklist Item Status (if applicable, at the top)
-            if entry_type == 'checklist_item':
-                total_y_needed += line_height_small_est # Status height
-                total_y_needed += padding_est # Spacing after checklist status
-
-            # 2. Description height
-            drawable_description_est = description_text if description_text else "[No description]"
-            _, desc_lines = draw_text_wrapped(c, drawable_description_est, 0, 0, max_width_est, line_height=line_height_regular_est, font_size=font_size_desc_est)
-            description_block_height = desc_lines * line_height_regular_est
-            if desc_lines > 0: # Only add spacing if there's a description
-                description_block_height += padding_est # Use padding_est for spacing after description
-            total_y_needed += description_block_height
-
-            # 3. Checklist Item's own "Comments:" and comments text (if applicable)
-            if item_internal_comments:
-                total_y_needed += label_height_est # "Comments:" label height
-                _, item_comment_lines = draw_text_wrapped(c, item_internal_comments, 0, 0, max_width_est, line_height=line_height_small_est, font_size=font_size_comment_est)
-                total_y_needed += item_comment_lines * line_height_small_est + padding_est # Spacing after item comments
-
-            # 4. Marked Drawing OR Attachments
-            has_valid_marker_drawing = False
-            if entry_type == 'defect' and marker_data_obj and marker_data_obj.drawing and marker_data_obj.drawing.file_path:
-                drawing_basename_est = os.path.basename(marker_data_obj.drawing.file_path)
-                drawing_full_path_est = os.path.join(app.config['DRAWING_FOLDER'], drawing_basename_est)
-                if os.path.exists(drawing_full_path_est):
-                    has_valid_marker_drawing = True
-                    total_y_needed += label_height_est # "Marked Drawing View:" label
-                    # Estimate for one image (the marked drawing, possibly converted from PDF)
-                    total_y_needed += image_height_cap_est + SPACE_AFTER_IMAGE # Max height + spacing after
-
-            if not has_valid_marker_drawing and attachments_list:
-                total_y_needed += label_height_est # "Attached Images:" or "Attachments:" label
-                for att in attachments_list: # Estimate for each attachment
-                    if att.file_path:
-                        att_basename_est = os.path.basename(att.file_path)
-                        att_full_path_est = os.path.join(app.config['UPLOAD_FOLDER'], att_basename_est)
-                        if os.path.exists(att_full_path_est):
-                            try:
-                                img = PILImage.open(att_full_path_est)
-                                img_w, img_h = img.size
-                                est_h = min(img_h, image_height_cap_est) * (max_width_est / img_w) if img_w > 0 else min(img_h, image_height_cap_est)
-                                total_y_needed += min(est_h, image_height_cap_est) + SPACE_AFTER_IMAGE
-                            except: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE
-                        else: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE # File not found
-                    else: total_y_needed += placeholder_height_est + SPACE_AFTER_IMAGE # No path
-
-            # 5. Defect Status and Defect Creator (if entry[0] == 'defect')
-            if entry_type == 'defect':
-                total_y_needed += padding_est # Space before status/creator block
-                total_y_needed += (line_height_small_est * 2) # Status & Creator lines
-                total_y_needed += padding_est # Space after status/creator (before dates)
-
-            # 6. Date lines (Creation Date, Close Date)
-            total_y_needed += line_height_small_est # Creation Date
-            if entry_type == 'defect' and (entry[1].close_date if isinstance(entry[1], Defect) else getattr(entry[1], 'close_date', None)):
-                total_y_needed += line_height_small_est # Close Date
-
-            total_y_needed += padding_est # Bottom padding inside rect
-            total_y_needed += line_height_regular_est # Spacing below the entire rect for this item (outer spacing)
-            return total_y_needed
-
-        else: # is_left is False (Contractor Comments for a defect)
-            if entry_type == 'defect' and contractor_reply_list:
-                total_y_needed = 15 # "Contractor Replies:" title height
-                for comment_obj_est in contractor_reply_list:
-                    comment_rect_h_est = padding_est * 2 # Top/bottom padding for this comment's rect
-                    comment_rect_h_est += (line_height_small_est + 7.5) # "By: username" + spacing
-
-                    content_est = comment_obj_est.content or ""
-                    _, content_lines = draw_text_wrapped(c, content_est, 0, 0, max_width_est, line_height=line_height_small_est, font_size=font_size_comment_est)
-                    comment_rect_h_est += content_lines * line_height_small_est + 7.5
-
-                    comment_attachments_est = comment_obj_est.attachments if hasattr(comment_obj_est, 'attachments') else []
-                    if comment_attachments_est:
-                        # No separate label for comment attachments, they just appear.
-                        for att in comment_attachments_est:
-                            if att.file_path:
-                                att_basename_est = os.path.basename(att.file_path)
-                                att_full_path_est = os.path.join(app.config['UPLOAD_FOLDER'], att_basename_est)
-                                if os.path.exists(att_full_path_est):
-                                    try:
-                                        img = PILImage.open(att_full_path_est)
-                                        img_w, img_h = img.size
-                                        est_h = min(img_h, image_height_cap_est) * (max_width_est / img_w) if img_w > 0 else min(img_h, image_height_cap_est)
-                                        comment_rect_h_est += min(est_h, image_height_cap_est) + 10
-                                    except: comment_rect_h_est += placeholder_height_est
-                                else: comment_rect_h_est += placeholder_height_est
-                            else: comment_rect_h_est += placeholder_height_est
-
-                    comment_rect_h_est += line_height_small_est + 7.5 # Comment date line + spacing
-                    total_y_needed += comment_rect_h_est + 10 # Add this comment block's height + spacing after it
-                return total_y_needed
-            return 0 # No contractor comments or not a defect
-
-    # Fully revised add_defect_to_pdf function (from previous turn's report)
-    def add_defect_to_pdf(entry, is_left=True, y_position=None, defect_number=1):
-        nonlocal c
-        # Store original y_position for logging at entry
-        y_position_original_passed_in = y_position
-
-        x_position = left_margin if is_left else center_x + PADDING_MD
-        max_width_content = column_width - (2 * PADDING_SM) if is_left else (width - center_x - PADDING_MD - PADDING_SM)
-        # padding refers to internal padding for rounded_rects
-        rect_internal_padding = PADDING_MD
-
-
-        attachments_to_draw = []
-        entry_type_for_log = entry[0]
-        id_for_log = None # Will be set for defect or checklist item
-        defect_obj = None # Will be set for defect
-        item_obj = None
-        checklist_obj_for_item = None
-        description_content = "" # Renamed from description_draw
-        creation_date_content = datetime.now()  # Renamed from creation_date_draw
-        close_date_content = None # Renamed from close_date_draw
-        item_comments_content = ""  # Renamed from comments_text_field_draw (for checklist item's own comments)
-        defect_contractor_comments = [] # Renamed from contractor_comments_list
-        marker_obj_data = None # Renamed from marker_obj
-        creator_username_content = "N/A" # Renamed from creator_username_draw
-        item_status_content = "N/A" # Renamed from item_status_draw
-
-        if entry[0] == 'defect':
-            defect_obj = entry[1]
-            id_for_log = defect_obj.id
-            description_content = defect_obj.description or ""
-            creation_date_content = defect_obj.creation_date
-            close_date_content = defect_obj.close_date
-            defect_contractor_comments = entry[2]
-            if defect_obj.creator:
-                creator_username_content = defect_obj.creator.username
-            else: # Fallback if creator not eagerly loaded
-                fetched_creator = db.session.get(User, defect_obj.creator_id) if defect_obj.creator_id else None
-                if fetched_creator:
-                    creator_username_content = fetched_creator.username
-
-            # Ensure defect_status_display is defined here for logging
-            defect_status_display = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A" # Used in ENTRY log
-            if is_left and entry[0] == 'defect': # Logging specific to left column defect processing
-                 logger.debug(f"add_defect_to_pdf (is_left=True, type=defect): Received defect ID={defect_obj.id}, Desc='{defect_obj.description[:50] if defect_obj.description else 'N/A'}', Status='{defect_obj.status}'") # DEBUG LOG
-                 logger.info(f"add_defect_to_pdf (ENTRY): Defect ID {id_for_log}, Desc: '{description_content[:30] if description_content else 'Empty Description'}...', Status: {defect_status_display}, Creator: {creator_username_content}, Received y_position: {y_position_original_passed_in}")
-
-            if isinstance(defect_obj, Defect):
-                marker_obj_data = DefectMarker.query.filter_by(defect_id=defect_obj.id).first()
-                attachments_to_draw = Attachment.query.filter_by(defect_id=defect_obj.id, checklist_item_id=None, comment_id=None).all()
-            else: # Mock object case
-                marker_obj_data = defect_obj.markers[0] if hasattr(defect_obj, 'markers') and defect_obj.markers else None
-                attachments_to_draw = defect_obj.attachments if hasattr(defect_obj, 'attachments') else []
-
-        elif entry[0] == 'checklist_item':
-            checklist_obj_for_item, item_obj = entry[1], entry[2]
-            id_for_log = item_obj.id
-            item_text = item_obj.item_text or ""
-            # The title will indicate it's a checklist item, so description can be just the text.
-            description_content = f"{item_text}"
-            creation_date_content = checklist_obj_for_item.creation_date if hasattr(checklist_obj_for_item, 'creation_date') else datetime.now()
-            item_comments_content = item_obj.comments if hasattr(item_obj, 'comments') else ""
-            item_status_content = "Closed" if item_obj.is_checked else "Open"
-            logger.info(f"Processing PDF: Type=Checklist Item, ID={id_for_log}, Checklist='{checklist_obj_for_item.name}', Status='{item_status_content}', Desc='{description_content[:30]}...'")
-
-            if isinstance(item_obj, ChecklistItem):
-                attachments_to_draw = Attachment.query.filter_by(checklist_item_id=item_obj.id).all()
-            else: # Mock object case
-                attachments_to_draw = item_obj.attachments if hasattr(item_obj, 'attachments') else []
-        else:
-            logger.error(f"Unknown entry type: {entry[0]} in add_defect_to_pdf")
-            return y_position
-
-        if is_left:
-            # y_position is the parameter passed to the function. It's stored in y_position_original_passed_in for the ENTRY log.
-            c.setFont('Helvetica-Bold', 12)
-            title_text_display = ""
-            if entry[0] == 'defect':
-                title_text_display = f'Defect {defect_number}:'
-            elif entry[0] == 'checklist_item': # This log might be for checklist items if id_for_log is from there
-                title_text_display = f'Item {defect_number} (Checklist: {checklist_obj_for_item.name}):'
-            c.drawString(x_position, y_position, title_text_display)
-            y_position -= PADDING_LG
-            
-            if entry[0] == 'defect': # Log after title for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, After title, current_draw_y: {y_position}") # DEBUG LOG (y_position is current_draw_y here)
-
-            rect_content_top_y = y_position
-            current_draw_y = rect_content_top_y - rect_internal_padding
-            # OLD STATUS/CREATOR DRAWING REMOVED FROM HERE
-            # if entry[0] == 'defect':
-            #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
-            #     current_draw_y -= LINE_HEIGHT_SM
-            #     c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
-            #     current_draw_y -= LINE_HEIGHT_SM
-
-            # 1. Checklist Item Status (if applicable, at the top)
-            if entry[0] == 'checklist_item':
-                c.setFont('Helvetica', 10)
-                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {item_status_content}')
-                current_draw_y -= LINE_HEIGHT_SM
-                current_draw_y -= PADDING_SM # Space after checklist status
-
-            # The estimated_rect_height is calculated once and used for the rounded_rect
-            estimated_rect_height = estimate_space_needed(entry, is_left=True)
-            if entry[0] == 'defect': # Log estimated_rect_height for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, Calculated estimated_rect_height: {estimated_rect_height}") # DEBUG LOG
-            draw_rounded_rect(c, x_position, rect_content_top_y, column_width - PADDING_SM, estimated_rect_height, radius=PADDING_MD)
-
-            # 2. Description
-            # current_draw_y is already appropriately positioned after checklist status (if any) or just after top padding
-            current_draw_y -= PADDING_SM
-            if entry[0] == 'defect': # Log before description for defects
-                 logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}, Description to draw: '{description_content[:50] if description_content else '[No description]'}'") # DEBUG LOG (changed from info)
-            c.setFont('Helvetica', 12)
-            drawable_description = description_content if description_content else "[No description]"
-            y_after_desc, _ = draw_text_wrapped(c, drawable_description, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
-            current_draw_y = y_after_desc
-            if entry[0] == 'defect': # Log after description for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after description: {current_draw_y}") # DEBUG LOG (changed from info)
-            if drawable_description != "[No description]" and description_content :
-                 current_draw_y -= PADDING_SM
-
-            # 3. Checklist Item's own "Comments:" and comments text (if applicable)
-            if item_comments_content:
-                current_draw_y -= PADDING_SM
-                c.setFont('Helvetica-Oblique', 10)
-                c.drawString(x_position + rect_internal_padding, current_draw_y, "Comments:")
-                current_draw_y -= LINE_HEIGHT_SM
-                c.setFont('Helvetica', 10)
-                y_after_item_comments, _ = draw_text_wrapped(c, item_comments_content, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
-                current_draw_y = y_after_item_comments
-                current_draw_y -= PADDING_SM # Space after item comments
-                if entry[0] == 'defect': # Log after item comments if it was a defect (though this block is for checklist_item type, good for consistency if logic changes)
-                    logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after item comments: {current_draw_y}") # DEBUG LOG
-
-            y_position_before_image_processing = current_draw_y # <--- ADD THIS LINE
-
-            # 4. Marked Drawing OR Attachments
-            if entry[0] == 'defect': # Log before images/markers for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before images/markers: {current_draw_y}") # DEBUG LOG (changed from info)
-            marked_drawing_processed_successfully = False
-            process_regular_attachments = True
-
-            if entry[0] == 'defect' and marker_obj_data and marker_obj_data.drawing and marker_obj_data.drawing.file_path:
-                drawing_basename = os.path.basename(marker_obj_data.drawing.file_path)
-                drawing_full_path = os.path.join(app.config['DRAWING_FOLDER'], drawing_basename)
-                logger.info(f"Defect ID {id_for_log}: Attempting to process marked drawing. Path: {drawing_full_path}, Marker X: {marker_obj_data.x}, Y: {marker_obj_data.y}")
-
-                if not os.path.exists(drawing_full_path):
-                    logger.error(f"Marked drawing file NOT FOUND: {drawing_full_path}")
-                elif marker_obj_data.drawing.file_path.lower().endswith('.pdf'):
-                    temp_marked_png_path = None
-                    try:
-                        poppler_path_env = os.environ.get('POPPLER_PATH')
-                        logger.info(f"Defect ID {id_for_log}: Calling convert_from_path for PDF: {drawing_full_path}. Poppler path from env: {poppler_path_env}")
-                        images_from_path = convert_from_path(drawing_full_path, first_page=1, last_page=1, poppler_path=poppler_path_env)
-                        logger.info(f"Defect ID {id_for_log}: convert_from_path returned {len(images_from_path) if images_from_path is not None else 'None'} images.")
-
-                        if images_from_path:
-                            pil_image_from_pdf = images_from_path[0].convert('RGB')
-                            draw_on_image = ImageDraw.Draw(pil_image_from_pdf)
-                            img_w, img_h = pil_image_from_pdf.size
-                            abs_marker_x = marker_obj_data.x * img_w
-                            abs_marker_y = marker_obj_data.y * img_h
-                            radius = max(5, int(min(img_w, img_h) * 0.02))
-                            draw_on_image.ellipse(
-                                (abs_marker_x - radius, abs_marker_y - radius, abs_marker_x + radius, abs_marker_y + radius),
-                                fill='red', outline='red'
-                            )
-                            temp_marked_png_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_marked_{id_for_log}_{os.urandom(4).hex()}.png")
-                            logger.info(f"Defect ID {id_for_log}: Saving marked PDF page to temporary PNG: {temp_marked_png_path}")
-                            pil_image_from_pdf.save(temp_marked_png_path, 'PNG')
-
-                            current_draw_y -= PADDING_SM
-                            c.setFont('Helvetica-Oblique', 9)
-                            c.drawString(x_position + rect_internal_padding, current_draw_y, "Marked Drawing View:")
-                            current_draw_y -= LINE_HEIGHT_SM
-
-                            logger.info(f"Defect ID {id_for_log}: Calling add_image_to_pdf for the temporary marked PNG: {temp_marked_png_path}")
-                            current_draw_y, _ = add_image_to_pdf(c, temp_marked_png_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
-                            marked_drawing_processed_successfully = True
-                            process_regular_attachments = False
-                        else:
-                            logger.error(f"Defect ID {id_for_log}: Failed to convert PDF page to image. pdf2image returned no images.")
-                            marked_drawing_processed_successfully = False
-                    except Exception as e_conv:
-                        logger.error(f"Defect ID {id_for_log}: Error during PDF page conversion or marker drawing: {e_conv}", exc_info=True)
-                        marked_drawing_processed_successfully = False
-                    finally:
-                        if temp_marked_png_path and os.path.exists(temp_marked_png_path):
-                            try:
-                                os.remove(temp_marked_png_path)
-                                logger.debug(f"Cleaned up temporary marked PNG: {temp_marked_png_path}")
-                            except Exception as e_remove_tmp_png:
-                                logger.error(f"Failed to remove temp marked PNG {temp_marked_png_path}: {e_remove_tmp_png}")
-                else: # Marker drawing is not a PDF (e.g., an image with a marker - currently not supported by this flow, but path exists)
-                    logger.info(f"Marker drawing {drawing_full_path} for defect {id_for_log} is an image, not a PDF. Displaying this image as is (marker not dynamically drawn on it here).") # Existing log confirmed
-                    current_draw_y -= PADDING_SM # Space before label
-                    c.setFont('Helvetica-Oblique', 9)
-                    c.drawString(x_position + rect_internal_padding, current_draw_y, "Marked Drawing (Image):")
-                    current_draw_y -= LINE_HEIGHT_SM # Move past label
-                    current_draw_y, _ = add_image_to_pdf(c, drawing_full_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
-                    marked_drawing_processed_successfully = True
-                    process_regular_attachments = False
-            else: # No marker, or marker drawing path is missing
-                logger.debug(f"No marker or valid drawing path for defect {id_for_log}. Will proceed to regular attachments if any.")
-                current_draw_y = y_position_before_image_processing # Ensure current_draw_y is reset if no marker processing attempted
-
-            # Fallback or standard display of regular attachments
-            if process_regular_attachments:
-                if not marked_drawing_processed_successfully and entry[0] == 'defect': # Log only if it's a fallback for defects
-                    logger.info(f"Falling back to regular attachments for defect {id_for_log} as marked drawing processing was not successful or applicable.")
-
-                current_draw_y = y_position_before_image_processing # Reset Y to before any potential (failed) marked drawing attempt
-
-                if attachments_to_draw:
-                    current_draw_y -= PADDING_SM # Space before label
-                    c.setFont('Helvetica-Oblique', 9)
-                    label_text = "Attached Images:" if entry[0] == 'defect' else "Attachments:"
-                    c.drawString(x_position + rect_internal_padding, current_draw_y, label_text)
-                    current_draw_y -= LINE_HEIGHT_SM # Move past label
-
-                    for attachment_item in attachments_to_draw:
-                        if not attachment_item.file_path:
-                            logger.warning(f"Attachment ID {getattr(attachment_item, 'id', 'N/A')} for {entry_type_for_log} {id_for_log} has a missing file path.")
-                            # Draw placeholder for missing path directly or let add_image_to_pdf handle it if path was empty string
-                            current_draw_y, _ = add_image_to_pdf(c, "", x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT) # Pass empty path
-                            continue
-
-                        attachment_basename = os.path.basename(attachment_item.file_path)
-                        attachment_full_path = os.path.join(app.config['UPLOAD_FOLDER'], attachment_basename)
-                        # logger.info already in add_image_to_pdf if path is valid
-
-                        current_draw_y, _ = add_image_to_pdf(c, attachment_full_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
-                # No explicit logging here if no attachments and no marker, already logged by debug above
-            if entry[0] == 'defect': # Log after images/markers for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after images/markers: {current_draw_y}") # DEBUG LOG (changed from info)
-
-            # 5. Defect Status and Defect Creator (if entry[0] == 'defect')
-            if entry[0] == 'defect':
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before (bottom) Status/Creator: {current_draw_y}") # DEBUG LOG (changed from info)
-                current_draw_y -= PADDING_MD
-                c.setFont('Helvetica', 10)
-                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
-                current_draw_y -= LINE_HEIGHT_SM
-                c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
-                current_draw_y -= LINE_HEIGHT_SM
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after (bottom) Status/Creator: {current_draw_y}") # DEBUG LOG (changed from info)
-
-            # 6. Date lines
-            if entry[0] == 'defect': # Log before dates for defects
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before Dates: {current_draw_y}") # DEBUG LOG (changed from info)
-            current_draw_y -= PADDING_MD
-            date_y_position = current_draw_y
-            c.setFont('Helvetica', 8)
-            if entry[0] == 'defect' and close_date_content:
-                close_date_str = close_date_content.strftime("%Y-%m-%d %H:%M:%S") if isinstance(close_date_content, datetime) else "N/A"
-                c.drawString(x_position + rect_internal_padding, date_y_position, f'Close Date: {close_date_str}')
-                date_y_position -= LINE_HEIGHT_SM
-
-            creation_date_str = creation_date_content.strftime("%Y-%m-%d %H:%M:%S") if isinstance(creation_date_content, datetime) else str(creation_date_content)
-            c.drawString(x_position + rect_internal_padding, date_y_position, f'Creation Date: {creation_date_str}')
-            current_draw_y = date_y_position - LINE_HEIGHT_SM # final_current_draw_y_before_return
-            if entry[0] == 'defect': # Log after dates
-                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after Dates: {current_draw_y}") # DEBUG LOG
-
-            if entry[0] == 'defect': # Log final current_draw_y for defects
-                 logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, final_current_draw_y before calculating return value: {current_draw_y}") # DEBUG LOG (changed from info)
-
-            y_left = current_draw_y - rect_internal_padding # This is the y_value_for_next_item
-            if entry[0] == 'defect': # Log return value for defects
-                logger.debug(f"add_defect_to_pdf (EXIT is_left=True): Defect ID {id_for_log}, Returning y_for_next_item: {y_left}") # DEBUG LOG (changed from info)
-
-        else: # not is_left (right column, for defect contractor comments only)
-            y_right = y_position # Default if no comments or not a defect
-            if entry[0] == 'defect' and defect_contractor_comments:
-                c.setFont('Helvetica-Bold', 12)
-                contractor_reply_y_start = y_position
-                c.drawString(x_position, contractor_reply_y_start, 'Contractor Replies:')
-                contractor_reply_y_start -= PADDING_LG
-
-                current_comment_block_y = contractor_reply_y_start
-
-                for comment_obj in defect_contractor_comments:
-                    # Calculate height for THIS comment block, mirroring estimate_space_needed's logic for a single comment block
-                    # This ensures that the drawn rounded rectangle matches the estimated space.
-                    single_comment_block_height = rect_internal_padding * 2 # Top & bottom internal padding
-                    single_comment_block_height += (LINE_HEIGHT_SM + PADDING_SM) # "By: username" line + its bottom spacing
-
-                    _, comment_content_lines = draw_text_wrapped(c, comment_obj.content or "", 0, 0, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
-                    single_comment_block_height += comment_content_lines * LINE_HEIGHT_SM + PADDING_SM # Content height + its bottom spacing
-
-                    # Attachments for this specific comment
-                    comment_attachments = comment_obj.attachments if hasattr(comment_obj, 'attachments') else []
-                    if comment_attachments:
-                        for att in comment_attachments:
-                            # Note: add_image_to_pdf returns y_coord_after_image, actual_drawn_height
-                            # Here, we use a simplified estimation consistent with estimate_space_needed
-                            if att.file_path:
-                                att_basename = os.path.basename(att.file_path)
-                                att_full_path = os.path.join(app.config['UPLOAD_FOLDER'], att_basename)
-                                if os.path.exists(att_full_path):
-                                    try:
-                                        # Try to get actual image dimensions for a slightly better estimate if possible
-                                        img_temp = PILImage.open(att_full_path)
-                                        img_w_temp, img_h_temp = img_temp.size
-                                        est_h_temp = min(img_h_temp, IMAGE_MAX_HEIGHT) * (max_width_content / img_w_temp) if img_w_temp > 0 else min(img_h_temp, IMAGE_MAX_HEIGHT)
-                                        single_comment_block_height += min(est_h_temp, IMAGE_MAX_HEIGHT) + SPACE_AFTER_IMAGE
-                                    except:
-                                        single_comment_block_height += PLACEHOLDER_TEXT_HEIGHT # Placeholder if image fails
-                                else:
-                                    single_comment_block_height += PLACEHOLDER_TEXT_HEIGHT # File not found
-                            else:
-                                single_comment_block_height += PLACEHOLDER_TEXT_HEIGHT # No path
-
-                    single_comment_block_height += LINE_HEIGHT_SM + PADDING_SM # Date line + its bottom spacing
-
-                    # Draw the rounded rect for this specific comment using the calculated height
-                    draw_rounded_rect(c, x_position, current_comment_block_y, width - center_x - PADDING_MD - PADDING_SM, single_comment_block_height, radius=PADDING_MD)
-
-                    # --- Drawing content inside this comment block ---
-                    y_draw_in_comment_rect = current_comment_block_y - rect_internal_padding # Start Y inside rect
-
-                    comment_creator_name = comment_obj.user.username if comment_obj.user else "Unknown User"
-                    c.setFont('Helvetica-Bold', 9)
-                    c.drawString(x_position + rect_internal_padding, y_draw_in_comment_rect, f'By: {comment_creator_name}')
-                    y_draw_in_comment_rect -= (LINE_HEIGHT_SM + PADDING_SM)
-
-                    c.setFont('Helvetica', 10)
-                    y_after_comment_text, _ = draw_text_wrapped(c, comment_obj.content or "", x_position + rect_internal_padding, y_draw_in_comment_rect, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
-                    y_draw_in_comment_rect = y_after_comment_text
-
-                    if comment_attachments:
-                        for attachment_item in comment_attachments:
-                            y_draw_in_comment_rect -= PADDING_SM # Space before image
-                            attachment_full_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_item.file_path)) if attachment_item.file_path else ""
-                            # Actual drawing of image, add_image_to_pdf handles its own spacing after image via return value
-                            y_draw_in_comment_rect, _ = add_image_to_pdf(c, attachment_full_path, x_position + rect_internal_padding, y_draw_in_comment_rect, max_width_content, IMAGE_MAX_HEIGHT)
-
-                    y_draw_in_comment_rect -= PADDING_SM # Space before date line
-                    c.setFont('Helvetica', 8)
-                    comment_date = comment_obj.created_at if hasattr(comment_obj, 'created_at') else datetime.now()
-                    comment_date_str = comment_date.strftime("%Y-%m-%d %H:%M:%S") if isinstance(comment_date, datetime) else "N/A"
-                    c.drawString(x_position + rect_internal_padding, y_draw_in_comment_rect, f'Date: {comment_date_str}')
-                    # --- End of drawing content inside this comment block ---
-
-                    current_comment_block_y = current_comment_block_y - single_comment_block_height - PADDING_MD # Space to next comment block
-
-                y_right = current_comment_block_y
-            elif entry[0] == 'checklist_item':
-                 y_right = y_position # No contractor comments for checklist items
-
-        return y_left if is_left else y_right
-
-    c.setFont('Helvetica-Bold', 16)
-    y_position = height - 50
-    c.drawString(left_margin, y_position, f'Project: {project.name}')
-    y_position -= 30
-
-    def process_defects(items_list, title, y_position, initial_item_number=1):
-        current_item_number = initial_item_number
-        if items_list:
-            logger.debug(f"process_defects: Processing section '{title}' with {len(items_list)} items. Initial y_position: {y_position}, initial_item_number: {initial_item_number}") # DEBUG LOG
-            c.setFont('Helvetica-Bold', 14)
-            c.drawString(left_margin, y_position, f'{title}: {len(items_list)}')
-            y_position -= 20
-
-            for entry_data in items_list: # Renamed 'entry' to 'entry_data'
-                entry_description_for_log = ""
-                try:
-                    # Determine entry description for logging based on type
-                    if entry_data[0] == 'defect':
-                        defect_obj = entry_data[1] # Keep defect_obj in scope for logging
-                        defect_id_log = defect_obj.id
-                        entry_description_for_log = f"Defect ID {defect_id_log}"
-                        logger.debug(f"process_defects: Processing defect item: ID={defect_obj.id}, Desc='{defect_obj.description[:50] if defect_obj.description else 'N/A'}', Status='{defect_obj.status}', Creator='{defect_obj.creator.username if defect_obj.creator else defect_obj.creator_id}', Attachments={len(defect_obj.attachments) if hasattr(defect_obj,'attachments') else 'N/A'}, Markers={len(defect_obj.markers) if hasattr(defect_obj,'markers') else 'N/A'}") # DEBUG LOG
-                    elif entry_data[0] == 'checklist_item':
-                        checklist_name_log = entry_data[1].name
-                        item_id_log = entry_data[2].id
-                        entry_description_for_log = f"Checklist Item ID {item_id_log} from Checklist '{checklist_name_log}'"
-                    else:
-                        entry_description_for_log = "Unknown entry type"
-
-                    logger.debug(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, Y_pos: {y_position}") # DEBUG LOG (changed from info)
-                    space_needed_left_col = estimate_space_needed(entry_data, is_left=True)
-                    logger.debug(f"process_defects: Estimated_rect_height (space_needed_left_col) for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}: {space_needed_left_col}") # DEBUG LOG (changed from info)
-                    space_needed_right_col = 0
-                    if entry_data[0] == 'defect':
-                        space_needed_right_col = estimate_space_needed(entry_data, is_left=False)
-                        logger.debug(f"process_defects: Estimated_rect_height (space_needed_right_col) for defect ID {entry_data[1].id}: {space_needed_right_col}") # DEBUG LOG
-
-                    required_space_for_item = max(space_needed_left_col, space_needed_right_col)
-
-                    SPACE_BETWEEN_ITEMS = 20 # Define a clear constant for spacing
-                    required_space_for_item_with_buffer = required_space_for_item + SPACE_BETWEEN_ITEMS
-
-                    logger.debug(f"Page break check for item '{entry_description_for_log}': y_pos={y_position}, req_item_space={required_space_for_item}, req_with_buffer={required_space_for_item_with_buffer}, left_h_est={space_needed_left_col}, right_h_est={space_needed_right_col}, item_num_in_section={current_item_number - initial_item_number + 1}")
-
-                    if y_position - required_space_for_item_with_buffer < 50: # Check if enough space for current item + buffer (50 is bottom margin)
-                        logger.info(f"Performing page break before item '{entry_description_for_log}' (Space needed: {required_space_for_item_with_buffer}, Space available: {y_position - 50})")
-                        c.showPage()
-                        y_position = height - 50 # Reset y_position to top of new page
-                        # Reset font after page break, if needed, though add_defect_to_pdf sets its own fonts.
-                        c.setFont('Helvetica-Bold', 14) # Re-set title font for new page section if needed
-                        c.drawString(left_margin, y_position, f'{title} (continued): {len(items_list) - (current_item_number - initial_item_number)}')
-                        y_position -=20
-
-                    logger.debug(f"process_defects: Calling add_defect_to_pdf (LEFT) for item '{entry_description_for_log}', item_num: {current_item_number}, y_pos: {y_position}") # DEBUG LOG
-                    y_after_left_col = add_defect_to_pdf(entry_data, is_left=True, y_position=y_position, defect_number=current_item_number)
-                    logger.debug(f"process_defects: Returned from add_defect_to_pdf (LEFT) for item '{entry_description_for_log}', y_after_left_col: {y_after_left_col}") # DEBUG LOG
-
-                    if entry_data[0] == 'defect':
-                        logger.debug(f"process_defects: Calling add_defect_to_pdf (RIGHT) for defect ID {entry_data[1].id}, y_pos: {y_position}") # DEBUG LOG
-                        # Contractor comments (right column) start at the same y_position as the defect's left column content
-                        # The return value of add_defect_to_pdf for the right column (y_right) is not currently used to adjust y_position further,
-                        # as the primary layout driver is the left column's content height.
-                        _ = add_defect_to_pdf(entry_data, is_left=False, y_position=y_position)
-
-                    # The next item should start based on the lowest point reached by the left column,
-                    # y_after_left_col is now the actual bottom of the drawn content in the left column (adjusted for padding).
-                    y_position = y_after_left_col - SPACE_BETWEEN_ITEMS # Apply the defined inter-item spacing
-                    current_item_number += 1
-
-                except Exception as e:
-                    logger.error(f"Error processing entry {entry_description_for_log} for PDF report: {e}", exc_info=True)
-                    y_position -= 20 # Advance y_position to avoid overlap if error in drawing
-                    current_item_number +=1
-                    continue
-        return y_position, current_item_number
-
-    # Initialize item numbering
-    item_counter = 1 # Overall item counter for the entire report
-    SPACE_BETWEEN_SECTIONS = 30 # Space between "Open Items" and "Closed Items" sections
-
-    if filter_status == 'All':
-        y_position, item_counter = process_defects(open_items_for_report, 'Open Items', y_position, initial_item_number=item_counter)
-        if open_items_for_report and closed_items_for_report:
-            y_position -= SPACE_BETWEEN_SECTIONS
-            if y_position < 100: # If space is very tight after a section, force new page for next section
-                logger.info("Performing page break between Open and Closed sections.")
-                c.showPage()
-                y_position = height - 50
-        y_position, item_counter = process_defects(closed_items_for_report, 'Closed Items', y_position, initial_item_number=item_counter)
-    elif filter_status == 'Open':
-        y_position, item_counter = process_defects(open_items_for_report, 'Open Items', y_position, initial_item_number=item_counter)
-    elif filter_status == 'Closed':
-        y_position, item_counter = process_defects(closed_items_for_report, 'Closed Items', y_position, initial_item_number=item_counter)
-
-    c.save()
-    pdf_buffer.seek(0)
-    filename = secure_filename(f'report_project_{project.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    temp_path = os.path.join(app.config['REPORT_FOLDER'], filename)
-
+            filtered_items.append(item_obj)
+
+        if filtered_items: # Only add checklist if it has items matching the filter
+            report_checklists.append({'checklist_info': checklist_obj, 'items': filtered_items})
+
+    html_out = render_template(
+        'report_template.html',
+        project=project,
+        generation_date=generation_date_str,
+        defects=defects,
+        checklists=report_checklists,
+        filter_status=filter_status,
+        app_config=app.config
+    )
+
+    logger.info(f"Fetched {len(report_checklists)} checklists with items matching filter for the report.")
+
+    logger.info("Rendering HTML template for WeasyPrint...")
+    html_out = render_template(
+        'report_template.html',
+        project=project,
+        generation_date=generation_date_str,
+        defects=defects,
+        checklists=report_checklists,
+        filter_status=filter_status,
+        app_config=app.config
+    )
+    logger.info("HTML template rendered.")
+
+    # Convert the rendered HTML to PDF using WeasyPrint
     try:
-        # Save PDF to temporary file
-        with open(temp_path, 'wb') as f:
-            f.write(pdf_buffer.read())
-        pdf_buffer.close()
-        logger.info(f"Saving PDF report to: {temp_path}")
+        logger.info("Starting WeasyPrint PDF generation...")
+        pdf = HTML(string=html_out, base_url=request.url_root).write_pdf()
+        logger.info("WeasyPrint PDF generation completed.")
 
-        # Serve the PDF, forcing download prompt
-        response = send_file(
-            temp_path,
-            mimetype='application/pdf',
-            as_attachment=True,         
-            download_name=filename      
-        )
+        # Create a Flask response to send the PDF
+        response = make_response(pdf)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="report_{project.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
 
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-
-        # Log the headers for debugging
-        logger.info(f"Sending PDF for project {project_id} with headers: {dict(response.headers)}")
-
-        # Cleanup function
-        def cleanup():
+        # Using call_on_close for cleanup is more robust for various Flask serving setups
+        @response.call_on_close
+        def cleanup_temp_files():
+            logger.info("Initiating cleanup of temporary report images.")
+            for temp_file_path in temp_files_to_clean:
+                try:
+                    os.remove(temp_file_path)
+                    logger.info(f"Successfully cleaned up temporary report image: {temp_file_path}")
+                except Exception as e:
+                    logger.error(f"Error cleaning up temporary report image {temp_file_path}: {e}", exc_info=True)
             try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                    # Ensure this log is consistent and clear about context
-                    logger.info(f'Cleaned up temporary report file after serving: {temp_path}')
-            except Exception as e:
-                logger.error(f'Error cleaning up temporary report file {temp_path} after serving: {str(e)}')
+                if os.path.exists(temp_report_images_dir) and not os.listdir(temp_report_images_dir):
+                    os.rmdir(temp_report_images_dir)
+                    logger.info(f"Successfully cleaned up empty temporary report image directory: {temp_report_images_dir}")
+                elif os.path.exists(temp_report_images_dir):
+                     logger.info(f"Temporary report image directory not empty, not removing: {temp_report_images_dir}")
+            except OSError as e:
+                 logger.warning(f"Could not remove temporary report image directory {temp_report_images_dir}: {e}", exc_info=True)
 
-        response.call_on_close(cleanup)
+        logger.info(f"Successfully prepared PDF response for project {project_id}.")
         return response
     except Exception as e:
-        logger.error(f'Error generating or serving PDF report for project {project_id}: {str(e)}', exc_info=True)
-        if os.path.exists(temp_path):
+        logger.error(f"Fatal error during PDF generation or response creation for project {project_id}: {e}", exc_info=True)
+        # Cleanup any files created even if PDF generation failed mid-way
+        logger.info("Initiating cleanup due to error during PDF generation.")
+        for temp_file_path in temp_files_to_clean:
             try:
-                os.remove(temp_path)
-                logger.info(f'Cleaned up temporary report file after error during generation/serving: {temp_path}')
-            except Exception as ex:
-                logger.error(f'Error cleaning up temporary report file {temp_path} after error: {str(ex)}')
-        flash(f'Error generating report: {str(e)}', 'error')
+                os.remove(temp_file_path)
+                logger.info(f"Cleaned up temporary file after error: {temp_file_path}")
+            except Exception as cleanup_e:
+                logger.error(f"Error during cleanup (after PDF failure) for {temp_file_path}: {cleanup_e}", exc_info=True)
+        flash('Error generating PDF report.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
 
 @app.route('/draw/<int:attachment_id>', methods=['GET', 'POST'])
