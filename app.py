@@ -1830,6 +1830,8 @@ def generate_report(project_id): # Restored original signature
                 current_draw_y = y_after_item_comments
                 current_draw_y -= PADDING_SM # Space after item comments
 
+            y_position_before_image_processing = current_draw_y # <--- ADD THIS LINE
+
             # 4. Marked Drawing OR Attachments
             if entry[0] == 'defect': # Log before images/markers for defects
                 logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before images/markers: {current_draw_y}")
