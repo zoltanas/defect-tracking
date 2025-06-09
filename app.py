@@ -30,7 +30,7 @@ if not logger.handlers:
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-logger.setLevel(logging.INFO) # Restored to INFO
+logger.setLevel(logging.DEBUG) # Enabled DEBUG level for report generation diagnostics
 # logger.propagate = False # Keep this commented for now
 logger.info("Flask application logger explicitly configured for checklist debugging.") # Restored message
 
@@ -1310,6 +1310,7 @@ def delete_template(template_id):
 @login_required # Restored decorator
 def generate_report(project_id): # Restored original signature
     filter_status = request.args.get('filter', 'All') # Use request.args for filter_status
+    logger.debug(f"generate_report: Called with project_id={project_id}, filter_status='{filter_status}'") # DEBUG LOG
     logger.info(f"Generating report with filter_status: {filter_status}")
     logger.info(f"Generating PDF report for project ID: {project_id} with filter: {filter_status}")
 
@@ -1325,18 +1326,23 @@ def generate_report(project_id): # Restored original signature
 
     # Fetch defects with creator eagerly loaded
     defects_query = Defect.query.options(db.joinedload(Defect.creator)).filter_by(project_id=project_id)
+    logger.debug(f"generate_report: Initial defect query for project {project_id} found {len(defects_query.all())} defects.") # DEBUG LOG
     if filter_status == 'Open':
         # Sort open defects by creation date ascending
         defects_db = defects_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
+        logger.debug(f"generate_report: After '{filter_status}' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
     elif filter_status == 'Closed':
         # Sort closed defects by close date descending, then creation date ascending
         defects_db = defects_query.filter_by(status='closed').order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
+        logger.debug(f"generate_report: After '{filter_status}' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
     else: # All
         # Fetch all, then sort in Python to group open first (by creation asc), then closed (by close date desc)
         all_defects_db = defects_query.order_by(Defect.creation_date.asc()).all()
+        logger.debug(f"generate_report: Before 'All' filter list comprehensions, all_defects_db contains {len(all_defects_db)} defects.") # DEBUG LOG
         defects_db = sorted([d for d in all_defects_db if d.status == 'open'], key=lambda d: d.creation_date if d.creation_date else datetime.min) + \
                      sorted([d for d in all_defects_db if d.status == 'closed'],
                             key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
+        logger.debug(f"generate_report: After 'All' filter, defects_db contains {len(defects_db)} defects.") # DEBUG LOG
 
     if defects_db:
         logger.info(f"Fetched {len(defects_db)} defects from DB. Sample: {[(d.id, d.status) for d in defects_db[:3]]}")
@@ -1381,8 +1387,10 @@ def generate_report(project_id): # Restored original signature
 
         if defect_item_obj.status == 'open':
             open_items_for_report.append(('defect', defect_item_obj, contractor_comments_list_db))
+            logger.debug(f"generate_report: Defect ID {defect_item_obj.id} ('{defect_item_obj.description[:30] if defect_item_obj.description else 'N/A'}...') added to open_items_for_report.") # DEBUG LOG
         else: # closed
             closed_items_for_report.append(('defect', defect_item_obj, contractor_comments_list_db))
+            logger.debug(f"generate_report: Defect ID {defect_item_obj.id} ('{defect_item_obj.description[:30] if defect_item_obj.description else 'N/A'}...') added to closed_items_for_report.") # DEBUG LOG
 
     # Process Checklist Items from checklist_items_to_report
     for checklist_obj, item_obj, item_status_val in checklist_items_to_report:
@@ -1436,6 +1444,8 @@ def generate_report(project_id): # Restored original signature
         sort_key_closed_items(x)[2] if x[0] == 'defect' else datetime.min # creation_date asc for defects
     ), reverse=True if any(item[0] == 'defect' for item in closed_items_for_report) else False)
 
+    logger.debug(f"generate_report: Total 'defect' items in open_items_for_report: {sum(1 for item in open_items_for_report if item[0] == 'defect')}") # DEBUG LOG
+    logger.debug(f"generate_report: Total 'defect' items in closed_items_for_report: {sum(1 for item in closed_items_for_report if item[0] == 'defect')}") # DEBUG LOG
     logger.info(f"Number of 'defect' type items in open_items_for_report: {sum(1 for item in open_items_for_report if item[0] == 'defect')}")
     logger.info(f"Number of 'defect' type items in closed_items_for_report: {sum(1 for item in closed_items_for_report if item[0] == 'defect')}")
 
@@ -1743,6 +1753,7 @@ def generate_report(project_id): # Restored original signature
             # Ensure defect_status_display is defined here for logging
             defect_status_display = defect_obj.status.capitalize() if hasattr(defect_obj, 'status') else "N/A" # Used in ENTRY log
             if is_left and entry[0] == 'defect': # Logging specific to left column defect processing
+                 logger.debug(f"add_defect_to_pdf (is_left=True, type=defect): Received defect ID={defect_obj.id}, Desc='{defect_obj.description[:50] if defect_obj.description else 'N/A'}', Status='{defect_obj.status}'") # DEBUG LOG
                  logger.info(f"add_defect_to_pdf (ENTRY): Defect ID {id_for_log}, Desc: '{description_content[:30] if description_content else 'Empty Description'}...', Status: {defect_status_display}, Creator: {creator_username_content}, Received y_position: {y_position_original_passed_in}")
 
             if isinstance(defect_obj, Defect):
@@ -1783,7 +1794,7 @@ def generate_report(project_id): # Restored original signature
             y_position -= PADDING_LG
             
             if entry[0] == 'defect': # Log after title for defects
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, After title, y_pos for content start (rect_content_top_y effectively): {y_position}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, After title, current_draw_y: {y_position}") # DEBUG LOG (y_position is current_draw_y here)
 
             rect_content_top_y = y_position
             current_draw_y = rect_content_top_y - rect_internal_padding
@@ -1803,19 +1814,21 @@ def generate_report(project_id): # Restored original signature
 
             # The estimated_rect_height is calculated once and used for the rounded_rect
             estimated_rect_height = estimate_space_needed(entry, is_left=True)
+            if entry[0] == 'defect': # Log estimated_rect_height for defects
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, Calculated estimated_rect_height: {estimated_rect_height}") # DEBUG LOG
             draw_rounded_rect(c, x_position, rect_content_top_y, column_width - PADDING_SM, estimated_rect_height, radius=PADDING_MD)
 
             # 2. Description
             # current_draw_y is already appropriately positioned after checklist status (if any) or just after top padding
             current_draw_y -= PADDING_SM
             if entry[0] == 'defect': # Log before description for defects
-                 logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}, Description to draw: '{description_content[:50] if description_content else '[No description]'}'")
+                 logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before description: {current_draw_y}, Description to draw: '{description_content[:50] if description_content else '[No description]'}'") # DEBUG LOG (changed from info)
             c.setFont('Helvetica', 12)
             drawable_description = description_content if description_content else "[No description]"
             y_after_desc, _ = draw_text_wrapped(c, drawable_description, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_STD)
             current_draw_y = y_after_desc
             if entry[0] == 'defect': # Log after description for defects
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after description: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after description: {current_draw_y}") # DEBUG LOG (changed from info)
             if drawable_description != "[No description]" and description_content :
                  current_draw_y -= PADDING_SM
 
@@ -1829,12 +1842,14 @@ def generate_report(project_id): # Restored original signature
                 y_after_item_comments, _ = draw_text_wrapped(c, item_comments_content, x_position + rect_internal_padding, current_draw_y, max_width_content, line_height=LINE_HEIGHT_SM, font_size=10)
                 current_draw_y = y_after_item_comments
                 current_draw_y -= PADDING_SM # Space after item comments
+                if entry[0] == 'defect': # Log after item comments if it was a defect (though this block is for checklist_item type, good for consistency if logic changes)
+                    logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after item comments: {current_draw_y}") # DEBUG LOG
 
             y_position_before_image_processing = current_draw_y # <--- ADD THIS LINE
 
             # 4. Marked Drawing OR Attachments
             if entry[0] == 'defect': # Log before images/markers for defects
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before images/markers: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before images/markers: {current_draw_y}") # DEBUG LOG (changed from info)
             marked_drawing_processed_successfully = False
             process_regular_attachments = True
 
@@ -1931,22 +1946,22 @@ def generate_report(project_id): # Restored original signature
                         current_draw_y, _ = add_image_to_pdf(c, attachment_full_path, x_position + rect_internal_padding, current_draw_y, max_width_content, IMAGE_MAX_HEIGHT)
                 # No explicit logging here if no attachments and no marker, already logged by debug above
             if entry[0] == 'defect': # Log after images/markers for defects
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after images/markers: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after images/markers: {current_draw_y}") # DEBUG LOG (changed from info)
 
             # 5. Defect Status and Defect Creator (if entry[0] == 'defect')
             if entry[0] == 'defect':
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before (bottom) Status/Creator: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before (bottom) Status/Creator: {current_draw_y}") # DEBUG LOG (changed from info)
                 current_draw_y -= PADDING_MD
                 c.setFont('Helvetica', 10)
                 c.drawString(x_position + rect_internal_padding, current_draw_y, f'Status: {defect_status_display}')
                 current_draw_y -= LINE_HEIGHT_SM
                 c.drawString(x_position + rect_internal_padding, current_draw_y, f'Creator: {creator_username_content}')
                 current_draw_y -= LINE_HEIGHT_SM
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after (bottom) Status/Creator: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after (bottom) Status/Creator: {current_draw_y}") # DEBUG LOG (changed from info)
 
             # 6. Date lines
             if entry[0] == 'defect': # Log before dates for defects
-                logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before Dates: {current_draw_y}")
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y before Dates: {current_draw_y}") # DEBUG LOG (changed from info)
             current_draw_y -= PADDING_MD
             date_y_position = current_draw_y
             c.setFont('Helvetica', 8)
@@ -1958,13 +1973,15 @@ def generate_report(project_id): # Restored original signature
             creation_date_str = creation_date_content.strftime("%Y-%m-%d %H:%M:%S") if isinstance(creation_date_content, datetime) else str(creation_date_content)
             c.drawString(x_position + rect_internal_padding, date_y_position, f'Creation Date: {creation_date_str}')
             current_draw_y = date_y_position - LINE_HEIGHT_SM # final_current_draw_y_before_return
+            if entry[0] == 'defect': # Log after dates
+                logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, current_draw_y after Dates: {current_draw_y}") # DEBUG LOG
 
             if entry[0] == 'defect': # Log final current_draw_y for defects
-                 logger.info(f"add_defect_to_pdf: Defect ID {id_for_log}, final_current_draw_y before calculating return value: {current_draw_y}")
+                 logger.debug(f"add_defect_to_pdf: Defect ID {id_for_log}, final_current_draw_y before calculating return value: {current_draw_y}") # DEBUG LOG (changed from info)
 
             y_left = current_draw_y - rect_internal_padding # This is the y_value_for_next_item
             if entry[0] == 'defect': # Log return value for defects
-                logger.info(f"add_defect_to_pdf (EXIT): Defect ID {id_for_log}, Returning y_for_next_item: {y_left}")
+                logger.debug(f"add_defect_to_pdf (EXIT is_left=True): Defect ID {id_for_log}, Returning y_for_next_item: {y_left}") # DEBUG LOG (changed from info)
 
         else: # not is_left (right column, for defect contractor comments only)
             y_right = y_position # Default if no comments or not a defect
@@ -2055,6 +2072,7 @@ def generate_report(project_id): # Restored original signature
     def process_defects(items_list, title, y_position, initial_item_number=1):
         current_item_number = initial_item_number
         if items_list:
+            logger.debug(f"process_defects: Processing section '{title}' with {len(items_list)} items. Initial y_position: {y_position}, initial_item_number: {initial_item_number}") # DEBUG LOG
             c.setFont('Helvetica-Bold', 14)
             c.drawString(left_margin, y_position, f'{title}: {len(items_list)}')
             y_position -= 20
@@ -2064,8 +2082,10 @@ def generate_report(project_id): # Restored original signature
                 try:
                     # Determine entry description for logging based on type
                     if entry_data[0] == 'defect':
-                        defect_id_log = entry_data[1].id
+                        defect_obj = entry_data[1] # Keep defect_obj in scope for logging
+                        defect_id_log = defect_obj.id
                         entry_description_for_log = f"Defect ID {defect_id_log}"
+                        logger.debug(f"process_defects: Processing defect item: ID={defect_obj.id}, Desc='{defect_obj.description[:50] if defect_obj.description else 'N/A'}', Status='{defect_obj.status}', Creator='{defect_obj.creator.username if defect_obj.creator else defect_obj.creator_id}', Attachments={len(defect_obj.attachments) if hasattr(defect_obj,'attachments') else 'N/A'}, Markers={len(defect_obj.markers) if hasattr(defect_obj,'markers') else 'N/A'}") # DEBUG LOG
                     elif entry_data[0] == 'checklist_item':
                         checklist_name_log = entry_data[1].name
                         item_id_log = entry_data[2].id
@@ -2073,12 +2093,13 @@ def generate_report(project_id): # Restored original signature
                     else:
                         entry_description_for_log = "Unknown entry type"
 
-                    logger.info(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, Y_pos: {y_position}")
+                    logger.debug(f"process_defects: Estimating space for item: Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, Y_pos: {y_position}") # DEBUG LOG (changed from info)
                     space_needed_left_col = estimate_space_needed(entry_data, is_left=True)
-                    logger.info(f"process_defects: Estimated_rect_height (space_needed_left_col) for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}: {space_needed_left_col}")
+                    logger.debug(f"process_defects: Estimated_rect_height (space_needed_left_col) for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}: {space_needed_left_col}") # DEBUG LOG (changed from info)
                     space_needed_right_col = 0
                     if entry_data[0] == 'defect':
                         space_needed_right_col = estimate_space_needed(entry_data, is_left=False)
+                        logger.debug(f"process_defects: Estimated_rect_height (space_needed_right_col) for defect ID {entry_data[1].id}: {space_needed_right_col}") # DEBUG LOG
 
                     required_space_for_item = max(space_needed_left_col, space_needed_right_col)
 
@@ -2096,11 +2117,12 @@ def generate_report(project_id): # Restored original signature
                         c.drawString(left_margin, y_position, f'{title} (continued): {len(items_list) - (current_item_number - initial_item_number)}')
                         y_position -=20
 
-
-                    logger.info(f"process_defects: Calling add_defect_to_pdf for item Type {entry_data[0]}, ID {(entry_data[1].id if entry_data[0] == 'defect' else entry_data[2].id if entry_data[0] == 'checklist_item' else 'N/A')}, current_item_number: {current_item_number}, y_position: {y_position}")
+                    logger.debug(f"process_defects: Calling add_defect_to_pdf (LEFT) for item '{entry_description_for_log}', item_num: {current_item_number}, y_pos: {y_position}") # DEBUG LOG
                     y_after_left_col = add_defect_to_pdf(entry_data, is_left=True, y_position=y_position, defect_number=current_item_number)
+                    logger.debug(f"process_defects: Returned from add_defect_to_pdf (LEFT) for item '{entry_description_for_log}', y_after_left_col: {y_after_left_col}") # DEBUG LOG
 
                     if entry_data[0] == 'defect':
+                        logger.debug(f"process_defects: Calling add_defect_to_pdf (RIGHT) for defect ID {entry_data[1].id}, y_pos: {y_position}") # DEBUG LOG
                         # Contractor comments (right column) start at the same y_position as the defect's left column content
                         # The return value of add_defect_to_pdf for the right column (y_right) is not currently used to adjust y_position further,
                         # as the primary layout driver is the left column's content height.
