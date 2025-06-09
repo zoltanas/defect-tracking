@@ -704,6 +704,7 @@ def add_defect(project_id):
 @app.route('/defect/<int:defect_id>', methods=['GET', 'POST'])
 @login_required
 def defect_detail(defect_id):
+    app.logger.info(f"--- defect_detail route for defect_id: {defect_id} ---")
     try:
         # Fetch defect
         defect = db.session.get(Defect, defect_id)
@@ -912,31 +913,46 @@ def defect_detail(defect_id):
         project_drawings = Drawing.query.filter_by(project_id=defect.project.id).all()
         drawings_data_for_template = [{'id': d.id, 'name': d.name, 'file_path': d.file_path} for d in project_drawings]
 
-        # Fetch marker and drawing (already present from previous structure)
-        marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-        drawing = None # drawing object itself is not explicitly passed, marker_data contains path
-        marker_data = None
-        if marker:
-            # Ensure drawing is loaded if marker exists, to get file_path
-            # The original code already does Drawing.query.get(marker.drawing_id)
-            # So, if marker.drawing is accessed, it should be loaded or an error would occur.
-            # For safety, explicitly load if needed, though current structure seems okay.
-            drawing_obj = db.session.get(Drawing, marker.drawing_id) # Use db.session.get for PK lookup
-            if drawing_obj:
-                marker_data = {
-                    'drawing_id': marker.drawing_id,
-                    'x': marker.x,
-                    'y': marker.y,
-                    'file_path': drawing_obj.file_path # Use path from the fetched drawing object
-                    # 'page_num': getattr(marker, 'page_num', 1) # If page_num is implemented
-                }
-                logger.debug(f"Defect {defect_id} - Marker data for display: {marker_data}")
-            else:
-                logger.warning(f"Drawing with ID {marker.drawing_id} not found for marker on defect {defect_id}. Marker will not be displayed correctly.")
+        # Logging for defect
+        if defect:
+            app.logger.info(f"Fetched defect: id={defect.id}, description='{defect.description}', status='{defect.status}'")
         else:
-            logger.debug(f"No marker found for defect {defect_id}")
+            # This case is already handled by the initial check, but good for robustness if that check were removed.
+            app.logger.error(f"Defect object somehow None after initial check for defect_id: {defect_id}")
+            # flash('Defect not found.', 'error') # Already flashed
+            # return redirect(url_for('index')) # Already redirected
 
-        logger.info(f"Rendering defect_detail for defect {defect_id} (GET request or after POST error without redirect)")
+        # Fetch marker and drawing (already present from previous structure)
+        marker_sqla = DefectMarker.query.filter_by(defect_id=defect_id).first() # Renamed to marker_sqla to avoid confusion
+        drawing_obj = None # Initialize drawing_obj
+        marker_data = None # Initialize marker_data
+
+        if marker_sqla:
+            app.logger.info(f"Fetched marker (SQLAlchemy): id={marker_sqla.id}, x={marker_sqla.x}, y={marker_sqla.y}, drawing_id={marker_sqla.drawing_id}, page_num={getattr(marker_sqla, 'page_num', 'N/A')}")
+            drawing_obj = db.session.get(Drawing, marker_sqla.drawing_id) # Use db.session.get for PK lookup
+            if drawing_obj:
+                app.logger.info(f"Fetched drawing_obj: id={drawing_obj.id}, file_path='{drawing_obj.file_path}'")
+                marker_data = {
+                    'drawing_id': marker_sqla.drawing_id,
+                    'x': marker_sqla.x,
+                    'y': marker_sqla.y,
+                    'file_path': drawing_obj.file_path, # Use path from the fetched drawing object
+                    'page_num': getattr(marker_sqla, 'page_num', 1) # If page_num is implemented
+                }
+                # logger.debug already exists below, so we use app.logger.info for consistency or app.logger.debug
+                app.logger.debug(f"Defect {defect_id} - Marker data for display: {marker_data}") # Changed from logger.debug to app.logger.debug
+            else:
+                app.logger.warning(f"Drawing object not found for drawing_id: {marker_sqla.drawing_id} (associated with marker id: {marker_sqla.id})")
+                # marker_data remains None if drawing_obj is not found
+        else:
+            app.logger.info(f"No marker (SQLAlchemy object) found for defect_id: {defect_id}")
+            # marker_data remains None
+
+        # Log the final marker_data dictionary
+        app.logger.info(f"Final marker_data for template: {marker_data}")
+
+        # logger.info already exists below, so we use app.logger.info for consistency or app.logger.debug
+        app.logger.info(f"Rendering defect_detail for defect {defect_id} (GET request or after POST error without redirect)") # Changed from logger.info to app.logger.info
         return render_template(
             'defect_detail.html',
             defect=defect,

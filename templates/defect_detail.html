@@ -267,6 +267,7 @@
         // It targets: staticPdfContainer, staticPdfStatus, staticPdfCanvas, staticMarkerCanvas
         const staticPdfContainer = document.getElementById('staticPdfContainer');
         if (staticPdfContainer) { // Check if the static container exists on the page
+            console.log("Static marker display script executing.");
             try {
                 const pdfStatusEl = document.getElementById('staticPdfStatus');
                 const pdfCanvas = document.getElementById('staticPdfCanvas');
@@ -299,7 +300,7 @@
 
             function renderPage(page) {
                 const viewport = page.getViewport({ scale: currentScale });
-                console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height });
+                // console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height }); // Original log, can be kept or removed
 
                 // pdfContainer is already responsive via Tailwind's w-full and h-[...]
                 // Set canvas dimensions based on viewport
@@ -314,18 +315,20 @@
                 };
 
                 page.render(renderContext).promise.then(() => {
-                    console.log('PDF rendered successfully');
+                    // console.log('PDF rendered successfully'); // Original log
                     updateStatus(''); // Clear status, hide spinner
                     pdfCanvas.style.display = 'block';
 
                     const markerData = {{ marker | tojson }};
-                    console.log('Marker data:', markerData);
+                    // console.log('Marker data:', markerData); // Original log
+                    console.log("Static display - markerData from template:", markerData);
                     if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
                         ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
                         // Use a more visible marker style
                         const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015); // Responsive radius
                         const markerX = markerData.x * viewport.width;
                         const markerY = markerData.y * viewport.height;
+                        console.log("Static display - rendering page:", page, "Marker X:", markerX, "Marker Y:", markerY);
 
                         ctx.beginPath();
                         ctx.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
@@ -341,6 +344,7 @@
                     }
                 }).catch(error => {
                     console.error('Error rendering PDF page:', error);
+                    console.log("Static display - error rendering PDF page:", error); // Added error log
                     updateStatus('Error rendering PDF: ' + error.message);
                 });
             }
@@ -366,12 +370,13 @@
                     return;
                 }
                 const pdfUrl = `/static/${markerData.file_path}`; // Ensure this path is correct
-                console.log('Attempting to load PDF from:', pdfUrl);
+                // console.log('Attempting to load PDF from:', pdfUrl); // Original log
+                console.log("Static display - pdfUrl:", pdfUrl);
                 updateStatus('Loading PDF...', true);
 
                 pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
                     pdfDoc = pdf;
-                    console.log('PDF document loaded, pages:', pdf.numPages);
+                    // console.log('PDF document loaded, pages:', pdf.numPages); // Original log
                     // Use page number from marker if available, otherwise default to 1
                     pageNum = markerData.page_num || 1; 
                     if (pageNum > pdfDoc.numPages) {
@@ -380,30 +385,33 @@
                     }
                     return pdfDoc.getPage(pageNum);
                 }).then(page => {
-                    console.log(`PDF page ${pageNum} loaded`);
+                    // console.log(`PDF page ${pageNum} loaded`); // Original log
                     calculateScaleAndRender(page);
                      // Add resize listener after initial load
                     window.addEventListener('resize', () => {
                         // Recalculate scale and re-render on resize
                         // Debounce this if it causes performance issues
-                        console.log('Window resized, recalculating scale and re-rendering.');
+                        // console.log('Window resized, recalculating scale and re-rendering.'); // Original log
                         calculateScaleAndRender(page); // Re-use the loaded page object
                     });
                 }).catch(error => {
                     console.error('Error loading PDF:', error);
+                    console.log("Static display - error loading PDF:", error); // Added error log
                     updateStatus('Error loading PDF: ' + (error.message || 'Unknown error'));
                 });
             }
             
-            console.log('Initializing defect_detail page PDF rendering');
+            // console.log('Initializing defect_detail page PDF rendering'); // Original log
             loadPDF();
 
         } catch (error) {
             console.error('General error in defect_detail JavaScript:', error);
-            const statusEl = document.getElementById('pdfStatus');
-            if (statusEl) {
-                statusEl.textContent = 'Error initializing drawing viewer: ' + (error.message || 'Unknown error');
-                statusEl.style.display = 'flex'; // Use flex for centering
+            console.log("Static display - general error in script:", error); // Added error log
+            const statusEl = document.getElementById('pdfStatus'); // This ID seems to be from an older version, staticPdfStatus is used above
+            const actualStatusEl = document.getElementById('staticPdfStatus') || statusEl; // Try the correct one first
+            if (actualStatusEl) {
+                actualStatusEl.textContent = 'Error initializing drawing viewer: ' + (error.message || 'Unknown error');
+                actualStatusEl.style.display = 'flex'; // Use flex for centering
             }
         }
     </script>
@@ -790,6 +798,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Check if the primary element for this script section (drawingSelectLocationEdit) exists
     if (drawingSelectLocationEdit && locationEditPdfContainer && locationEditMarkerCanvas) {
+        console.log("Editable marker display script executing.");
+        console.log("Editable display - initial markerX from input:", document.getElementById('marker_x_location_edit').value);
+        console.log("Editable display - initial markerY from input:", document.getElementById('marker_y_location_edit').value);
+        console.log("Editable display - initial pageNum from input:", document.getElementById('page_num_location_edit').value);
+        console.log("Editable display - initial drawing_id selected:", document.getElementById('drawing_id_location_edit').value);
+
         const ctxLocationEdit = locationEditMarkerCanvas.getContext('2d');
         let pdfDocLocationEdit = null;
         let currentPageNumLocationEdit = 1; 
@@ -883,6 +897,7 @@ document.addEventListener('DOMContentLoaded', function () {
         function loadPdfForLocationEditing() {
             const selectedOption = drawingSelectLocationEdit.options[drawingSelectLocationEdit.selectedIndex];
             const filePath = selectedOption ? selectedOption.dataset.filePath : null;
+            console.log("Editable display - loadPdfForLocationEditing - filePath:", filePath, "currentMarkerDataLocation:", currentMarkerDataLocation);
             
             ctxLocationEdit.clearRect(0, 0, locationEditMarkerCanvas.width, locationEditMarkerCanvas.height); // Clear old marker
 
@@ -933,6 +948,62 @@ document.addEventListener('DOMContentLoaded', function () {
                 updateLocationEditStatus('Error loading PDF: ' + err.message, false);
                 pdfDocLocationEdit = null;
             });
+        }
+
+        function renderPageLocationEdit(pageNumber) {
+            if (!pdfDocLocationEdit || !locationEditPdfContainer || !locationEditPdfCanvas) {
+                updateLocationEditStatus('PDF document or canvas not ready.', false);
+                return;
+            }
+            console.log("Editable display - renderPageLocationEdit - pageNumber:", pageNumber, "currentScaleLocationEdit:", currentScaleLocationEdit);
+            updateLocationEditStatus('Loading page ' + pageNumber + '...', true);
+            pdfDocLocationEdit.getPage(pageNumber).then(page => {
+                currentPageNumLocationEdit = pageNumber;
+                if(pageNumLocationInput) pageNumLocationInput.value = currentPageNumLocationEdit;
+
+                const pageWidth = page.getViewport({ scale: 1 }).width;
+                currentScaleLocationEdit = locationEditPdfContainer.clientWidth / pageWidth;
+                const viewport = page.getViewport({ scale: currentScaleLocationEdit });
+
+                locationEditPdfContainer.style.height = `${viewport.height}px`;
+                locationEditPdfCanvas.width = viewport.width;
+                locationEditPdfCanvas.height = viewport.height;
+                locationEditMarkerCanvas.width = viewport.width;
+                locationEditMarkerCanvas.height = viewport.height;
+
+                const renderContext = { canvasContext: locationEditPdfCanvas.getContext('2d'), viewport: viewport };
+                page.render(renderContext).promise.then(() => {
+                    updateLocationEditStatus('', false); // Clear status, show canvas
+                    drawMarkerLocationEdit();
+                }).catch(err => {
+                    console.error(`Error rendering page ${pageNumber}:`, err);
+                    updateLocationEditStatus('Error rendering PDF page: ' + err.message, false);
+                });
+            }).catch(err => {
+                console.error(`Error getting page ${pageNumber}:`, err);
+                updateLocationEditStatus('Error getting PDF page: ' + err.message, false);
+            });
+        }
+
+        function drawMarkerLocationEdit() {
+            if (!pdfDocLocationEdit || !ctxLocationEdit || !locationEditMarkerCanvas) return;
+            ctxLocationEdit.clearRect(0, 0, locationEditMarkerCanvas.width, locationEditMarkerCanvas.height);
+            if (currentMarkerDataLocation && currentMarkerDataLocation.pageNum === currentPageNumLocationEdit) {
+                 pdfDocLocationEdit.getPage(currentPageNumLocationEdit).then(page => {
+                    const viewport = page.getViewport({ scale: currentScaleLocationEdit });
+                    const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015);
+                    const markerX = currentMarkerDataLocation.x * viewport.width;
+                    const markerY = currentMarkerDataLocation.y * viewport.height;
+                    console.log("Editable display - drawMarkerLocationEdit - currentMarkerDataLocation:", currentMarkerDataLocation, "Calculated X,Y:", markerX, markerY);
+                    ctxLocationEdit.beginPath();
+                    ctxLocationEdit.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
+                    ctxLocationEdit.fillStyle = 'rgba(255, 0, 0, 0.7)';
+                    ctxLocationEdit.fill();
+                    ctxLocationEdit.lineWidth = Math.max(1, markerRadius * 0.2);
+                    ctxLocationEdit.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                    ctxLocationEdit.stroke();
+                });
+            }
         }
 
         locationEditMarkerCanvas.addEventListener('click', (event) => {
