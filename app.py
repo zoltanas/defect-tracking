@@ -17,7 +17,7 @@ import logging
 from sqlalchemy import inspect
 import tempfile
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 if not logger.handlers:
