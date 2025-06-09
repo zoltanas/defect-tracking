@@ -28,7 +28,10 @@
                 {% endif %}
             </div>
         </div>
-        <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
+        <div>
+            <button type="button" id="editDefectButton" class="bg-blue-500 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow-sm mr-2">Edit Defect</button>
+            <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
+        </div>
     </div>
 
     <!-- Wrapper for Defect Title and Defect Details Card -->
@@ -79,10 +82,14 @@
             {% if attachments %}
                 <div class="bg-white shadow-lg rounded-lg p-6 order-1 lg:order-none">
                     <h2 class="text-2xl font-semibold text-gray-700 mb-4">Attachments</h2>
+                    <button type="button" id="addNewAttachmentButton" class="mb-4 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add New Image</button>
                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                         {% for attachment in attachments %}
-                            <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="group block rounded-lg overflow-hidden border border-gray-200 hover:border-primary transition-all duration-300 cursor-pointer">
-                                <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Attachment Thumbnail" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                            <div class="relative group">
+                                <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="block rounded-lg overflow-hidden border border-gray-200 hover:border-primary transition-all duration-300 cursor-pointer">
+                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Attachment Thumbnail" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                                </div>
+                                <button type="button" data-attachment-id="{{ attachment.id }}" class="absolute top-1 right-1 bg-red-500 hover:bg-red-700 text-white text-xs font-bold py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity delete-attachment-button">Delete</button>
                             </div>
                         {% endfor %}
                     </div>
@@ -117,10 +124,59 @@
 
         <!-- Right Column: Actions, Comments -->
         <div class="lg:w-1/3 space-y-6">
-            <!-- Actions Card (Edit, Delete) -->
-            {% if user_role in ['admin', 'expert'] or user_role == 'admin' %}
+            <!-- Comments List Card -->
             <div class="bg-white shadow-lg rounded-lg p-6">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Manage Defect</h2>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Comments</h2>
+                {% if comments %}
+                    <div class="space-y-4">
+                        {% for comment in comments %}
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <div class="flex justify-between items-center mb-1">
+                                    <p class="text-sm font-semibold text-primary">{{ comment.user.username }}</p>
+                                    <p class="text-xs text-gray-500">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                                </div>
+                                <p class="text-sm text-gray-700 break-words">{{ comment.content }}</p>
+                                {% set comment_attachments = comment.attachments %}
+                                {% if comment_attachments %}
+                                    <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {% for attachment in comment_attachments %}
+                                            <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="group block rounded overflow-hidden border border-gray-100 hover:border-primary transition-all duration-300 cursor-pointer">
+                                                <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Comment Attachment" class="w-full h-20 sm:h-24 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
+                {% endif %}
+            </div>
+
+            <!-- Add Comment Form Card -->
+            {% if user_role in ['admin', 'expert', 'worker'] %}
+                <div class="bg-white shadow-lg rounded-lg p-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
+                    <form method="POST" enctype="multipart/form-data" class="space-y-4">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
+                        <input type="hidden" name="action" value="add_comment">
+                        <div>
+                            <label for="comment_content" class="block text-sm font-medium text-gray-700">Your Comment</label>
+                            <textarea name="comment_content" id="comment_content" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required></textarea>
+                        </div>
+                        <div>
+                            <label for="comment_photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
+                            <input type="file" name="comment_photos" id="comment_photos" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-hover file:cursor-pointer">
+                        </div>
+                        <button type="submit" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Comment</button>
+                    </form>
+                </div>
+            {% endif %}
+            <!-- Hidden Edit Defect Form Container MOVED HERE -->
+            {% if user_role in ['admin', 'expert'] or user_role == 'admin' %}
+            <div id="editDefectFormContainer" class="hidden bg-white shadow-lg rounded-lg p-6 mb-6">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Edit Defect</h2>
                 {% if user_role in ['admin', 'expert'] %}
                     <form method="POST" class="space-y-4 mb-4"> {# Edit Defect Form #}
                         <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
@@ -180,56 +236,6 @@
                 {% endif %}
             </div>
             {% endif %}
-            
-            <!-- Add Comment Form Card -->
-            {% if user_role in ['admin', 'expert', 'worker'] %}
-                <div class="bg-white shadow-lg rounded-lg p-6">
-                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
-                    <form method="POST" enctype="multipart/form-data" class="space-y-4">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
-                        <input type="hidden" name="action" value="add_comment">
-                        <div>
-                            <label for="comment_content" class="block text-sm font-medium text-gray-700">Your Comment</label>
-                            <textarea name="comment_content" id="comment_content" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required></textarea>
-                        </div>
-                        <div>
-                            <label for="comment_photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
-                            <input type="file" name="comment_photos" id="comment_photos" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-hover file:cursor-pointer">
-                        </div>
-                        <button type="submit" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Comment</button>
-                    </form>
-                </div>
-            {% endif %}
-
-            <!-- Comments List Card -->
-            <div class="bg-white shadow-lg rounded-lg p-6">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Comments</h2>
-                {% if comments %}
-                    <div class="space-y-4">
-                        {% for comment in comments %}
-                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <div class="flex justify-between items-center mb-1">
-                                    <p class="text-sm font-semibold text-primary">{{ comment.user.username }}</p>
-                                    <p class="text-xs text-gray-500">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
-                                </div>
-                                <p class="text-sm text-gray-700 break-words">{{ comment.content }}</p>
-                                {% set comment_attachments = comment.attachments %}
-                                {% if comment_attachments %}
-                                    <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {% for attachment in comment_attachments %}
-                                            <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="group block rounded overflow-hidden border border-gray-100 hover:border-primary transition-all duration-300 cursor-pointer">
-                                                <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Comment Attachment" class="w-full h-20 sm:h-24 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
-                {% endif %}
-            </div>
         </div>
     </div>
 
@@ -389,6 +395,108 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     // Assuming workerSrc is set globally by the other script. If not, uncomment:
     // pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+
+    // Defect Edit Toggle & Attachment Management Script
+    const editDefectButton = document.getElementById('editDefectButton');
+    const editDefectFormContainer = document.getElementById('editDefectFormContainer');
+    const addNewAttachmentButton = document.getElementById('addNewAttachmentButton');
+    const deleteAttachmentButtons = document.querySelectorAll('.delete-attachment-button');
+    const csrfToken = '{{ csrf_token_value }}'; // Assuming csrf_token_value is passed to the template
+    const defectId = '{{ defect.id }}';
+
+    // 1. Edit Defect Toggle Functionality
+    if (editDefectButton && editDefectFormContainer) {
+        editDefectButton.addEventListener('click', function() {
+            const isHidden = editDefectFormContainer.classList.toggle('hidden');
+            if (isHidden) {
+                editDefectButton.textContent = 'Edit Defect';
+            } else {
+                editDefectButton.textContent = 'Cancel';
+            }
+        });
+    }
+
+    // 2. "Add New Image" Functionality
+    if (addNewAttachmentButton) {
+        let newAttachmentInput = document.getElementById('newAttachmentInput');
+        if (!newAttachmentInput) {
+            newAttachmentInput = document.createElement('input');
+            newAttachmentInput.type = 'file';
+            newAttachmentInput.id = 'newAttachmentInput';
+            newAttachmentInput.accept = 'image/*';
+            newAttachmentInput.classList.add('hidden');
+            document.body.appendChild(newAttachmentInput); // Add it to the body
+        }
+
+        addNewAttachmentButton.addEventListener('click', function() {
+            newAttachmentInput.click();
+        });
+
+        newAttachmentInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('attachment_file', file);
+                formData.append('defect_id', defectId);
+                formData.append('csrf_token', csrfToken);
+
+                fetch(`/defect/${defectId}/attachment/add`, {
+                    method: 'POST',
+                    body: formData,
+                    // Flask-WTF typically checks CSRF token from FormData for AJAX if not using X-CSRFToken header
+                    // headers: { 'X-CSRFToken': csrfToken } // Example if using header-based CSRF
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // alert('Attachment added successfully!'); // Optional alert
+                        location.reload(); // Reload to see the new attachment
+                    } else {
+                        alert('Error adding attachment: ' + (data.message || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error uploading attachment:', error);
+                    alert('Error uploading attachment. See console for details.');
+                });
+
+                // Reset file input for next selection
+                event.target.value = null;
+            }
+        });
+    }
+
+    // 3. "Delete Image" Functionality
+    deleteAttachmentButtons.forEach(button => {
+        button.addEventListener('click', function(event) {
+            const attachmentId = event.target.dataset.attachmentId;
+            if (confirm('Are you sure you want to delete this attachment?')) {
+                const formData = new FormData();
+                formData.append('attachment_id', attachmentId);
+                formData.append('defect_id', defectId); // Include defect_id for endpoint consistency
+                formData.append('csrf_token', csrfToken);
+
+                fetch(`/defect/${defectId}/attachment/delete`, {
+                    method: 'POST',
+                    body: formData,
+                    // headers: { 'X-CSRFToken': csrfToken }  // Example if using header-based CSRF
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // alert('Attachment deleted successfully!'); // Optional alert
+                        event.target.closest('.relative.group').remove(); // Remove the attachment's div
+                    } else {
+                        alert('Error deleting attachment: ' + (data.message || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting attachment:', error);
+                    alert('Error deleting attachment. See console for details.');
+                });
+            }
+        });
+    });
 
     const drawingSelectEdit = document.getElementById('drawing_id_edit');
     const drawingSectionEdit = document.getElementById('drawingSectionEdit');

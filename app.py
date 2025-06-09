@@ -246,16 +246,29 @@ def load_user(user_id):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-def create_thumbnail(image_path, thumbnail_path, size=(300, 300)):
+# Helper function to ensure thumbnail directory exists
+def ensure_thumbnail_directory():
+    thumbnail_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'thumbnails')
+    os.makedirs(thumbnail_dir, exist_ok=True)
+    # os.chmod(thumbnail_dir, 0o755) # Ensure permissions if needed, usually inherited
+    return thumbnail_dir
+
+def create_thumbnail(image_path, thumbnail_save_path, size=(300, 300)):
     try:
+        # Ensure the directory for the thumbnail exists
+        thumbnail_dir_for_saving = os.path.dirname(thumbnail_save_path)
+        if not os.path.exists(thumbnail_dir_for_saving):
+            os.makedirs(thumbnail_dir_for_saving, exist_ok=True)
+            # os.chmod(thumbnail_dir_for_saving, 0o755) # Ensure permissions if needed
+
         with PILImage.open(image_path) as img:
             img = ImageOps.exif_transpose(img) # Apply EXIF orientation
             img.thumbnail(size, PILImage.Resampling.LANCZOS)
-            img.save(thumbnail_path, quality=85, optimize=True)
-            os.chmod(thumbnail_path, 0o644)
-        logger.debug(f'Created thumbnail: {thumbnail_path}')
+            img.save(thumbnail_save_path, quality=85, optimize=True) # Use the provided full save path
+            os.chmod(thumbnail_save_path, 0o644)
+        logger.debug(f'Created thumbnail: {thumbnail_save_path}')
     except Exception as e:
-        logger.error(f'Thumbnail creation failed for {image_path}: {str(e)}')
+        logger.error(f'Thumbnail creation failed for {image_path} to {thumbnail_save_path}: {str(e)}')
         raise
 
 # Authentication Routes
@@ -639,21 +652,25 @@ def add_defect(project_id):
                 if file and allowed_file(file.filename):
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     filename = secure_filename(f'defect_{defect.id}_{timestamp}_{file.filename}')
-                    file_path = os.path.join('images', filename)
-                    full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    thumbnail_filename = f'thumb_{filename}'
-                    thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
+                    file_path_for_db = os.path.join('images', filename) # DB path relative to static
+                    full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Full path for saving original
+
+                    thumbnail_dir = ensure_thumbnail_directory() # Ensures 'static/images/thumbnails'
+                    thumbnail_filename_base = f'thumb_{filename}' # Just the filename part
+                    thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving thumbnail
+                    thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
+
                     try:
                         img = PILImage.open(file)
                         img = ImageOps.exif_transpose(img) # Apply EXIF orientation
                         img = img.convert('RGB')
-                        img.save(full_path, quality=85, optimize=True)
-                        os.chmod(full_path, 0o644)
-                        create_thumbnail(full_path, thumbnail_path)
+                        img.save(full_disk_path, quality=85, optimize=True)
+                        os.chmod(full_disk_path, 0o644)
+                        create_thumbnail(full_disk_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
                         attachment = Attachment(
                             defect_id=defect.id,
-                            file_path=file_path,
-                            thumbnail_path=f'images/{thumbnail_filename}'
+                            file_path=file_path_for_db,
+                            thumbnail_path=thumbnail_path_for_db
                         )
                         db.session.add(attachment)
                         db.session.commit()
@@ -728,19 +745,21 @@ def defect_detail(defect_id):
                                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                                 # Ensure comment.id is available
                                 filename = secure_filename(f'comment_{comment.id}_{timestamp}_{file.filename}')
-                                file_path_for_db = os.path.join('images', filename) # Relative path for DB
-                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Full path for saving
-                                thumbnail_filename = f'thumb_{filename}'
-                                thumbnail_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename) # Full path for saving thumb
-                                thumbnail_path_for_db = os.path.join('images', thumbnail_filename) # Relative path for DB
+                                file_path_for_db = os.path.join('images', filename)
+                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+                                thumbnail_dir = ensure_thumbnail_directory()
+                                thumbnail_filename_base = f'thumb_{filename}'
+                                thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
+                                thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
 
                                 try:
                                     img = PILImage.open(file)
-                                    img = ImageOps.exif_transpose(img) # Apply EXIF orientation
+                                    img = ImageOps.exif_transpose(img)
                                     img = img.convert('RGB')
                                     img.save(full_disk_path, quality=85, optimize=True)
                                     os.chmod(full_disk_path, 0o644)
-                                    create_thumbnail(full_disk_path, thumbnail_disk_path)
+                                    create_thumbnail(full_disk_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
                                     
                                     attachment = Attachment(comment_id=comment.id, 
                                                             file_path=file_path_for_db, 
@@ -818,17 +837,23 @@ def defect_detail(defect_id):
                                 flash('Marker coordinates must be between 0 and 1.', 'error')
                                 error_occurred = True
                             else:
-                                existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-                                if existing_marker:
-                                    existing_marker.drawing_id = drawing_id_val
-                                    existing_marker.x = marker_x_val
-                                    existing_marker.y = marker_y_val
-                                    # existing_marker.page_num = page_num
-                                    logger.info(f"Updated marker for defect {defect_id}")
+                                # Validate drawing_id_val - ensure it's a valid drawing for the project
+                                valid_drawing = Drawing.query.filter_by(id=drawing_id_val, project_id=defect.project_id).first()
+                                if not valid_drawing:
+                                    flash('Invalid drawing selected for marker.', 'error')
+                                    error_occurred = True
                                 else:
-                                    new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val) #, page_num=page_num)
-                                    db.session.add(new_marker)
-                                    logger.info(f"Created new marker for defect {defect_id}")
+                                    existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
+                                    if existing_marker:
+                                        existing_marker.drawing_id = drawing_id_val
+                                        existing_marker.x = marker_x_val
+                                        existing_marker.y = marker_y_val
+                                        # page_num is not part of DefectMarker model
+                                        logger.info(f"Updated marker for defect {defect_id}")
+                                    else:
+                                        new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val)
+                                        db.session.add(new_marker)
+                                        logger.info(f"Created new marker for defect {defect_id}")
                         except ValueError:
                             flash('Invalid marker data format (e.g., non-numeric values).', 'error')
                             error_occurred = True
@@ -962,6 +987,119 @@ def delete_attachment(defect_id, attachment_id):
         logger.error(f'Error deleting attachment {attachment_id}: {str(e)}')
     return redirect(url_for('defect_detail', defect_id=defect_id))
 
+
+@app.route('/defect/<int:defect_id>/attachment/add', methods=['POST'])
+@login_required
+def add_defect_attachment(defect_id):
+    defect = db.session.get(Defect, defect_id)
+    if not defect:
+        return jsonify({'success': False, 'error': 'Defect not found.'}), 404
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
+    if not access or access.role not in ['admin', 'expert', 'worker']: # Workers can add attachments
+        return jsonify({'success': False, 'error': 'Permission denied.'}), 403
+
+    if 'attachment_file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file part.'}), 400
+
+    file = request.files['attachment_file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No selected file.'}), 400
+
+    if file and allowed_file(file.filename):
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f') # Microseconds for uniqueness
+            original_filename_secure = secure_filename(file.filename)
+            # defect.id should be safe, already an int.
+            unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
+
+            # Save original image to 'static/images/'
+            original_save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename_base)
+            file.save(original_save_path)
+            os.chmod(original_save_path, 0o644)
+            db_file_path = os.path.join('images', unique_filename_base) # Path for DB (relative to static)
+
+            # Create thumbnail in 'static/images/thumbnails/'
+            thumbnail_dir = ensure_thumbnail_directory()
+            thumbnail_filename_base = f"thumb_{unique_filename_base}"
+            thumbnail_save_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path to save
+            create_thumbnail(original_save_path, thumbnail_save_path) # create_thumbnail saves it
+            db_thumbnail_path = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Path for DB
+
+            attachment = Attachment(
+                defect_id=defect.id, # Link directly to defect
+                file_path=db_file_path,
+                thumbnail_path=db_thumbnail_path
+            )
+            db.session.add(attachment)
+            db.session.commit()
+            logger.info(f"Attachment {attachment.id} added to defect {defect.id} by user {current_user.id}")
+            # The JS expects to reload, but sending back details is good practice
+            return jsonify({
+                'success': True,
+                'message': 'Attachment added successfully.',
+                'attachment': {
+                    'id': attachment.id,
+                    'file_path_url': url_for('static', filename=attachment.file_path),
+                    'thumbnail_path_url': url_for('static', filename=attachment.thumbnail_path)
+                }
+            })
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error adding attachment to defect {defect.id}: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+    else:
+        return jsonify({'success': False, 'error': 'File type not allowed.'}), 400
+
+
+@app.route('/defect/<int:defect_id>/attachment/delete', methods=['POST'])
+@login_required
+def delete_defect_attachment_json(defect_id):
+    defect = db.session.get(Defect, defect_id)
+    if not defect:
+        return jsonify({'success': False, 'error': 'Defect not found.'}), 404
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
+    if not access or access.role not in ['admin', 'expert']:
+        return jsonify({'success': False, 'error': 'Permission denied to delete attachments for this defect.'}), 403
+
+    attachment_id = request.form.get('attachment_id')
+    if not attachment_id:
+        return jsonify({'success': False, 'error': 'Attachment ID missing.'}), 400
+
+    # Ensure attachment belongs to the specific defect by querying with defect_id
+    attachment = Attachment.query.filter_by(id=attachment_id, defect_id=defect.id).first()
+    if not attachment:
+        return jsonify({'success': False, 'error': 'Attachment not found or does not belong to this defect.'}), 404
+
+    try:
+        # Delete physical files
+        if attachment.file_path:
+            # Construct full path from app.static_folder and the relative path stored in DB
+            full_file_path = os.path.join(app.static_folder, attachment.file_path)
+            if os.path.exists(full_file_path):
+                os.remove(full_file_path)
+                logger.info(f"Deleted file: {full_file_path}")
+            else:
+                logger.warning(f"Attachment file not found for deletion: {full_file_path} (DB path: {attachment.file_path})")
+
+        if attachment.thumbnail_path:
+            full_thumbnail_path = os.path.join(app.static_folder, attachment.thumbnail_path)
+            if os.path.exists(full_thumbnail_path):
+                os.remove(full_thumbnail_path)
+                logger.info(f"Deleted thumbnail: {full_thumbnail_path}")
+            else:
+                logger.warning(f"Attachment thumbnail not found for deletion: {full_thumbnail_path} (DB path: {attachment.thumbnail_path})")
+
+        db.session.delete(attachment)
+        db.session.commit()
+        logger.info(f"Attachment {attachment_id} deleted from defect {defect.id} by user {current_user.id}")
+        return jsonify({'success': True, 'message': 'Attachment deleted successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting attachment {attachment_id} from defect {defect.id}: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
 @app.route('/project/<int:project_id>/add_checklist', methods=['GET', 'POST'])
 @login_required
 def add_checklist(project_id):
@@ -1026,17 +1164,16 @@ def checklist_detail(checklist_id):
                         filename = secure_filename(f'checklist_{item.id}_{timestamp}_{file.filename}')
                         # Path for storing in DB (relative to static folder)
                         db_file_path = os.path.join('images', filename)
-                        # Full disk path for saving the original file
                         disk_save_full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                        thumbnail_filename = f'thumb_{filename}'
-                        # Full disk path for saving the thumbnail
-                        disk_save_thumbnail_full_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
-                        # Path for storing thumbnail in DB (relative to static folder)
-                        db_thumbnail_path = os.path.join('images', thumbnail_filename)
+
+                        thumbnail_dir = ensure_thumbnail_directory()
+                        thumbnail_filename_base = f'thumb_{filename}'
+                        thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
+                        db_thumbnail_path = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
 
                         try:
                             logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
-                            img = PILImage.open(file) # Changed from file.stream
+                            img = PILImage.open(file)
                             img = ImageOps.exif_transpose(img)
                             img = img.convert('RGB')
 
@@ -1045,15 +1182,15 @@ def checklist_detail(checklist_id):
                             os.chmod(disk_save_full_path, 0o644)
                             logger.info(f"Successfully saved original image to: {disk_save_full_path}")
 
-                            logger.info(f"Attempting to create thumbnail: {disk_save_thumbnail_full_path} from {disk_save_full_path}")
-                            create_thumbnail(disk_save_full_path, disk_save_thumbnail_full_path)
-                            logger.info(f"Successfully created thumbnail: {disk_save_thumbnail_full_path}")
+                            logger.info(f"Attempting to create thumbnail: {thumbnail_disk_path} from {disk_save_full_path}")
+                            create_thumbnail(disk_save_full_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
+                            logger.info(f"Successfully created thumbnail: {thumbnail_disk_path}")
 
                             logger.info(f"Creating attachment record with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
                             attachment = Attachment(
                                 checklist_item_id=item.id,
-                                file_path=db_file_path, # Use db specific path
-                                thumbnail_path=db_thumbnail_path # Use db specific thumbnail path
+                                file_path=db_file_path,
+                                thumbnail_path=db_thumbnail_path
                             )
                             db.session.add(attachment)
                             db.session.commit() # Commit for this specific attachment
@@ -1705,15 +1842,17 @@ def setup_test_data():
             d2 = Defect(project_id=project.id, description="Closed defect with a valid JPG image.", status='closed', creator_id=admin_user.id, creation_date=datetime.now(), close_date=datetime.now())
             db.session.add(d2)
             db.session.flush() # Get d2.id before creating attachment
-            att_d2 = Attachment(defect_id=d2.id, file_path='images/test_image1.jpg', thumbnail_path='images/thumb_test_image1.jpg') # Assume thumbnail created elsewhere for test
+            att_d2 = Attachment(defect_id=d2.id, file_path='images/test_image1.jpg', thumbnail_path='images/thumbnails/thumb_test_image1.jpg')
             db.session.add(att_d2)
             # Simulate thumbnail creation for test_image1.jpg
-            if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'thumb_test_image1.jpg')):
-                 if os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'test_image1.jpg')):
-                    create_thumbnail(os.path.join(app.config['UPLOAD_FOLDER'], 'test_image1.jpg'), os.path.join(app.config['UPLOAD_FOLDER'], 'thumb_test_image1.jpg'))
+            thumbnail_dir = ensure_thumbnail_directory()
+            test_image1_path = os.path.join(app.config['UPLOAD_FOLDER'], 'test_image1.jpg')
+            thumb_test_image1_path = os.path.join(thumbnail_dir, 'thumb_test_image1.jpg')
+            if not os.path.exists(thumb_test_image1_path):
+                 if os.path.exists(test_image1_path):
+                    create_thumbnail(test_image1_path, thumb_test_image1_path)
                  else:
                     logger.warning("test_image1.jpg not found for thumbnail creation in test setup.")
-
 
             # D3
             d3 = Defect(project_id=project.id, description="Open defect with a marked PDF drawing (test_drawing1.pdf).", status='open', creator_id=admin_user.id, creation_date=datetime.now())
@@ -1733,28 +1872,43 @@ def setup_test_data():
             d5 = Defect(project_id=project.id, description="Open defect with a PNG image and a contractor comment that also has an image.", status='open', creator_id=admin_user.id, creation_date=datetime.now())
             db.session.add(d5)
             db.session.flush()
-            att_d5_defect = Attachment(defect_id=d5.id, file_path='images/test_image2.png', thumbnail_path='images/thumb_test_image2.png')
+            att_d5_defect = Attachment(defect_id=d5.id, file_path='images/test_image2.png', thumbnail_path='images/thumbnails/thumb_test_image2.png')
             db.session.add(att_d5_defect)
-            if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'thumb_test_image2.png')):
-                 if os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], 'test_image2.png')):
-                    create_thumbnail(os.path.join(app.config['UPLOAD_FOLDER'], 'test_image2.png'), os.path.join(app.config['UPLOAD_FOLDER'], 'thumb_test_image2.png'))
+            thumbnail_dir = ensure_thumbnail_directory() # ensure_thumbnail_directory already called for att_d2
+            test_image2_path = os.path.join(app.config['UPLOAD_FOLDER'], 'test_image2.png')
+            thumb_test_image2_path = os.path.join(thumbnail_dir, 'thumb_test_image2.png')
+            if not os.path.exists(thumb_test_image2_path):
+                 if os.path.exists(test_image2_path):
+                    create_thumbnail(test_image2_path, thumb_test_image2_path)
                  else:
                     logger.warning("test_image2.png not found for thumbnail creation in test setup.")
-
 
             comment_d5 = Comment(defect_id=d5.id, user_id=contractor_user.id, content="Work in progress. See attached photo.", created_at=datetime.now())
             db.session.add(comment_d5)
             db.session.flush()
-            att_d5_comment = Attachment(comment_id=comment_d5.id, file_path='images/test_image1.jpg', thumbnail_path='images/thumb_test_image1.jpg')
+            att_d5_comment = Attachment(comment_id=comment_d5.id, file_path='images/test_image1.jpg', thumbnail_path='images/thumbnails/thumb_test_image1.jpg') # Reuses test_image1
             db.session.add(att_d5_comment)
+            # Thumbnail for test_image1 already handled with D2
 
             # D6
             d6 = Defect(project_id=project.id, description="Open defect with a corrupt image.", status='open', creator_id=admin_user.id, creation_date=datetime.now())
             db.session.add(d6)
             db.session.flush()
-            att_d6 = Attachment(defect_id=d6.id, file_path='images/corrupt_image.jpg', thumbnail_path='images/thumb_corrupt_image.jpg') # Thumbnail might not exist or also be corrupt
+            corrupt_image_filename = 'corrupt_image.jpg'
+            corrupt_image_path = os.path.join(app.config['UPLOAD_FOLDER'], corrupt_image_filename)
+            thumb_corrupt_image_filename = f'thumb_{corrupt_image_filename}'
+            thumb_corrupt_image_path_for_db = os.path.join('images', 'thumbnails', thumb_corrupt_image_filename)
+            thumb_corrupt_image_disk_path = os.path.join(ensure_thumbnail_directory(), thumb_corrupt_image_filename)
+
+            if not os.path.exists(corrupt_image_path):
+                with open(corrupt_image_path, 'w') as f: f.write("dummy corrupt data")
+
+            att_d6 = Attachment(defect_id=d6.id, file_path=os.path.join('images', corrupt_image_filename), thumbnail_path=thumb_corrupt_image_path_for_db)
             db.session.add(att_d6)
-            # No thumbnail creation for corrupt_image.jpg to ensure it's handled
+            try:
+                create_thumbnail(corrupt_image_path, thumb_corrupt_image_disk_path)
+            except Exception as e:
+                logger.warning(f"Could not create thumbnail for {corrupt_image_filename} during test setup: {e}")
 
             # D7
             d7 = Defect(project_id=project.id, description="Open defect with a marked non-PDF file (fake_drawing.pdf).", status='open', creator_id=admin_user.id, creation_date=datetime.now())
@@ -1794,9 +1948,9 @@ def setup_test_data():
             cli1_2 = ChecklistItem(checklist_id=checklist1.id, item_text="Fire extinguishers inspected.", is_checked=True)
             db.session.add(cli1_2)
             db.session.flush()
-            att_cli1_2 = Attachment(checklist_item_id=cli1_2.id, file_path='images/test_image2.png', thumbnail_path='images/thumb_test_image2.png')
+            att_cli1_2 = Attachment(checklist_item_id=cli1_2.id, file_path='images/test_image2.png', thumbnail_path='images/thumbnails/thumb_test_image2.png') # Reuses test_image2
             db.session.add(att_cli1_2)
-            # Thumbnail for test_image2.png already created with D5
+            # Thumbnail for test_image2.png already handled with D5
 
             # CLI1.3
             cli1_3 = ChecklistItem(checklist_id=checklist1.id, item_text="Emergency exits clear.", is_checked=False, comments="Blocked by temporary storage, needs addressing.")
