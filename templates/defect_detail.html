@@ -43,16 +43,9 @@
                 {% endif %}
             </div>
         </div>
-<<<<<<< HEAD
         <div>
             <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
         </div>
-=======
-        <div>
-            <button type="button" id="editDefectButton" class="bg-blue-500 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow-sm mr-2">Edit Defect</button>
-            <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
-        </div>
->>>>>>> 23a0922427e1d1402c881b700dbaa5ecfdf35363
     </div>
 
     <!-- Wrapper for Defect Title and Defect Details Card -->
@@ -190,7 +183,6 @@
 
         <!-- Right Column: Actions, Comments -->
         <div class="lg:w-1/3 space-y-6">
-<<<<<<< HEAD
             <!-- Comments List Card -->
             <div class="bg-white shadow-lg rounded-lg p-6">
                 <h2 class="text-2xl font-semibold text-gray-700 mb-4">Comments</h2>
@@ -261,120 +253,6 @@
                     </form>
                 </div>
             {% endif %}
-=======
-            <!-- Comments List Card -->
-            <div class="bg-white shadow-lg rounded-lg p-6">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Comments</h2>
-                {% if comments %}
-                    <div class="space-y-4">
-                        {% for comment in comments %}
-                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <div class="flex justify-between items-center mb-1">
-                                    <p class="text-sm font-semibold text-primary">{{ comment.user.username }}</p>
-                                    <p class="text-xs text-gray-500">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
-                                </div>
-                                <p class="text-sm text-gray-700 break-words">{{ comment.content }}</p>
-                                {% set comment_attachments = comment.attachments %}
-                                {% if comment_attachments %}
-                                    <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {% for attachment in comment_attachments %}
-                                            <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="group block rounded overflow-hidden border border-gray-100 hover:border-primary transition-all duration-300 cursor-pointer">
-                                                <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Comment Attachment" class="w-full h-20 sm:h-24 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
-                {% endif %}
-            </div>
-
-            <!-- Add Comment Form Card -->
-            {% if user_role in ['admin', 'expert', 'worker'] %}
-                <div class="bg-white shadow-lg rounded-lg p-6">
-                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
-                    <form method="POST" enctype="multipart/form-data" class="space-y-4">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
-                        <input type="hidden" name="action" value="add_comment">
-                        <div>
-                            <label for="comment_content" class="block text-sm font-medium text-gray-700">Your Comment</label>
-                            <textarea name="comment_content" id="comment_content" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required></textarea>
-                        </div>
-                        <div>
-                            <label for="comment_photos" class="block text-sm font-medium text-gray-700">Attach Photos (Optional)</label>
-                            <input type="file" name="comment_photos" id="comment_photos" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-hover file:cursor-pointer">
-                        </div>
-                        <button type="submit" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Comment</button>
-                    </form>
-                </div>
-            {% endif %}
-            <!-- Hidden Edit Defect Form Container MOVED HERE -->
-            {% if user_role in ['admin', 'expert'] or user_role == 'admin' %}
-            <div id="editDefectFormContainer" class="hidden bg-white shadow-lg rounded-lg p-6 mb-6">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Edit Defect</h2>
-                {% if user_role in ['admin', 'expert'] %}
-                    <form method="POST" class="space-y-4 mb-4"> {# Edit Defect Form #}
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
-                        <div>
-                            <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
-                            <textarea name="description" id="description" rows="4" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" required>{{ defect.description }}</textarea>
-                        </div>
-                        <div>
-                            <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
-                            <select name="status" id="status" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
-                                <option value="Open" {% if defect.status.lower() == 'open' %}selected{% endif %}>Open</option>
-                                <option value="Closed" {% if defect.status.lower() == 'closed' %}selected{% endif %}>Closed</option>
-                            </select>
-                        </div>
-
-                        {# New HTML for marker editing - START #}
-                        <div class="mt-4">
-                            <label for="drawing_id_edit" class="block text-sm font-medium text-gray-700 mb-1">Select Drawing for Marker (Optional)</label>
-                            <select name="drawing_id" id="drawing_id_edit" class="mt-1 block w-full px-3 py-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
-                                <option value="">None - Remove existing marker</option>
-                                {% for drawing_item in drawings %} {# 'drawings' is passed from app.py #}
-                                    <option value="{{ drawing_item.id }}" data-file-path="{{ drawing_item.file_path }}" {% if marker and marker.drawing_id == drawing_item.id %}selected{% endif %}>
-                                        {{ drawing_item.name }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div id="drawingSectionEdit" class="space-y-3 mt-4 {% if not marker or not marker.file_path %}hidden{% endif %}">
-                            <p class="text-sm font-medium text-gray-700">Click on the drawing to place/update the defect location.</p>
-                            <div id="pdfContainerEdit" class="border border-gray-300 w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px] relative bg-gray-200 flex items-center justify-center rounded-md overflow-hidden">
-                                <div id="pdfStatusEdit" class="text-gray-700 p-4 text-center flex flex-col items-center justify-center">
-                                    {# SVG Spinner an_d Loading text #}
-                                    <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>Loading PDF...</span>
-                                </div>
-                                <canvas id="pdfCanvasEdit" class="absolute top-0 left-0 hidden"></canvas>
-                                <canvas id="markerCanvasEdit" class="absolute top-0 left-0 cursor-crosshair"></canvas>
-                            </div>
-                            <input type="hidden" name="marker_x" id="marker_x_edit" value="{{ marker.x if marker and marker.x is not none else '' }}">
-                            <input type="hidden" name="marker_y" id="marker_y_edit" value="{{ marker.y if marker and marker.y is not none else '' }}">
-                            <input type="hidden" name="page_num" id="page_num_edit" value="{{ marker.page_num if marker and marker.page_num is not none else '1' }}">
-                        </div>
-                        {# New HTML for marker editing - END #}
-                        <button type="submit" name="action" value="edit_defect" class="w-full bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Save Changes</button>
-                    </form>
-                {% endif %}
-                {% if user_role == 'admin' %}
-                    <form action="{{ url_for('defect_detail', defect_id=defect.id) }}" method="POST" class="mt-2">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token_value }}">
-                        <input type="hidden" name="action" value="delete_defect">
-                        <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium" onclick="return confirm('Are you sure you want to delete this defect? This action cannot be undone.');">Delete Defect</button>
-                    </form>
-                {% endif %}
-            </div>
-            {% endif %}
->>>>>>> 23a0922427e1d1402c881b700dbaa5ecfdf35363
         </div>
     </div>
 
@@ -540,7 +418,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // Assuming workerSrc is set globally by the other script. If not, uncomment:
     // pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
 
-<<<<<<< HEAD
     // Defect Edit Toggle & Attachment Management Script
     // const editDefectButton = document.getElementById('editDefectButton'); // Old button, removed
     // const editDefectFormContainer = document.getElementById('editDefectFormContainer'); // Old container, removed
@@ -548,119 +425,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const deleteAttachmentButtons = document.querySelectorAll('.delete-attachment-button');
     const csrfToken = '{{ csrf_token_value }}'; // Assuming csrf_token_value is passed to the template
     const defectId = '{{ defect.id }}';
-=======
-    // Defect Edit Toggle & Attachment Management Script
-    const editDefectButton = document.getElementById('editDefectButton');
-    const editDefectFormContainer = document.getElementById('editDefectFormContainer');
-    const addNewAttachmentButton = document.getElementById('addNewAttachmentButton');
-    const deleteAttachmentButtons = document.querySelectorAll('.delete-attachment-button');
-    const csrfToken = '{{ csrf_token_value }}'; // Assuming csrf_token_value is passed to the template
-    const defectId = '{{ defect.id }}';
-
-    // 1. Edit Defect Toggle Functionality
-    if (editDefectButton && editDefectFormContainer) {
-        editDefectButton.addEventListener('click', function() {
-            const isHidden = editDefectFormContainer.classList.toggle('hidden');
-            if (isHidden) {
-                editDefectButton.textContent = 'Edit Defect';
-            } else {
-                editDefectButton.textContent = 'Cancel';
-            }
-        });
-    }
-
-    // 2. "Add New Image" Functionality
-    if (addNewAttachmentButton) {
-        let newAttachmentInput = document.getElementById('newAttachmentInput');
-        if (!newAttachmentInput) {
-            newAttachmentInput = document.createElement('input');
-            newAttachmentInput.type = 'file';
-            newAttachmentInput.id = 'newAttachmentInput';
-            newAttachmentInput.accept = 'image/*';
-            newAttachmentInput.classList.add('hidden');
-            document.body.appendChild(newAttachmentInput); // Add it to the body
-        }
-
-        addNewAttachmentButton.addEventListener('click', function() {
-            newAttachmentInput.click();
-        });
-
-        newAttachmentInput.addEventListener('change', function(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const formData = new FormData();
-                formData.append('attachment_file', file);
-                formData.append('defect_id', defectId);
-                formData.append('csrf_token', csrfToken);
-
-                fetch(`/defect/${defectId}/attachment/add`, {
-                    method: 'POST',
-                    body: formData,
-                    // Flask-WTF typically checks CSRF token from FormData for AJAX if not using X-CSRFToken header
-                    // headers: { 'X-CSRFToken': csrfToken } // Example if using header-based CSRF
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // alert('Attachment added successfully!'); // Optional alert
-                        location.reload(); // Reload to see the new attachment
-                    } else {
-                        alert('Error adding attachment: ' + (data.message || 'Unknown error'));
-                    }
-                })
-                .catch(error => {
-                    console.error('Error uploading attachment:', error);
-                    alert('Error uploading attachment. See console for details.');
-                });
-
-                // Reset file input for next selection
-                event.target.value = null;
-            }
-        });
-    }
-
-    // 3. "Delete Image" Functionality
-    deleteAttachmentButtons.forEach(button => {
-        button.addEventListener('click', function(event) {
-            const attachmentId = event.target.dataset.attachmentId;
-            if (confirm('Are you sure you want to delete this attachment?')) {
-                const formData = new FormData();
-                formData.append('attachment_id', attachmentId);
-                formData.append('defect_id', defectId); // Include defect_id for endpoint consistency
-                formData.append('csrf_token', csrfToken);
-
-                fetch(`/defect/${defectId}/attachment/delete`, {
-                    method: 'POST',
-                    body: formData,
-                    // headers: { 'X-CSRFToken': csrfToken }  // Example if using header-based CSRF
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // alert('Attachment deleted successfully!'); // Optional alert
-                        event.target.closest('.relative.group').remove(); // Remove the attachment's div
-                    } else {
-                        alert('Error deleting attachment: ' + (data.message || 'Unknown error'));
-                    }
-                })
-                .catch(error => {
-                    console.error('Error deleting attachment:', error);
-                    alert('Error deleting attachment. See console for details.');
-                });
-            }
-        });
-    });
-
-    const drawingSelectEdit = document.getElementById('drawing_id_edit');
-    const drawingSectionEdit = document.getElementById('drawingSectionEdit');
-    const pdfContainerEdit = document.getElementById('pdfContainerEdit');
-    const pdfStatusEditEl = document.getElementById('pdfStatusEdit');
-    const pdfCanvasEdit = document.getElementById('pdfCanvasEdit');
-    const markerCanvasEdit = document.getElementById('markerCanvasEdit');
-    const markerXInputEdit = document.getElementById('marker_x_edit');
-    const markerYInputEdit = document.getElementById('marker_y_edit');
-    const pageNumInputEdit = document.getElementById('page_num_edit');
->>>>>>> 23a0922427e1d1402c881b700dbaa5ecfdf35363
 
     // 1. Edit Defect Toggle Functionality (Old - to be removed or commented out)
     // if (editDefectButton && editDefectFormContainer) { // editDefectButton is null now

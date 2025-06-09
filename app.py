@@ -17,7 +17,7 @@ import logging
 from sqlalchemy import inspect
 import tempfile
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if not logger.handlers:
@@ -144,8 +144,22 @@ class DefectMarker(db.Model):
     drawing_id = db.Column(db.Integer, db.ForeignKey('drawings.id'), nullable=False)
     x = db.Column(db.Float, nullable=False)  # Normalized x-coordinate (0 to 1)
     y = db.Column(db.Float, nullable=False)  # Normalized y-coordinate (0 to 1)
+    # Add page_num if it's part of your logic, assuming it's not for now based on previous model.
+    page_num = db.Column(db.Integer, nullable=False, default=1) 
     defect = db.relationship('Defect', back_populates='markers')
     drawing = db.relationship('Drawing', back_populates='markers')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'defect_id': self.defect_id,
+            'drawing_id': self.drawing_id,
+            'x': self.x,
+            'y': self.y,
+            'page_num': getattr(self, 'page_num', 1), # Default to 1 if not present
+            'file_path': self.drawing.file_path if self.drawing else None,
+            'drawing_name': self.drawing.name if self.drawing else None
+        }
 
 class Comment(db.Model):
     __tablename__ = 'comments'
@@ -153,7 +167,9 @@ class Comment(db.Model):
     defect_id = db.Column(db.Integer, db.ForeignKey('defects.id'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    edited = db.Column(db.Boolean, default=False, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Sets on creation and updates on modification
     defect = db.relationship('Defect', back_populates='comments')
     user = db.relationship('User')
     attachments = db.relationship('Attachment', back_populates='comment', cascade='all, delete-orphan')
@@ -654,12 +670,12 @@ def add_defect(project_id):
                     filename = secure_filename(f'defect_{defect.id}_{timestamp}_{file.filename}')
                     file_path_for_db = os.path.join('images', filename) # DB path relative to static
                     full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Full path for saving original
-
+                    
                     thumbnail_dir = ensure_thumbnail_directory() # Ensures 'static/images/thumbnails'
                     thumbnail_filename_base = f'thumb_{filename}' # Just the filename part
                     thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving thumbnail
                     thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
-
+                    
                     try:
                         img = PILImage.open(file)
                         img = ImageOps.exif_transpose(img) # Apply EXIF orientation
@@ -745,9 +761,9 @@ def defect_detail(defect_id):
                                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                                 # Ensure comment.id is available
                                 filename = secure_filename(f'comment_{comment.id}_{timestamp}_{file.filename}')
-                                file_path_for_db = os.path.join('images', filename)
-                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
+                                file_path_for_db = os.path.join('images', filename) 
+                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) 
+                                
                                 thumbnail_dir = ensure_thumbnail_directory()
                                 thumbnail_filename_base = f'thumb_{filename}'
                                 thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
@@ -755,7 +771,7 @@ def defect_detail(defect_id):
 
                                 try:
                                     img = PILImage.open(file)
-                                    img = ImageOps.exif_transpose(img)
+                                    img = ImageOps.exif_transpose(img) 
                                     img = img.convert('RGB')
                                     img.save(full_disk_path, quality=85, optimize=True)
                                     os.chmod(full_disk_path, 0o644)
@@ -1001,7 +1017,7 @@ def add_defect_attachment(defect_id):
 
     if 'attachment_file' not in request.files:
         return jsonify({'success': False, 'error': 'No file part.'}), 400
-
+    
     file = request.files['attachment_file']
     if file.filename == '':
         return jsonify({'success': False, 'error': 'No selected file.'}), 400
@@ -1012,7 +1028,7 @@ def add_defect_attachment(defect_id):
             original_filename_secure = secure_filename(file.filename)
             # defect.id should be safe, already an int.
             unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
-
+            
             # Save original image to 'static/images/'
             original_save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename_base)
             file.save(original_save_path)
@@ -1020,7 +1036,7 @@ def add_defect_attachment(defect_id):
             db_file_path = os.path.join('images', unique_filename_base) # Path for DB (relative to static)
 
             # Create thumbnail in 'static/images/thumbnails/'
-            thumbnail_dir = ensure_thumbnail_directory()
+            thumbnail_dir = ensure_thumbnail_directory() 
             thumbnail_filename_base = f"thumb_{unique_filename_base}"
             thumbnail_save_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path to save
             create_thumbnail(original_save_path, thumbnail_save_path) # create_thumbnail saves it
@@ -1036,9 +1052,9 @@ def add_defect_attachment(defect_id):
             logger.info(f"Attachment {attachment.id} added to defect {defect.id} by user {current_user.id}")
             # The JS expects to reload, but sending back details is good practice
             return jsonify({
-                'success': True,
+                'success': True, 
                 'message': 'Attachment added successfully.',
-                'attachment': {
+                'attachment': { 
                     'id': attachment.id,
                     'file_path_url': url_for('static', filename=attachment.file_path),
                     'thumbnail_path_url': url_for('static', filename=attachment.thumbnail_path)
@@ -1060,15 +1076,15 @@ def delete_defect_attachment_json(defect_id):
         return jsonify({'success': False, 'error': 'Defect not found.'}), 404
 
     access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
-    if not access or access.role not in ['admin', 'expert']:
+    if not access or access.role not in ['admin', 'expert']: 
         return jsonify({'success': False, 'error': 'Permission denied to delete attachments for this defect.'}), 403
 
     attachment_id = request.form.get('attachment_id')
     if not attachment_id:
         return jsonify({'success': False, 'error': 'Attachment ID missing.'}), 400
-
+    
     # Ensure attachment belongs to the specific defect by querying with defect_id
-    attachment = Attachment.query.filter_by(id=attachment_id, defect_id=defect.id).first()
+    attachment = Attachment.query.filter_by(id=attachment_id, defect_id=defect.id).first() 
     if not attachment:
         return jsonify({'success': False, 'error': 'Attachment not found or does not belong to this defect.'}), 404
 
@@ -1082,7 +1098,7 @@ def delete_defect_attachment_json(defect_id):
                 logger.info(f"Deleted file: {full_file_path}")
             else:
                 logger.warning(f"Attachment file not found for deletion: {full_file_path} (DB path: {attachment.file_path})")
-
+        
         if attachment.thumbnail_path:
             full_thumbnail_path = os.path.join(app.static_folder, attachment.thumbnail_path)
             if os.path.exists(full_thumbnail_path):
@@ -1165,7 +1181,7 @@ def checklist_detail(checklist_id):
                         # Path for storing in DB (relative to static folder)
                         db_file_path = os.path.join('images', filename)
                         disk_save_full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
+                        
                         thumbnail_dir = ensure_thumbnail_directory()
                         thumbnail_filename_base = f'thumb_{filename}'
                         thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
@@ -1173,7 +1189,7 @@ def checklist_detail(checklist_id):
 
                         try:
                             logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
-                            img = PILImage.open(file)
+                            img = PILImage.open(file) 
                             img = ImageOps.exif_transpose(img)
                             img = img.convert('RGB')
 
@@ -1189,8 +1205,8 @@ def checklist_detail(checklist_id):
                             logger.info(f"Creating attachment record with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
                             attachment = Attachment(
                                 checklist_item_id=item.id,
-                                file_path=db_file_path,
-                                thumbnail_path=db_thumbnail_path
+                                file_path=db_file_path, 
+                                thumbnail_path=db_thumbnail_path 
                             )
                             db.session.add(attachment)
                             db.session.commit() # Commit for this specific attachment
@@ -1277,6 +1293,236 @@ def delete_checklist_attachment(checklist_id, attachment_id):
         db.session.rollback()
         flash(f'Error deleting attachment: {str(e)}', 'error')
     return redirect(url_for('checklist_detail', checklist_id=checklist_id))
+
+@app.route('/defect/<int:defect_id>/update_description', methods=['POST'])
+@login_required
+def update_defect_description(defect_id):
+    defect = Defect.query.get_or_404(defect_id)
+    
+    # Permission check: Creator, Admin, or Expert
+    # Ensure current_user is available and has role attribute
+    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
+        return jsonify(success=False, error="Permission denied."), 403
+
+    data = request.get_json()
+    if not data or 'description' not in data:
+        return jsonify(success=False, error="Missing description data."), 400
+    
+    new_description = data['description'].strip()
+    if not new_description:
+        return jsonify(success=False, error="Description cannot be empty."), 400
+
+    # Assuming a reasonable max length for description, e.g., 1000 characters
+    # This should match any frontend validation or database constraints if they exist
+    MAX_DESC_LENGTH = 1000 
+    if len(new_description) > MAX_DESC_LENGTH:
+        return jsonify(success=False, error=f"Description is too long (max {MAX_DESC_LENGTH} characters)."), 400
+
+    defect.description = new_description
+    try:
+        db.session.commit()
+        app.logger.info(f"Defect {defect_id} description updated by user {current_user.id}")
+        return jsonify(success=True, message="Description updated successfully.", new_description=defect.description)
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating defect description for defect {defect_id}: {e}", exc_info=True)
+        return jsonify(success=False, error="Failed to update description due to a server error."), 500
+
+@app.route('/defect/<int:defect_id>/update_status', methods=['POST'])
+@login_required
+def update_defect_status(defect_id):
+    defect = Defect.query.get_or_404(defect_id)
+    
+    # Permission check: Creator, Admin, or Expert
+    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
+        return jsonify(success=False, error="Permission denied."), 403
+
+    data = request.get_json()
+    if not data or 'status' not in data:
+        return jsonify(success=False, error="Missing status data."), 400
+    
+    new_status = data['status']
+    # Validate if new_status is one of the allowed statuses
+    allowed_statuses = ['Open', 'Closed'] # Assuming these are the only valid string representations from the dropdown
+    if new_status not in allowed_statuses:
+        return jsonify(success=False, error=f"Invalid status value: {new_status}."), 400
+
+    defect.status = new_status.lower() # Store status as lowercase in DB as per existing patterns
+    if defect.status == 'closed':
+        if not defect.close_date: # Only set if not already closed to preserve original close date
+            defect.close_date = datetime.utcnow()
+    elif defect.status == 'open':
+        defect.close_date = None # Clear close_date if reopened
+
+    try:
+        db.session.commit()
+        app.logger.info(f"Defect {defect_id} status updated to {defect.status} by user {current_user.id}")
+        # The function `update_checklist_item_status_from_defect` was hypothetical.
+        # If such logic is needed, it should be implemented based on actual requirements.
+        # For now, we focus on updating the defect's status.
+        return jsonify(success=True, message="Status updated successfully.", new_status=defect.status.capitalize())
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating defect status for defect {defect_id}: {e}", exc_info=True)
+        return jsonify(success=False, error="Failed to update status due to a server error."), 500
+
+@app.route('/defect/<int:defect_id>/update_location', methods=['POST'])
+@login_required
+def update_defect_location(defect_id):
+    defect = Defect.query.get_or_404(defect_id)
+    # project = Project.query.get_or_404(defect.project_id) # Project query not strictly needed if drawing check is done correctly
+
+    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
+        return jsonify(success=False, error="Permission denied."), 403
+
+    data = request.get_json()
+    drawing_id_str = data.get('drawing_id')
+    marker_x_str = data.get('x')
+    marker_y_str = data.get('y')
+    page_num_str = data.get('page_num', '1') # Default to page 1 if not provided
+
+    # Try to find existing marker
+    existing_marker = DefectMarker.query.filter_by(defect_id=defect.id).first()
+
+    if not drawing_id_str or drawing_id_str == "None" or drawing_id_str == "": # Request to remove marker
+        if existing_marker:
+            db.session.delete(existing_marker)
+            defect.location = None # Clear simple location string
+            try:
+                db.session.commit()
+                app.logger.info(f"Marker removed for defect {defect_id} by user {current_user.id}")
+                return jsonify(success=True, message="Marker removed successfully.", marker_removed=True)
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error removing marker for defect {defect_id}: {e}", exc_info=True)
+                return jsonify(success=False, error="Server error removing marker."), 500
+        else:
+            # No marker existed, and none is being set. Consider this a success.
+            return jsonify(success=True, message="No marker to remove and no new marker specified.", marker_removed=False)
+
+    # Validate drawing_id
+    try:
+        drawing_id = int(drawing_id_str)
+        # Ensure the drawing belongs to the same project as the defect
+        drawing = Drawing.query.filter_by(id=drawing_id, project_id=defect.project_id).first()
+        if not drawing:
+            return jsonify(success=False, error="Selected drawing not found or does not belong to this project."), 400
+    except ValueError:
+        return jsonify(success=False, error="Invalid drawing ID format."), 400
+        
+    # Validate coordinates and page number
+    try:
+        marker_x = float(marker_x_str)
+        marker_y = float(marker_y_str)
+        page_num = int(page_num_str)
+        if not (0 <= marker_x <= 1 and 0 <= marker_y <= 1 and page_num > 0):
+            # Consider checking against actual page count of PDF if possible, though complex here.
+            raise ValueError("Marker coordinates or page number out of bounds.")
+    except (ValueError, TypeError, AttributeError): # AttributeError for None.get on potentially missing x/y/page_num
+        return jsonify(success=False, error="Invalid marker coordinates or page number."), 400
+
+    updated_marker_data = None
+    if existing_marker:
+        existing_marker.drawing_id = drawing_id
+        existing_marker.x = marker_x
+        existing_marker.y = marker_y
+        existing_marker.page_num = page_num
+        db.session.flush() # Flush to ensure to_dict() gets updated data if it relies on DB state
+        updated_marker_data = existing_marker.to_dict()
+        app.logger.info(f"Marker updated for defect {defect_id} by user {current_user.id}")
+    else:
+        new_marker = DefectMarker(
+            defect_id=defect.id,
+            drawing_id=drawing_id,
+            x=marker_x,
+            y=marker_y,
+            page_num=page_num
+        )
+        db.session.add(new_marker)
+        db.session.flush() # Flush to get ID and allow to_dict()
+        updated_marker_data = new_marker.to_dict()
+        app.logger.info(f"New marker created for defect {defect_id} by user {current_user.id}")
+    
+    # Update simple defect.location string for display consistency
+    defect.location = f"Drawing: {drawing.name}, Page: {page_num}, X: {marker_x:.3f}, Y: {marker_y:.3f}"
+
+    try:
+        db.session.commit()
+        return jsonify(success=True, message="Location updated successfully.", marker=updated_marker_data, location_string=defect.location)
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating defect location for defect {defect_id}: {e}", exc_info=True)
+        return jsonify(success=False, error="Server error updating location."), 500
+
+@app.route('/comment/<int:comment_id>/edit', methods=['POST'])
+@login_required
+def edit_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    # Permission: Comment author or admin
+    if not (current_user.id == comment.user_id or (hasattr(current_user, 'role') and current_user.role == 'admin')):
+        return jsonify(success=False, error="Permission denied."), 403
+
+    data = request.get_json()
+    if not data: # Ensure data is not None
+        return jsonify(success=False, error="Invalid request. No JSON data received."), 400
+        
+    new_content = data.get('content', '').strip()
+    if not new_content:
+        return jsonify(success=False, error="Comment content cannot be empty."), 400
+    
+    comment.content = new_content
+    comment.edited = True
+    comment.updated_at = datetime.utcnow() # Explicitly set, though onupdate might also handle it.
+    try:
+        db.session.commit()
+        app.logger.info(f"Comment {comment_id} edited by user {current_user.id}")
+        return jsonify(success=True, message="Comment updated.", new_content=comment.content, edited_at=comment.updated_at.strftime('%Y-%m-%d %H:%M'))
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error editing comment {comment_id}: {e}", exc_info=True)
+        return jsonify(success=False, error="Server error updating comment."), 500
+
+@app.route('/comment/<int:comment_id>/delete', methods=['POST'])
+@login_required
+def delete_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    # Permission: Comment author or admin
+    if not (current_user.id == comment.user_id or (hasattr(current_user, 'role') and current_user.role == 'admin')):
+        return jsonify(success=False, error="Permission denied."), 403
+
+    # Handle comment attachments: Delete files and Attachment records
+    comment_attachments = Attachment.query.filter_by(comment_id=comment.id).all()
+    for att in comment_attachments:
+        try:
+            if att.file_path: # Path like 'images/filename.jpg' or 'images/thumbnails/thumb_filename.jpg'
+                full_path = os.path.join(app.static_folder, att.file_path)
+                if os.path.exists(full_path):
+                    os.remove(full_path)
+                    app.logger.info(f"Deleted attachment file: {full_path}")
+                else:
+                    app.logger.warning(f"Attachment file not found for deletion: {full_path}")
+            
+            if att.thumbnail_path: # Path like 'images/thumbnails/thumb_filename.jpg'
+                thumb_full_path = os.path.join(app.static_folder, att.thumbnail_path)
+                if os.path.exists(thumb_full_path):
+                    os.remove(thumb_full_path)
+                    app.logger.info(f"Deleted attachment thumbnail: {thumb_full_path}")
+                else:
+                    app.logger.warning(f"Attachment thumbnail not found for deletion: {thumb_full_path}")
+        except Exception as e:
+            app.logger.error(f"Error deleting file for attachment {att.id} during comment {comment_id} deletion: {e}", exc_info=True)
+            # Continue to delete other files and the DB record even if one file fails
+        db.session.delete(att)
+    
+    db.session.delete(comment)
+    try:
+        db.session.commit()
+        app.logger.info(f"Comment {comment_id} and its attachments deleted by user {current_user.id}")
+        return jsonify(success=True, message="Comment and its attachments deleted.")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting comment {comment_id} from DB: {e}", exc_info=True)
+        return jsonify(success=False, error="Server error deleting comment."), 500
 
 @app.route('/delete_image/<int:attachment_id>', methods=['DELETE'])
 @login_required
@@ -1901,15 +2147,15 @@ def setup_test_data():
             thumb_corrupt_image_disk_path = os.path.join(ensure_thumbnail_directory(), thumb_corrupt_image_filename)
 
             if not os.path.exists(corrupt_image_path):
-                with open(corrupt_image_path, 'w') as f: f.write("dummy corrupt data")
-
+                with open(corrupt_image_path, 'w') as f: f.write("dummy corrupt data") 
+            
             att_d6 = Attachment(defect_id=d6.id, file_path=os.path.join('images', corrupt_image_filename), thumbnail_path=thumb_corrupt_image_path_for_db)
             db.session.add(att_d6)
             try:
                 create_thumbnail(corrupt_image_path, thumb_corrupt_image_disk_path)
             except Exception as e:
                 logger.warning(f"Could not create thumbnail for {corrupt_image_filename} during test setup: {e}")
-
+            
             # D7
             d7 = Defect(project_id=project.id, description="Open defect with a marked non-PDF file (fake_drawing.pdf).", status='open', creator_id=admin_user.id, creation_date=datetime.now())
             db.session.add(d7)
