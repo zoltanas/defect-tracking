@@ -25,6 +25,12 @@ class TestDefectMarkerManagement(unittest.TestCase): # Will add Attachment tests
         # os.makedirs(self.app.config['UPLOAD_FOLDER'], exist_ok=True)
         # os.makedirs(os.path.join(self.app.config['UPLOAD_FOLDER'], 'thumbnails'), exist_ok=True)
 
+        # Configure SERVER_NAME for url_for to work in tests without an active request
+        self.app.config['SERVER_NAME'] = 'localhost.test'
+        self.app.config['APPLICATION_ROOT'] = '/'
+        self.app.config['PREFERRED_URL_SCHEME'] = 'http'
+        self.app.config['WTF_CSRF_ENABLED'] = False # Ensure CSRF is disabled for tests
+
         self.client = self.app.test_client()
         self.app_context = self.app.app_context()
         self.app_context.push()
@@ -472,6 +478,39 @@ class TestDefectMarkerManagement(unittest.TestCase): # Will add Attachment tests
 
         # Ensure attachment still exists and is linked to defect1
         self.assertIsNotNone(Attachment.query.get(attachment_defect1.id))
+
+    def test_add_defect_with_marker_and_page_num(self):
+        self.login_user(username='test_admin')
+        defect_description = "Defect with marker and default page_num"
+        marker_x_val = 0.75
+        marker_y_val = 0.25
+
+        response = self.client.post(url_for('add_defect', project_id=self.project_id), data={
+            'description': defect_description,
+            'drawing_id': str(self.drawing_id),
+            'marker_x': str(marker_x_val),
+            'marker_y': str(marker_y_val)
+            # page_num is intentionally not provided to test default
+        }, follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200) # add_defect redirects to defect_detail
+        self.assertIn(b'Defect created successfully!', response.data)
+
+        # Query the database for the new defect
+        defect = Defect.query.filter_by(description=defect_description).first()
+        self.assertIsNotNone(defect)
+        self.assertEqual(defect.project_id, self.project_id)
+
+        # Query for the marker
+        marker = DefectMarker.query.filter_by(defect_id=defect.id).first()
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker.drawing_id, self.drawing_id)
+        self.assertAlmostEqual(marker.x, marker_x_val)
+        self.assertAlmostEqual(marker.y, marker_y_val)
+
+        # Crucial check for page_num
+        self.assertIsNotNone(marker.page_num, "page_num should not be None")
+        self.assertEqual(marker.page_num, 1, "Default page_num should be 1")
 
 
 if __name__ == '__main__':
