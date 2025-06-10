@@ -244,8 +244,26 @@ def init_db():
                 logger.info("Creating missing database tables...")
                 db.create_all()
                 logger.info("Database tables created successfully.")
+
+                # Check for page_num column in defect_markers table
+                with db.engine.connect() as connection:
+                    try:
+                        logger.info("Checking for 'page_num' column in 'defect_markers' table...")
+                        result = connection.execute(db.text("PRAGMA table_info(defect_markers);"))
+                        columns = [row[1] for row in result]
+                        if 'page_num' not in columns:
+                            logger.info("'page_num' column not found in 'defect_markers'. Adding column...")
+                            connection.execute(db.text("ALTER TABLE defect_markers ADD COLUMN page_num INTEGER NOT NULL DEFAULT 1;"))
+                            connection.commit()
+                            logger.info("'page_num' column added to 'defect_markers' table successfully.")
+                        else:
+                            logger.info("'page_num' column already exists in 'defect_markers' table.")
+                    except Exception as e:
+                        logger.error(f"Error checking or adding 'page_num' column: {str(e)}")
+                        # Depending on the desired behavior, you might want to rollback or raise
+                        # For now, just log the error and let the broader exception handler catch it if it's critical
             except Exception as e:
-                logger.error(f"Error creating database tables: {str(e)}")
+                logger.error(f"Error during database initialization: {str(e)}")
                 raise
 
 # Initialize database
