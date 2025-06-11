@@ -1277,7 +1277,7 @@ def add_checklist(project_id):
             db.session.add(checklist_item)
         db.session.commit()
         flash('Checklist added successfully!', 'success')
-        return redirect(url_for('project_detail', project_id=project_id))
+        return redirect(url_for('project_detail', project_id=project_id, _anchor='checklists'))
     return render_template('add_checklist.html', project=project, templates=templates)
 
 @app.route('/checklist/<int:checklist_id>', methods=['GET', 'POST'])
@@ -1391,7 +1391,7 @@ def delete_checklist(checklist_id):
     db.session.delete(checklist)
     db.session.commit()
     flash('Checklist deleted successfully!', 'success')
-    return redirect(url_for('project_detail', project_id=project_id))
+    return redirect(url_for('project_detail', project_id=project_id, _anchor='checklists'))
 
 @app.route('/checklist/<int:checklist_id>/delete_attachment/<int:attachment_id>', methods=['POST'])
 @login_required
