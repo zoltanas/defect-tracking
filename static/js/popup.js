@@ -88,3 +88,125 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// PDF Popup Functionality
+let pdfDoc = null,
+    pageNum = 1,
+    pageRendering = false,
+    pageNumPending = null,
+    currentScale = 1.0, // Initial scale
+    pdfCanvasGlobal = null, // Renamed to avoid conflict if 'pdfCanvas' is too generic
+    pdfCtxGlobal = null; // Renamed
+
+function openPdfPopup(pdfUrl) {
+    const modal = document.getElementById('pdfViewerModal');
+    pdfCanvasGlobal = document.getElementById('pdfCanvas'); // Ensure this ID matches your modal's canvas
+
+    if (!modal || !pdfCanvasGlobal) {
+        console.error('PDF Modal or Canvas element not found!');
+        return;
+    }
+
+    // Reset state for new PDF
+    pdfDoc = null;
+    pageNum = 1;
+    pageRendering = false;
+    pageNumPending = null;
+    currentScale = 1.0; // Reset to initial scale
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex'); // Assuming flex is used for visibility
+
+    document.getElementById('closePdfModalButton').onclick = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        if (pdfDoc) { // Clean up PDF.js resources if any
+            pdfDoc.destroy();
+            pdfDoc = null;
+        }
+    };
+
+    // Ensure PDF.js worker is configured (it should be set in the HTML template)
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        console.error("PDF.js workerSrc is not set. Please set pdfjsLib.GlobalWorkerOptions.workerSrc.");
+        // Potentially set it here if a global variable for the path is available, e.g.
+        // pdfjsLib.GlobalWorkerOptions.workerSrc = window.pdfWorkerSrc; // if window.pdfWorkerSrc is set in template
+    }
+
+    pdfjsLib.getDocument(pdfUrl).promise.then(doc => {
+        pdfDoc = doc;
+        document.getElementById('pdfPageCount').textContent = pdfDoc.numPages;
+        renderPdfPage(pageNum, currentScale);
+    }).catch(error => {
+        console.error('Error loading PDF:', error);
+        alert('Error loading PDF: ' + error.message);
+        modal.classList.add('hidden'); // Hide modal on error
+        modal.classList.remove('flex');
+    });
+
+    document.getElementById('pdfPrevPage').onclick = onPrevPage;
+    document.getElementById('pdfNextPage').onclick = onNextPage;
+    document.getElementById('pdfZoomIn').onclick = onZoomIn;
+    document.getElementById('pdfZoomOut').onclick = onZoomOut;
+}
+
+function renderPdfPage(num, scale) {
+    if (!pdfDoc) {
+        return; // PDF not loaded yet
+    }
+    pageRendering = true;
+    pdfDoc.getPage(num).then(page => {
+        const viewport = page.getViewport({ scale: scale });
+        pdfCanvasGlobal.height = viewport.height;
+        pdfCanvasGlobal.width = viewport.width;
+        pdfCtxGlobal = pdfCanvasGlobal.getContext('2d');
+
+        const renderContext = {
+            canvasContext: pdfCtxGlobal,
+            viewport: viewport
+        };
+        const renderTask = page.render(renderContext);
+        renderTask.promise.then(() => {
+            pageRendering = false;
+            if (pageNumPending !== null) {
+                renderPdfPage(pageNumPending, currentScale); // Use currentScale for pending page
+                pageNumPending = null;
+            }
+        }).catch(error => {
+            console.error('Error rendering page:', error);
+            pageRendering = false; // Reset flag on error
+        });
+    });
+    document.getElementById('pdfPageNum').textContent = num;
+}
+
+function queueRenderPage(num) {
+    if (pageRendering) {
+        pageNumPending = num;
+    } else {
+        renderPdfPage(num, currentScale);
+    }
+}
+
+function onPrevPage() {
+    if (pageNum <= 1) return;
+    pageNum--;
+    queueRenderPage(pageNum);
+}
+
+function onNextPage() {
+    if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
+    pageNum++;
+    queueRenderPage(pageNum);
+}
+
+function onZoomIn() {
+    currentScale += 0.2;
+    renderPdfPage(pageNum, currentScale);
+}
+
+function onZoomOut() {
+    if (currentScale <= 0.2) return; // Min scale
+    currentScale -= 0.2;
+    renderPdfPage(pageNum, currentScale);
+}
