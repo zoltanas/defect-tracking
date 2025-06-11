@@ -1423,8 +1423,8 @@ def add_checklist(project_id):
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
     access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-    if not access or access.role != 'admin':
-        flash('Only admins can add checklists.', 'error')
+    if not access or access.role not in ['admin', 'Technical supervisor']:
+        flash('Only admins or technical supervisors can add checklists.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
     templates = Template.query.all()
     if request.method == 'POST':
@@ -1684,8 +1684,8 @@ def delete_checklist_route(checklist_id): # Renamed to be distinct
         flash('Checklist not found.', 'error')
         return redirect(url_for('index'))
 
-    # Authorization: Only admins can delete checklists
-    if current_user.role != 'admin':
+    # Authorization: Only admins or technical supervisors can delete checklists
+    if current_user.role not in ['admin', 'Technical supervisor']:
         flash('You are not authorized to delete this checklist.', 'error')
         return redirect(url_for('checklist_detail', checklist_id=checklist.id))
 
@@ -2086,8 +2086,8 @@ def delete_image_route(attachment_id):
 @app.route('/templates')
 @login_required
 def template_list():
-    if current_user.role != 'admin':
-        flash('Only admins can manage templates.', 'error')
+    if current_user.role not in ['admin', 'Technical supervisor']:
+        flash('Only admins or technical supervisors can manage templates.', 'error')
         return redirect(url_for('index'))
     templates = Template.query.all()
     return render_template('template_list.html', templates=templates)
@@ -2095,8 +2095,8 @@ def template_list():
 @app.route('/add_template', methods=['GET', 'POST'])
 @login_required
 def add_template():
-    if current_user.role != 'admin':
-        flash('Only admins can add templates.', 'error')
+    if current_user.role not in ['admin', 'Technical supervisor']:
+        flash('Only admins or technical supervisors can add templates.', 'error')
         return redirect(url_for('index'))
     if request.method == 'POST':
         name = request.form['name']
@@ -2121,8 +2121,8 @@ def add_template():
 @app.route('/template/<int:template_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_template(template_id):
-    if current_user.role != 'admin':
-        flash('Only admins can edit templates.', 'error')
+    if current_user.role not in ['admin', 'Technical supervisor']:
+        flash('Only admins or technical supervisors can edit templates.', 'error')
         return redirect(url_for('index'))
     template = db.session.get(Template, template_id)
     if not template:
@@ -2149,8 +2149,8 @@ def edit_template(template_id):
 @app.route('/template/<int:template_id>/delete', methods=['POST'])
 @login_required
 def delete_template(template_id):
-    if current_user.role != 'admin':
-        flash('Only admins can delete templates.', 'error')
+    if current_user.role not in ['admin', 'Technical supervisor']:
+        flash('Only admins or technical supervisors can delete templates.', 'error')
         return redirect(url_for('index'))
     template = db.session.get(Template, template_id)
     if not template:

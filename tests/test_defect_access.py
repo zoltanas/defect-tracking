@@ -1,7 +1,7 @@
 import os
 import tempfile
 import pytest
-from app import app, db, User, Project, Defect, ProjectAccess, bcrypt
+from app import app, db, User, Project, Defect, ProjectAccess, bcrypt, Template, TemplateItem, Checklist
 from flask_login import login_user, logout_user, current_user
 from datetime import datetime
 from unittest.mock import patch, MagicMock
@@ -455,4 +455,178 @@ def test_invite_page_renders_technical_supervisor_option(test_client):
     assert '<option value="expert">Expert</option>' in response_data
     assert '<option value="contractor">Contractor</option>' in response_data
 
+    logout(test_client)
+
+
+# --- Technical Supervisor: Defect Button Visibility ---
+def test_tech_supervisor_sees_add_defect_button_on_project_page(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.get(f'/project/{project1.id}')
+    assert response.status_code == 200
+    response_data = response.get_data(as_text=True)
+    assert f'href="/project/{project1.id}/add_defect"' in response_data
+    assert "Add Defect" in response_data
+    logout(test_client)
+
+# --- Technical Supervisor: Checklist Management ---
+def test_tech_supervisor_sees_add_checklist_button_on_project_page(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.get(f'/project/{project1.id}') # Ensure this page now shows the button for tech_supervisor
+    assert response.status_code == 200
+    response_data = response.get_data(as_text=True)
+    # The button might be hidden/shown by JS based on tab, so ensure the HTML for it exists
+    assert f'href="{{ url_for(\'add_checklist\', project_id={project1.id}) }}"' in response_data or \
+           f'href="/project/{project1.id}/add_checklist"' in response_data
+    assert "Add Checklist" in response_data # Check for button text
+    logout(test_client)
+
+def test_tech_supervisor_can_access_add_checklist_page(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.get(f'/project/{project1.id}/add_checklist')
+    assert response.status_code == 200
+    assert b"Add Checklist to " + project1.name.encode() in response.data # Check for page title or header
+    logout(test_client)
+
+def test_tech_supervisor_can_add_checklist(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    # Ensure a template exists
+    template = Template.query.first()
+    if not template:
+        template = Template(name="Test Template for Checklist")
+        db.session.add(template)
+        db.session.commit()
+
+    login(test_client, 'tech_supervisor', 'password')
+    checklist_name = "Tech Supervisor Checklist"
+    response = test_client.post(f'/project/{project1.id}/add_checklist', data=dict(
+        name=checklist_name,
+        template_id=template.id
+    ), follow_redirects=True)
+    assert response.status_code == 200
+    assert "Checklist added successfully!" in response.get_data(as_text=True)
+
+    new_checklist = Checklist.query.filter_by(name=checklist_name, project_id=project1.id).first()
+    assert new_checklist is not None
+    logout(test_client)
+
+def test_tech_supervisor_can_delete_checklist(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    tech_supervisor_user = User.query.filter_by(username='tech_supervisor').first()
+    template = Template.query.first() # Assume one exists from previous test or fixture
+    if not template:
+        template = Template(name="Default Template for Deletion Test")
+        db.session.add(template)
+        db.session.commit()
+
+    checklist_to_delete = Checklist(name="Checklist to be deleted by TS", project_id=project1.id, template_id=template.id)
+    db.session.add(checklist_to_delete)
+    db.session.commit()
+    checklist_id = checklist_to_delete.id
+
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.post(f'/checklist/{checklist_id}/delete', follow_redirects=True)
+    assert response.status_code == 200
+    assert "Checklist and all associated data deleted successfully!" in response.get_data(as_text=True)
+
+    deleted_checklist = Checklist.query.get(checklist_id)
+    assert deleted_checklist is None
+    logout(test_client)
+
+# --- Technical Supervisor: Template Management ---
+def test_tech_supervisor_sees_manage_templates_button_on_project_page(test_client):
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.get(f'/project/{project1.id}')
+    assert response.status_code == 200
+    response_data = response.get_data(as_text=True)
+    assert 'href="/templates"' in response_data or "href=\"{{ url_for('template_list') }}\"" in response_data
+    assert "Manage Templates" in response_data
+    logout(test_client)
+
+def test_tech_supervisor_can_access_template_pages(test_client):
+    login(test_client, 'tech_supervisor', 'password')
+
+    response_list = test_client.get('/templates')
+    assert response_list.status_code == 200
+    assert b"Checklist Templates" in response_list.data
+
+    response_add_get = test_client.get('/add_template')
+    assert response_add_get.status_code == 200
+    assert b"Add New Checklist Template" in response_add_get.data
+
+    # Create a dummy template for editing
+    template = Template(name="TS Dummy Template for Edit Page Access")
+    db.session.add(template)
+    db.session.commit()
+    response_edit_get = test_client.get(f'/template/{template.id}/edit')
+    assert response_edit_get.status_code == 200
+    assert b"Edit Checklist Template" in response_edit_get.data
+    assert template.name.encode() in response_edit_get.data
+
+    db.session.delete(template) # Clean up
+    db.session.commit()
+    logout(test_client)
+
+def test_tech_supervisor_can_add_template(test_client):
+    login(test_client, 'tech_supervisor', 'password')
+    template_name = "TS Added Template"
+    template_items = "Item 1,Item 2, Item 3"
+    response = test_client.post('/add_template', data=dict(
+        name=template_name,
+        items=template_items
+    ), follow_redirects=True)
+    assert response.status_code == 200
+    assert "Template added successfully!" in response.get_data(as_text=True)
+
+    new_template = Template.query.filter_by(name=template_name).first()
+    assert new_template is not None
+    assert len(new_template.items) == 3
+    assert new_template.items[0].item_text == "Item 1"
+    logout(test_client)
+
+def test_tech_supervisor_can_edit_template(test_client):
+    # Create a template first
+    template_to_edit = Template(name="TS Original Template Name", items=[
+        TemplateItem(item_text="Original Item 1"),
+        TemplateItem(item_text="Original Item 2")
+    ])
+    db.session.add(template_to_edit)
+    db.session.commit()
+    template_id = template_to_edit.id
+
+    login(test_client, 'tech_supervisor', 'password')
+
+    edited_name = "TS Edited Template Name"
+    edited_items = "Edited Item A,Edited Item B"
+    response = test_client.post(f'/template/{template_id}/edit', data=dict(
+        name=edited_name,
+        items=edited_items
+    ), follow_redirects=True)
+    assert response.status_code == 200
+    assert "Template updated successfully!" in response.get_data(as_text=True)
+
+    edited_template = Template.query.get(template_id)
+    assert edited_template is not None
+    assert edited_template.name == edited_name
+    assert len(edited_template.items) == 2
+    assert edited_template.items[0].item_text == "Edited Item A"
+    logout(test_client)
+
+def test_tech_supervisor_can_delete_template(test_client):
+    # Create a template to delete
+    template_to_delete = Template(name="TS Template To Delete")
+    db.session.add(template_to_delete)
+    db.session.commit()
+    template_id = template_to_delete.id
+
+    login(test_client, 'tech_supervisor', 'password')
+    response = test_client.post(f'/template/{template_id}/delete', follow_redirects=True)
+    assert response.status_code == 200
+    assert "Template deleted successfully!" in response.get_data(as_text=True)
+
+    deleted_template = Template.query.get(template_id)
+    assert deleted_template is None
     logout(test_client)
