@@ -1048,6 +1048,10 @@ def defect_detail(defect_id):
         # Log the final marker_data dictionary
         app.logger.info(f"Final marker_data for template: {marker_data}")
 
+        # ADD THE NEW LOGGING HERE:
+        if current_user.role == 'contractor' and marker_data:
+            app.logger.info(f"CONTRACTOR USER ({current_user.id}) - Defect {defect_id} - Marker data being passed to template: {marker_data}")
+
         # logger.info already exists below, so we use app.logger.info for consistency or app.logger.debug
         app.logger.info(f"Rendering defect_detail for defect {defect_id} (GET request or after POST error without redirect)") # Changed from logger.info to app.logger.info
         return render_template(
