@@ -1,5 +1,6 @@
 // Function to open the image popup
 function openImagePopup(imageSrc, attachmentId, editUrlBase) {
+    console.log('Opening image popup with imageSrc:', imageSrc);
     const imagePopupModal = document.getElementById('imagePopupModal');
     const popupImage = document.getElementById('popupImage');
     const editImageButton = document.getElementById('editImageButton');

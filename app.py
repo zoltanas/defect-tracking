@@ -1301,16 +1301,28 @@ def checklist_detail(checklist_id):
     items = ChecklistItem.query.filter_by(checklist_id=checklist_id).all()
     if request.method == 'POST':
         logger.debug(f'Received POST for checklist {checklist_id}')
+        logger.debug(f"Request.files content at start of POST: {request.files}") # New log
         try:
             for item in items:
                 checked_key = f'item_{item.id}_checked'
                 comments_key = f'item_{item.id}_comments'
+                # New logs for item and key
+                logger.debug(f"Processing item {item.id}. Attempting to get files with key: item_{item.id}_photos")
                 photos_key = f'item_{item.id}_photos'
+                files = request.files.getlist(photos_key)
+                logger.debug(f"Files found for key '{photos_key}': {files}") # New log
                 item.is_checked = checked_key in request.form
                 item.comments = request.form.get(comments_key, '').strip()
-                files = request.files.getlist(photos_key)
                 attachment_ids = []
                 for file in files:
+                    # New logging statements
+                    logger.debug(f"Processing uploaded file object: {file}")
+                    if file: # Check if file object itself is not None
+                        logger.debug(f"Uploaded file.filename: {file.filename}")
+                        logger.debug(f"Result of allowed_file for '{file.filename}': {allowed_file(file.filename)}")
+                    else:
+                        logger.debug("Uploaded file object is None or falsey.")
+
                     if file and allowed_file(file.filename):
                         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                         filename = secure_filename(f'checklist_{item.id}_{timestamp}_{file.filename}')
@@ -1322,6 +1334,12 @@ def checklist_detail(checklist_id):
                         thumbnail_filename_base = f'thumb_{filename}'
                         thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
                         db_thumbnail_path = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
+
+                        # Logging paths
+                        logger.debug(f"Original image disk save full path: {disk_save_full_path}")
+                        logger.debug(f"Thumbnail image disk path: {thumbnail_disk_path}")
+                        logger.debug(f"DB file path for attachment: {db_file_path}")
+                        logger.debug(f"DB thumbnail path for attachment: {db_thumbnail_path}")
 
                         try:
                             logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
