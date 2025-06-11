@@ -273,13 +273,30 @@ def ensure_attachment_paths(subfolder_name):
     specific_upload_dir = os.path.join(app.static_folder, base_upload_dir_name, subfolder_name)
     os.makedirs(specific_upload_dir, exist_ok=True)
 
-    # For thumbnails, create a 'thumbnails' directory inside the image-specific subfolder
+    # For thumbnails, create a 'thumbnails' directory
     thumbnail_dir = None
-    if 'img' in subfolder_name.lower(): # Assuming image subfolders contain 'img'
+    if 'img' in subfolder_name.lower(): # For images: static/uploads/attachments_img/thumbnails
         thumbnail_dir = os.path.join(specific_upload_dir, 'thumbnails')
         os.makedirs(thumbnail_dir, exist_ok=True)
+    elif subfolder_name == 'attachments_pdf': # For PDF originals: static/uploads/attachments_pdf
+        # This case is for the main PDF files, no specific thumbnail dir needed from here for originals.
+        # However, we need a way to get the PDF thumbnail directory.
+        # Let's establish a convention: if subfolder_name is 'attachments_pdf_thumbs', it's handled.
+        pass # specific_upload_dir is already correct for originals
+    elif subfolder_name == 'attachments_pdf_thumbs': # For PDF thumbnails: static/uploads/attachments_pdf_thumbs
+        # This is a new case. specific_upload_dir will be 'static/uploads/attachments_pdf_thumbs'
+        # thumbnail_dir will be this directory itself.
+        thumbnail_dir = specific_upload_dir # The specific_upload_dir is the thumbnail_dir in this case
+        # Ensure it exists (already done by os.makedirs(specific_upload_dir, exist_ok=True) above)
 
-    return specific_upload_dir, thumbnail_dir # thumbnail_dir can be None
+    # The return signature is (originals_dir, thumbnails_dir)
+    # For 'attachments_pdf', specific_upload_dir is pdf_dir, thumbnail_dir is None
+    # For 'attachments_img', specific_upload_dir is img_dir, thumbnail_dir is its 'thumbnails' subdir
+    # For 'attachments_pdf_thumbs', specific_upload_dir is the thumb dir itself, so we return it as thumbnail_dir
+    if subfolder_name == 'attachments_pdf_thumbs':
+        return specific_upload_dir, specific_upload_dir # originals_dir is not relevant, thumb_dir is the main path
+
+    return specific_upload_dir, thumbnail_dir
 
 def create_thumbnail(image_path, thumbnail_save_path, size=(300, 300)):
     try:
@@ -1096,42 +1113,37 @@ def add_defect_attachment(defect_id):
                 logger.info(f"Image attachment processed: {db_file_path}")
 
             elif mime_type == 'application/pdf':
-                pdf_dir, _ = ensure_attachment_paths('attachments_pdf') # static/uploads/attachments_pdf
-
-                pdf_save_path = os.path.join(pdf_dir, unique_filename_base)
-                file.seek(0) # Reset file pointer
-                file.save(pdf_save_path)
-                os.chmod(pdf_save_path, 0o644)
-                # DB path relative to 'static' folder
+                pdf_dir, _ = ensure_attachment_paths('attachments_pdf') # Gets static/uploads/attachments_pdf
+                absolute_pdf_path = os.path.join(pdf_dir, unique_filename_base)
+                file.seek(0)
+                file.save(absolute_pdf_path)
+                os.chmod(absolute_pdf_path, 0o644)
                 db_file_path = os.path.join('uploads', 'attachments_pdf', unique_filename_base)
-                db_thumbnail_path = None # No thumbnail for PDFs in this step
-                # Optionally, set to a generic PDF icon: db_thumbnail_path = 'images/pdf_icon.png'
 
-                # Generate thumbnail for PDF
-                full_pdf_path_on_disk = os.path.join(app.static_folder, db_file_path) # Absolute path to the saved PDF
-
-                pdf_thumb_dir_relative = os.path.join('uploads', 'attachments_pdf_thumbs')
-                pdf_thumb_dir_abs = os.path.join(app.static_folder, pdf_thumb_dir_relative)
-                os.makedirs(pdf_thumb_dir_abs, exist_ok=True)
-
-                thumb_filename_pdf = 'thumb_' + os.path.splitext(unique_filename_base)[0] + '.png'
-                full_thumb_disk_path_pdf = os.path.join(pdf_thumb_dir_abs, thumb_filename_pdf)
-
+                # PDF Thumbnail Generation
+                db_thumbnail_path = None # Default to None
                 try:
-                    logger.debug(f"Attempting to generate PDF thumbnail from: {full_pdf_path_on_disk}")
-                    images = convert_from_path(full_pdf_path_on_disk, first_page=1, last_page=1, fmt='png', size=(300, None))
+                    # Get the directory for saving PDF thumbnails
+                    # ensure_attachment_paths with 'attachments_pdf_thumbs' will create and return static/uploads/attachments_pdf_thumbs for both values
+                    pdf_thumb_save_dir, _ = ensure_attachment_paths('attachments_pdf_thumbs')
+
+                    thumb_filename = 'thumb_' + os.path.splitext(unique_filename_base)[0] + '.png'
+                    absolute_thumb_path = os.path.join(pdf_thumb_save_dir, thumb_filename)
+
+                    images = convert_from_path(absolute_pdf_path, first_page=1, last_page=1, fmt='png', size=(300, None))
                     if images:
-                        images[0].save(full_thumb_disk_path_pdf, 'PNG')
-                        db_thumbnail_path = os.path.join(pdf_thumb_dir_relative, thumb_filename_pdf)
+                        images[0].save(absolute_thumb_path, 'PNG')
+                        os.chmod(absolute_thumb_path, 0o644) # Set permissions for the thumbnail
+                        # Relative path for DB, from 'static/' directory
+                        db_thumbnail_path = os.path.join('uploads', 'attachments_pdf_thumbs', thumb_filename)
                         logger.info(f"PDF thumbnail generated: {db_thumbnail_path}")
                     else:
-                        logger.warning(f"pdf2image convert_from_path returned no images for {full_pdf_path_on_disk}")
-                        db_thumbnail_path = None # Fallback
+                        logger.warning(f"PDF thumbnail generation returned no images for {unique_filename_base}")
                 except Exception as e:
                     logger.error(f"Error generating PDF thumbnail for {unique_filename_base}: {e}", exc_info=True)
-                    db_thumbnail_path = None # Fallback
+                    # db_thumbnail_path remains None
 
-                logger.info(f"PDF attachment processed: {db_file_path}")
+                logger.info(f"PDF attachment processed. Original: {db_file_path}, Thumbnail: {db_thumbnail_path}")
             else:
                 logger.warning(f"Unsupported file type attempted: {mime_type}")
                 return jsonify({'success': False, 'error': 'Unsupported file type. Only images and PDFs are allowed.'}), 400
