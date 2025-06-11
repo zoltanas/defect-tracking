@@ -2199,16 +2199,28 @@ def generate_new_report(project_id):
         db.joinedload(Defect.markers).joinedload(DefectMarker.drawing)
     ).filter_by(project_id=project_id)
 
+    # ADD THIS CONDITION FOR EXPERT USERS
+    if current_user.role == 'expert':
+        defects_query = defects_query.filter_by(creator_id=current_user.id)
+    # END OF ADDED CONDITION
+
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
     elif filter_status == 'Closed':
         defects = defects_query.filter_by(status='closed').order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
     else: # All
-        all_defects_db = defects_query.order_by(Defect.creation_date.asc()).all()
+        # For 'All', we need to be careful. The original code fetched all and then Python-sorted.
+        # We should apply the creator_id filter at the query level first if the user is an expert.
+        # The status filtering and sorting will then apply to this subset.
+
+        # The expert filter is already applied to defects_query if applicable.
+        all_defects_db = defects_query.order_by(Defect.creation_date.asc()).all() # This now respects the expert filter
+
+        # The python sorting logic for open/closed can remain the same
         defects = sorted([d for d in all_defects_db if d.status == 'open'], key=lambda d: d.creation_date if d.creation_date else datetime.min) + \
                     sorted([d for d in all_defects_db if d.status == 'closed'],
                            key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
-    logger.info(f"Fetched {len(defects)} defects for the report.")
+    logger.info(f"Fetched {len(defects)} defects for the report for user {current_user.username} (Role: {current_user.role}).")
 
     for defect in defects:
         logger.info(f"Processing Defect ID {defect.id} ('{defect.description}') for report.")

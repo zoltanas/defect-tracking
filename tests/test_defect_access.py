@@ -4,6 +4,8 @@ import pytest
 from app import app, db, User, Project, Defect, ProjectAccess, bcrypt
 from flask_login import login_user, logout_user, current_user
 from datetime import datetime
+from unittest.mock import patch, MagicMock
+
 
 @pytest.fixture(scope='module')
 def test_client():
@@ -186,3 +188,64 @@ def test_admin_can_view_and_edit_all_defects(test_client):
 # It might be good to add a test for a contractor user to ensure they are not affected by these changes
 # (i.e., their access remains unchanged, assuming they have different rules or no defect creation/editing rights).
 # For now, focusing on admin/expert roles as per the issue.
+
+# Test Scenario: Expert user generates a report, should only contain their defects.
+@patch('app.render_template') # Mock render_template
+def test_expert_report_contains_only_own_defects(mock_render_template, test_client):
+    expert1_user = User.query.filter_by(username='test_expert1').first()
+    admin_user = User.query.filter_by(username='test_admin').first()
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+
+    defect_by_expert1 = Defect.query.filter_by(creator_id=expert1_user.id, project_id=project1.id).first()
+    defect_by_admin = Defect.query.filter_by(creator_id=admin_user.id, project_id=project1.id).first()
+
+    # Mock the return value of render_template to prevent actual PDF generation
+    # and to allow inspection of arguments passed to it.
+    mock_render_template.return_value = "mocked PDF content"
+
+    login(test_client, 'test_expert1', 'password')
+    response = test_client.get(f'/project/{project1.id}/new_report')
+
+    assert response.status_code == 200 # Report generation should be successful
+
+    # Check the arguments passed to render_template
+    assert mock_render_template.called
+    args, kwargs = mock_render_template.call_args
+    assert kwargs['project'].id == project1.id
+
+    reported_defects = kwargs['defects']
+    reported_defect_ids = [d.id for d in reported_defects]
+
+    assert defect_by_expert1.id in reported_defect_ids
+    assert defect_by_admin.id not in reported_defect_ids
+
+    logout(test_client)
+
+# Test Scenario: Admin user generates a report, should contain all defects.
+@patch('app.render_template') # Mock render_template
+def test_admin_report_contains_all_defects(mock_render_template, test_client):
+    expert1_user = User.query.filter_by(username='test_expert1').first()
+    admin_user = User.query.filter_by(username='test_admin').first()
+    project1 = Project.query.filter_by(name='Test Project 1').first()
+
+    defect_by_expert1 = Defect.query.filter_by(creator_id=expert1_user.id, project_id=project1.id).first()
+    defect_by_admin = Defect.query.filter_by(creator_id=admin_user.id, project_id=project1.id).first()
+
+    mock_render_template.return_value = "mocked PDF content"
+
+    login(test_client, 'test_admin', 'password')
+    response = test_client.get(f'/project/{project1.id}/new_report')
+
+    assert response.status_code == 200
+
+    assert mock_render_template.called
+    args, kwargs = mock_render_template.call_args
+    assert kwargs['project'].id == project1.id
+
+    reported_defects = kwargs['defects']
+    reported_defect_ids = [d.id for d in reported_defects]
+
+    assert defect_by_expert1.id in reported_defect_ids
+    assert defect_by_admin.id in reported_defect_ids
+
+    logout(test_client)
