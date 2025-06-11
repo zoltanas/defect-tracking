@@ -272,6 +272,30 @@ def ensure_thumbnail_directory():
         os.chmod(thumbnail_dir, 0o755)  # Ensure correct permissions
     return thumbnail_dir
 
+@app.context_processor
+def utility_processor():
+    def get_absolute_static_path_for_template(relative_path):
+        if not relative_path:
+            return None
+        # Ensure the path is not attempting to escape the static folder.
+        # This is a basic check; more robust validation might be needed
+        # if paths were user-supplied directly in a harmful way.
+        # However, these paths are typically from DB or server-generated.
+        if ".." in relative_path:
+            logger.warning(f"Potential path traversal attempt in get_absolute_static_path: {relative_path}")
+            return None # Or raise an error, or return a placeholder
+
+        # Use os.path.normpath to canonicalize the path, which helps resolve any redundant separators or up-level references if any slip through.
+        # Then join with app.static_folder.
+        # lstrip('/') ensures that if relative_path accidentally starts with '/', it doesn't break os.path.join behavior of treating it as an absolute path.
+        absolute_path = os.path.normpath(os.path.join(app.static_folder, relative_path.lstrip('/\\')))
+
+        # Final check to ensure the path is still within the static folder - might be overkill if inputs are trusted
+        if os.path.commonprefix([absolute_path, app.static_folder]) != app.static_folder:
+            logger.warning(f"Path {absolute_path} resolved outside static folder from relative path {relative_path}")
+            return None # Or some placeholder
+        return absolute_path
+    return dict(get_absolute_static_path=get_absolute_static_path_for_template)
 
 @app.context_processor
 def inject_accessible_projects():
@@ -2124,6 +2148,13 @@ def generate_new_report(project_id):
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
 
+    # Check for POPPLER_PATH
+    poppler_path_env = os.environ.get('POPPLER_PATH')
+    if not poppler_path_env:
+        logger.warning("POPPLER_PATH environment variable is not set. PDF to image conversion for marked drawings might fail or use a system-dependent Poppler installation.")
+    else:
+        logger.info(f"Using POPPLER_PATH: {poppler_path_env}")
+
     logger.info(f"Starting new report generation for project ID: {project_id}")
     filter_status = request.args.get('filter', 'All')
     logger.info(f"Report filter status: {filter_status}")
@@ -2157,6 +2188,28 @@ def generate_new_report(project_id):
     logger.info(f"Fetched {len(defects)} defects for the report.")
 
     for defect in defects:
+        logger.info(f"Processing Defect ID {defect.id} ('{defect.description}') for report.")
+        # Log defect attachments
+        if defect.attachments:
+            logger.info(f"  Defect ID {defect.id} - Attachments:")
+            for att_idx, attachment in enumerate(defect.attachments):
+                logger.info(f"    Attachment {att_idx + 1}: file_path for template='{attachment.file_path}', thumbnail_path for template='{attachment.thumbnail_path}'")
+        else:
+            logger.info(f"  Defect ID {defect.id} - No direct attachments.")
+
+        # Log comment attachments
+        if defect.comments:
+            logger.info(f"  Defect ID {defect.id} - Comments:")
+            for comment_idx, comment in enumerate(defect.comments):
+                logger.info(f"    Comment ID {comment.id} (index {comment_idx + 1}) by User ID {comment.user_id}:")
+                if comment.attachments:
+                    for c_att_idx, c_attachment in enumerate(comment.attachments):
+                        logger.info(f"      Attachment {c_att_idx + 1}: file_path for template='{c_attachment.file_path}', thumbnail_path for template='{c_attachment.thumbnail_path}'")
+                else:
+                    logger.info(f"      No attachments for this comment.")
+        else:
+            logger.info(f"  Defect ID {defect.id} - No comments.")
+
         defect.marked_drawing_image_path = None # Ensure it's initialized
         if defect.markers and defect.markers[0].drawing and defect.markers[0].drawing.file_path.lower().endswith('.pdf'):
             marker = defect.markers[0]
@@ -2195,14 +2248,26 @@ def generate_new_report(project_id):
 
                         # Path relative to 'static' folder for url_for
                         defect.marked_drawing_image_path = os.path.join('images', 'report_temp', os.path.basename(temp_image_abs_path))
-                        logger.info(f"Successfully generated marked drawing for defect {defect.id}: {defect.marked_drawing_image_path}")
+                        # Log template path and absolute disk path for marked drawing
+                        logger.info(f"Marked drawing for Defect ID {defect.id}: Template path='{defect.marked_drawing_image_path}', Absolute disk path='{temp_image_abs_path}'")
+                        # logger.info(f"Successfully generated marked drawing for defect {defect.id}: {defect.marked_drawing_image_path}") # This is now part of the above log
                     else:
                         logger.warning(f"convert_from_path returned no images for PDF: {pdf_full_path}, defect {defect.id}")
+                        logger.info(f"Marked drawing for Defect ID {defect.id}: No marked drawing generated (convert_from_path issue). Path remains '{defect.marked_drawing_image_path}'")
                 except Exception as e:
                     logger.error(f"Error during PDF to image conversion or drawing marker for defect {defect.id}, PDF: {pdf_full_path}. Error: {e}", exc_info=True)
                     defect.marked_drawing_image_path = None # Ensure it's None if conversion failed
+                    logger.info(f"Marked drawing for Defect ID {defect.id}: No marked drawing generated (exception during conversion/drawing). Path remains '{defect.marked_drawing_image_path}'")
             else:
-                logger.warning(f"Marked drawing PDF not found at path: {pdf_full_path} for defect {defect.id}")
+                # Changed from logger.warning to logger.error as a missing PDF for an existing marker is a more significant issue.
+                logger.error(f"Marked drawing PDF not found at path: {pdf_full_path} for defect {defect.id}. This defect marker may be pointing to a deleted/moved drawing.")
+                logger.info(f"Marked drawing for Defect ID {defect.id}: No marked drawing generated (PDF not found). Path remains '{defect.marked_drawing_image_path}'")
+        else: # Handles cases where no marker, no drawing, or drawing is not PDF
+            if not (defect.markers and defect.markers[0].drawing):
+                logger.info(f"Marked drawing for Defect ID {defect.id}: No marker or drawing associated with the defect for marked image generation. Path remains '{defect.marked_drawing_image_path}'.")
+            elif not defect.markers[0].drawing.file_path.lower().endswith('.pdf'):
+                logger.info(f"Marked drawing for Defect ID {defect.id}: Drawing is not a PDF, skipping marked image generation. Drawing path: '{defect.markers[0].drawing.file_path}'. Path remains '{defect.marked_drawing_image_path}'.")
+
 
     # Fetch checklists
     checklists_db = Checklist.query.filter_by(project_id=project_id).order_by(Checklist.name.asc()).all()
@@ -2247,6 +2312,9 @@ def generate_new_report(project_id):
         app_config=app.config
     )
     logger.info("HTML template rendered.")
+
+    # Log base_url for WeasyPrint
+    logger.info(f"Report base_url for WeasyPrint: {request.url_root}")
 
     # Convert the rendered HTML to PDF using WeasyPrint
     try:

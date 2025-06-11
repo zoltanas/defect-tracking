@@ -170,9 +170,16 @@
                                 {% endif %}
                             </p>
                             {% if defect.marked_drawing_image_path %}
-                                <img src="{{ url_for('static', filename=defect.marked_drawing_image_path, _external=True) }}" alt="Marked Drawing for Defect {{ defect.id }}">
+                                {% set abs_marked_drawing_path = get_absolute_static_path(defect.marked_drawing_image_path) %}
+                                {% if abs_marked_drawing_path %}
+                                    <img src="file://{{ abs_marked_drawing_path }}" alt="Marked Drawing for Defect {{ defect.id }}">
+                                {% else %}
+                                    <p><em>(Marked drawing path could not be resolved: {{ defect.marked_drawing_image_path }})</em></p>
+                                {% endif %}
                             {% elif defect.markers[0].drawing and defect.markers[0].drawing.file_path %}
                                 <p><em>(Original drawing path: {{ defect.markers[0].drawing.file_path }}. Could not generate marked image.)</em></p>
+                            {% else %}
+                                <p><em>(No marked drawing available.)</em></p>
                             {% endif %}
                         </div>
                         {% endif %}
@@ -183,11 +190,23 @@
                             <p><strong>Attachments:</strong></p>
                             {% for attachment in defect_direct_attachments %}
                                 {% if attachment.thumbnail_path %}
-                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Thumbnail">
+                                    {% set abs_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
+                                    {% if abs_thumb_path %}
+                                        <img src="file://{{ abs_thumb_path }}" alt="Thumbnail">
+                                    {% else %}
+                                        <span><em>(Invalid thumbnail path: {{ attachment.thumbnail_path }})</em></span>
+                                    {% endif %}
                                 {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                    <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Attachment">
+                                    {% set abs_file_path = get_absolute_static_path(attachment.file_path) %}
+                                    {% if abs_file_path %}
+                                        <img src="file://{{ abs_file_path }}" alt="Attachment">
+                                    {% else %}
+                                        <span><em>(Invalid image attachment path: {{ attachment.file_path }})</em></span>
+                                    {% endif %}
+                                {% elif attachment.file_path %}
+                                    <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
                                 {% else %}
-                                    <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                    <span><em>(Attachment path missing)</em></span>
                                 {% endif %}
                             {% endfor %}
                         </div>
@@ -204,11 +223,23 @@
                                 <div class="comment-attachments">
                                     {% for attachment in comment.attachments %}
                                         {% if attachment.thumbnail_path %}
-                                            <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Comment Thumbnail">
+                                            {% set abs_comment_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
+                                            {% if abs_comment_thumb_path %}
+                                                <img src="file://{{ abs_comment_thumb_path }}" alt="Comment Thumbnail">
+                                            {% else %}
+                                                <span><em>(Invalid comment thumbnail path: {{ attachment.thumbnail_path }})</em></span>
+                                            {% endif %}
                                         {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                            <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Comment Attachment">
+                                            {% set abs_comment_file_path = get_absolute_static_path(attachment.file_path) %}
+                                            {% if abs_comment_file_path %}
+                                                <img src="file://{{ abs_comment_file_path }}" alt="Comment Attachment">
+                                            {% else %}
+                                                <span><em>(Invalid comment image attachment path: {{ attachment.file_path }})</em></span>
+                                            {% endif %}
+                                        {% elif attachment.file_path %}
+                                            <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
                                         {% else %}
-                                            <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                            <span><em>(Comment attachment path missing)</em></span>
                                         {% endif %}
                                     {% endfor %}
                                 </div>
@@ -250,11 +281,23 @@
                                     {% if item.attachments %}
                                         {% for attachment in item.attachments %}
                                             {% if attachment.thumbnail_path %}
-                                                <img src="{{ url_for('static', filename=attachment.thumbnail_path, _external=True) }}" alt="Item Thumbnail">
+                                                {% set abs_item_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
+                                                {% if abs_item_thumb_path %}
+                                                    <img src="file://{{ abs_item_thumb_path }}" alt="Item Thumbnail">
+                                                {% else %}
+                                                    <span><em>(Invalid item thumbnail path: {{ attachment.thumbnail_path }})</em></span>
+                                                {% endif %}
                                             {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                                 <img src="{{ url_for('static', filename=attachment.file_path, _external=True) }}" alt="Item Attachment">
+                                                {% set abs_item_file_path = get_absolute_static_path(attachment.file_path) %}
+                                                {% if abs_item_file_path %}
+                                                    <img src="file://{{ abs_item_file_path }}" alt="Item Attachment">
+                                                {% else %}
+                                                    <span><em>(Invalid item image attachment path: {{ attachment.file_path }})</em></span>
+                                                {% endif %}
+                                            {% elif attachment.file_path %}
+                                                <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
                                             {% else %}
-                                                <span>{{ attachment.file_path.split('/')[-1] if attachment.file_path else 'Attachment name missing' }}</span>
+                                                <span><em>(Item attachment path missing)</em></span>
                                             {% endif %}
                                         {% endfor %}
                                     {% else %}
