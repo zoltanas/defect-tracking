@@ -411,7 +411,7 @@ def invite():
     if request.method == 'POST':
         project_id = request.form['project_id']
         role = request.form['role']
-        if role not in ['admin', 'expert', 'contractor']:
+        if role not in ['admin', 'expert', 'contractor', 'Technical supervisor']:
             return jsonify({'status': 'error', 'message': 'Invalid role selected.'}), 400
         project = db.session.get(Project, project_id)
         if not project:
@@ -555,9 +555,10 @@ def project_detail(project_id):
     filter_status = request.args.get('filter', 'All')
     defects_query = Defect.query.filter_by(project_id=project_id)
 
-    # Add this condition for expert users
-    if current_user.role == 'expert':
+    # Add this condition for expert users, but not for Technical Supervisors
+    if current_user.role == 'expert' and current_user.role != 'Technical supervisor':
         defects_query = defects_query.filter_by(creator_id=current_user.id)
+    # Technical supervisors should see all defects, so no additional filter is applied here for them.
 
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
@@ -912,16 +913,19 @@ def defect_detail(defect_id):
                 return redirect(url_for('defect_detail', defect_id=defect_id))
 
             elif action == 'edit_defect': # Corresponds to the main "Save Changes" form
-                if access.role not in ['admin', 'expert']:
-                    flash('You do not have permission to edit defects.', 'error')
-                    return redirect(url_for('defect_detail', defect_id=defect_id))
+                can_edit = False
+                if current_user.role == 'admin':
+                    can_edit = True
+                elif current_user.role == 'expert' and defect.creator_id == current_user.id:
+                    can_edit = True
+                elif current_user.role == 'Technical supervisor' and defect.creator_id == current_user.id:
+                    can_edit = True
 
-                # ADD THIS CHECK FOR EXPERT USER EDITING PERMISSION
-                if current_user.role == 'expert' and defect.creator_id != current_user.id:
-                    logger.warning(f"Expert user {current_user.id} attempted to edit defect {defect_id} created by {defect.creator_id}.")
-                    flash('You do not have permission to edit this defect as it was not created by you.', 'error')
+                if not can_edit:
+                    # Log the attempt before flashing and redirecting
+                    logger.warning(f"User {current_user.id} (Role: {current_user.role}) attempted to edit defect {defect_id} (Creator ID: {defect.creator_id}) without permission.")
+                    flash('You do not have permission to edit this defect.', 'error')
                     return redirect(url_for('defect_detail', defect_id=defect_id))
-                # END OF ADDED CHECK
 
                 error_occurred = False
                 
