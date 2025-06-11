@@ -264,6 +264,14 @@ def load_user(user_id):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
+def ensure_thumbnail_directory():
+    # app refers to the Flask app instance, UPLOAD_FOLDER is 'static/images'
+    thumbnail_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'thumbnails')
+    if not os.path.exists(thumbnail_dir):
+        os.makedirs(thumbnail_dir, exist_ok=True)
+        os.chmod(thumbnail_dir, 0o755)  # Ensure correct permissions
+    return thumbnail_dir
+
 # Helper function to ensure specific attachment subdirectories exist
 def ensure_attachment_paths(subfolder_name):
     # Base directory for all uploads, relative to 'static'
