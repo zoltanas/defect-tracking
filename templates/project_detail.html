@@ -403,18 +403,36 @@ document.addEventListener('DOMContentLoaded', function () {
         switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
     });
 
-    // Check for URL hash and switch to checklists tab if necessary
-    if (window.location.hash === '#checklists') {
-        // Call the existing switchTab function to activate the checklists tab
-        // Ensure variables like checklistsTabButton, checklistsPane, etc., are accessible here
-        // or simulate a click if that's easier and already set up.
-        // Based on the provided script, simulating a click is straightforward:
-        checklistsTabButton.click();
+    // Function to update URL without reloading page
+    function updateURLAnchor(tabName) {
+        const currentUrl = new URL(window.location.href);
+        if (tabName && tabName !== 'defects') { // Assuming 'defects' is default, so no anchor needed
+            currentUrl.searchParams.set('_anchor', tabName);
+        } else {
+            currentUrl.searchParams.delete('_anchor'); // Remove if 'defects' or no tab
+        }
+        history.replaceState({}, '', currentUrl.toString());
+    }
+
+    // Event listener for Defects tab
+    defectsTabButton.addEventListener('click', function () {
+        switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
+        updateURLAnchor('defects');
+    });
+
+    // Event listener for Checklists tab
+    checklistsTabButton.addEventListener('click', function () {
+        switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
+        updateURLAnchor('checklists');
+    });
+
+    // Initial tab setup based on 'tab' variable from Flask
+    const initialTab = "{{ tab or 'defects' }}"; // Default to 'defects' if tab is not provided
+
+    if (initialTab === 'checklists') {
+        checklistsTabButton.click(); // This will also call updateURLAnchor via the click listener
     } else {
-        // Default to defects tab if no specific hash or a different one
-        // The existing code already defaults to the defects tab by styling,
-        // so explicitly clicking it ensures all logic (like button/filter visibility) runs.
-        defectsTabButton.click();
+        defectsTabButton.click(); // This will also call updateURLAnchor
     }
 });
 </script>
