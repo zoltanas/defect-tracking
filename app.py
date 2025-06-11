@@ -1043,6 +1043,105 @@ def defect_detail(defect_id):
         flash('An error occurred while loading the defect.', 'error')
         return redirect(url_for('index'))
 
+@app.route('/defect/<int:defect_id>/delete', methods=['POST'])
+@login_required
+def delete_defect_route(defect_id): # Renamed to avoid conflict with any potential 'delete_defect' function
+    defect = db.session.get(Defect, defect_id)
+    if not defect:
+        flash('Defect not found.', 'error')
+        return redirect(url_for('index'))
+
+    # Authorization: Only admins can delete defects
+    if current_user.role != 'admin':
+        flash('You are not authorized to delete this defect.', 'error')
+        # Redirect to the defect detail page or project page
+        return redirect(url_for('defect_detail', defect_id=defect.id))
+
+    project_id_for_redirect = defect.project_id # Store before defect is deleted
+
+    try:
+        # 1. Delete associated DefectMarkers
+        markers = DefectMarker.query.filter_by(defect_id=defect.id).all()
+        for marker in markers:
+            db.session.delete(marker)
+        logger.info(f"Deleted {len(markers)} markers for defect {defect.id}")
+
+        # 2. Delete associated Comments and their Attachments
+        comments = Comment.query.filter_by(defect_id=defect.id).all()
+        for comment in comments:
+            # Delete attachments associated with this comment
+            comment_attachments = Attachment.query.filter_by(comment_id=comment.id).all()
+            for att in comment_attachments:
+                # Delete physical files (original and thumbnail)
+                if att.file_path:
+                    full_file_path = os.path.join(app.static_folder, att.file_path)
+                    if os.path.exists(full_file_path):
+                        try:
+                            os.remove(full_file_path)
+                            logger.info(f"Deleted comment attachment file: {full_file_path}")
+                        except OSError as e:
+                            logger.error(f"Error deleting comment attachment file {full_file_path}: {e}")
+                    else:
+                        logger.warning(f"Comment attachment file not found for deletion: {full_file_path}")
+
+                if att.thumbnail_path:
+                    full_thumbnail_path = os.path.join(app.static_folder, att.thumbnail_path)
+                    if os.path.exists(full_thumbnail_path):
+                        try:
+                            os.remove(full_thumbnail_path)
+                            logger.info(f"Deleted comment attachment thumbnail: {full_thumbnail_path}")
+                        except OSError as e:
+                            logger.error(f"Error deleting comment attachment thumbnail {full_thumbnail_path}: {e}")
+                    else:
+                        logger.warning(f"Comment attachment thumbnail not found for deletion: {full_thumbnail_path}")
+                db.session.delete(att)
+            logger.info(f"Deleted {len(comment_attachments)} attachments for comment {comment.id}")
+            db.session.delete(comment)
+        logger.info(f"Deleted {len(comments)} comments for defect {defect.id}")
+
+        # 3. Delete associated Attachments (directly linked to the defect)
+        defect_attachments = Attachment.query.filter_by(defect_id=defect.id, comment_id=None, checklist_item_id=None).all()
+        for att in defect_attachments:
+            # Delete physical files (original and thumbnail)
+            if att.file_path:
+                full_file_path = os.path.join(app.static_folder, att.file_path)
+                if os.path.exists(full_file_path):
+                    try:
+                        os.remove(full_file_path)
+                        logger.info(f"Deleted defect attachment file: {full_file_path}")
+                    except OSError as e:
+                        logger.error(f"Error deleting defect attachment file {full_file_path}: {e}")
+                else:
+                    logger.warning(f"Defect attachment file not found for deletion: {full_file_path}")
+
+            if att.thumbnail_path:
+                full_thumbnail_path = os.path.join(app.static_folder, att.thumbnail_path)
+                if os.path.exists(full_thumbnail_path):
+                    try:
+                        os.remove(full_thumbnail_path)
+                        logger.info(f"Deleted defect attachment thumbnail: {full_thumbnail_path}")
+                    except OSError as e:
+                        logger.error(f"Error deleting defect attachment thumbnail {full_thumbnail_path}: {e}")
+                else:
+                    logger.warning(f"Defect attachment thumbnail not found for deletion: {full_thumbnail_path}")
+            db.session.delete(att)
+        logger.info(f"Deleted {len(defect_attachments)} direct attachments for defect {defect.id}")
+
+        # 4. Delete the Defect itself
+        db.session.delete(defect)
+
+        db.session.commit()
+        flash('Defect and all associated data deleted successfully!', 'success')
+        logger.info(f"Successfully deleted defect {defect_id} and all associated data.")
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error during deletion of defect {defect_id}: {str(e)}", exc_info=True)
+        flash('An error occurred while deleting the defect. Please try again.', 'error')
+        return redirect(url_for('defect_detail', defect_id=defect.id)) # Redirect back to defect page on error
+
+    return redirect(url_for('project_detail', project_id=project_id_for_redirect))
+
 @app.route('/defect/<int:defect_id>/delete_attachment/<int:attachment_id>', methods=['POST'])
 @login_required
 def delete_attachment(defect_id, attachment_id):
@@ -1526,34 +1625,71 @@ def delete_checklist_item_attachment_ajax(item_id, attachment_id): # Renamed to 
 
 # --- End of new AJAX routes ---
 
-@app.route('/checklist/<int:checklist_id>', methods=['GET']) # Removed POST from methods
+@app.route('/checklist/<int:checklist_id>/delete', methods=['POST'])
 @login_required
-def delete_checklist(checklist_id):
+def delete_checklist_route(checklist_id): # Renamed to be distinct
     checklist = db.session.get(Checklist, checklist_id)
     if not checklist:
         flash('Checklist not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access or access.role != 'admin':
-        flash('Only admins can delete checklists.', 'error')
-        return redirect(url_for('project_detail', project_id=checklist.project_id))
-    project_id = checklist.project_id
-    items = ChecklistItem.query.filter_by(checklist_id=checklist_id).all()
-    for item in items:
-        attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
-        for attachment in attachments:
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path))
-            thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.thumbnail_path)) if attachment.thumbnail_path else None
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                os.remove(thumbnail_path)
-            db.session.delete(attachment)
-        db.session.delete(item)
-    db.session.delete(checklist)
-    db.session.commit()
-    flash('Checklist deleted successfully!', 'success')
-    return redirect(url_for('project_detail', project_id=project_id, _anchor='checklists'))
+
+    # Authorization: Only admins can delete checklists
+    if current_user.role != 'admin':
+        flash('You are not authorized to delete this checklist.', 'error')
+        return redirect(url_for('checklist_detail', checklist_id=checklist.id))
+
+    project_id_for_redirect = checklist.project_id # Store before checklist is deleted
+
+    try:
+        # Iterate through each ChecklistItem associated with the checklist
+        checklist_items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
+        for item in checklist_items:
+            # Delete attachments associated with this checklist item
+            item_attachments = Attachment.query.filter_by(checklist_item_id=item.id).all()
+            for att in item_attachments:
+                # Delete physical files (original and thumbnail)
+                if att.file_path:
+                    full_file_path = os.path.join(app.static_folder, att.file_path)
+                    if os.path.exists(full_file_path):
+                        try:
+                            os.remove(full_file_path)
+                            logger.info(f"Deleted checklist item attachment file: {full_file_path}")
+                        except OSError as e:
+                            logger.error(f"Error deleting checklist item attachment file {full_file_path}: {e}")
+                    else:
+                        logger.warning(f"Checklist item attachment file not found for deletion: {full_file_path}")
+
+                if att.thumbnail_path:
+                    full_thumbnail_path = os.path.join(app.static_folder, att.thumbnail_path)
+                    if os.path.exists(full_thumbnail_path):
+                        try:
+                            os.remove(full_thumbnail_path)
+                            logger.info(f"Deleted checklist item attachment thumbnail: {full_thumbnail_path}")
+                        except OSError as e:
+                            logger.error(f"Error deleting checklist item attachment thumbnail {full_thumbnail_path}: {e}")
+                    else:
+                        logger.warning(f"Checklist item attachment thumbnail not found for deletion: {full_thumbnail_path}")
+                db.session.delete(att)
+            logger.info(f"Deleted {len(item_attachments)} attachments for checklist item {item.id}")
+
+            # Delete the ChecklistItem itself
+            db.session.delete(item)
+        logger.info(f"Deleted {len(checklist_items)} items for checklist {checklist.id}")
+
+        # After all items and their attachments are deleted, delete the Checklist itself
+        db.session.delete(checklist)
+
+        db.session.commit()
+        flash('Checklist and all associated data deleted successfully!', 'success')
+        logger.info(f"Successfully deleted checklist {checklist_id} and all associated data.")
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error during deletion of checklist {checklist_id}: {str(e)}", exc_info=True)
+        flash('An error occurred while deleting the checklist. Please try again.', 'error')
+        return redirect(url_for('checklist_detail', checklist_id=checklist.id))
+
+    return redirect(url_for('project_detail', project_id=project_id_for_redirect, _anchor='checklists'))
 
 @app.route('/checklist/<int:checklist_id>/delete_attachment/<int:attachment_id>', methods=['POST'])
 @login_required
