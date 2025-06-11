@@ -4,13 +4,10 @@
 {% block content %}
     <!-- Header: Project Title and Back Button -->
     <div class="flex flex-row justify-between items-center mb-6 pb-4 border-b border-gray-300">
-        <div class="flex items-center"> <!-- Wrapper for back button and title -->
-            <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mr-4 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back</a>
-            <h1 class="text-3xl font-bold text-gray-800">
-                Project: <span class="text-primary">{{ project.name }}</span>
-            </h1>
-        </div>
-        <!-- Any other elements that might need to be on the far right can go here, if any -->
+        <h1 class="text-3xl font-bold text-gray-800">
+            Project: <span class="text-primary">{{ project.name }}</span>
+        </h1>
+        <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back</a>
     </div>
 
     <!-- New Defect Information Card -->
@@ -78,7 +75,7 @@
             <!-- Attachments Card -->
             {% if attachments %}
                 <div class="bg-white shadow-lg rounded-lg p-6 order-1 lg:order-none">
-                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Attachments</h2>
+                    <h2 class="text-lg font-normal text-gray-500 mb-4">Attachments</h2>
                     <button type="button" id="addNewAttachmentButton" class="mb-4 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add New Image</button>
                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                         {% for attachment in attachments %}
@@ -95,7 +92,7 @@
 
             <!-- Defect Location (Drawing) Card -->
             <div class="bg-white shadow-lg rounded-lg p-6 order-2 lg:order-none">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Location on Drawing</h2>
+                <h2 class="text-lg font-normal text-gray-500 mb-4">Defect Location on Drawing</h2>
         
                 {% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
                     <!-- Drawing Selection for Editing -->
