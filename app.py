@@ -272,6 +272,19 @@ def ensure_thumbnail_directory():
         os.chmod(thumbnail_dir, 0o755)  # Ensure correct permissions
     return thumbnail_dir
 
+
+@app.context_processor
+def inject_accessible_projects():
+    if current_user.is_authenticated:
+        accessible_project_objects = []
+        # Assuming current_user.projects is a list of ProjectAccess objects
+        project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
+        project_ids = [access.project_id for access in project_accesses]
+        if project_ids:
+            accessible_project_objects = Project.query.filter(Project.id.in_(project_ids)).order_by(Project.name).all()
+        return dict(accessible_projects=accessible_project_objects)
+    return dict(accessible_projects=[])
+
 # Helper function to ensure specific attachment subdirectories exist
 def ensure_attachment_paths(subfolder_name):
     # Base directory for all uploads, relative to 'static'
