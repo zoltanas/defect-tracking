@@ -676,36 +676,53 @@ def add_defect(project_id):
         if 'photos' in request.files:
             files = request.files.getlist('photos')
             for file in files:
-                if file and allowed_file(file.filename):
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    filename = secure_filename(f'defect_{defect.id}_{timestamp}_{file.filename}')
-                    file_path_for_db = os.path.join('images', filename) # DB path relative to static
-                    full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Full path for saving original
-                    
-                    thumbnail_dir = ensure_thumbnail_directory() # Ensures 'static/images/thumbnails'
-                    thumbnail_filename_base = f'thumb_{filename}' # Just the filename part
-                    thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving thumbnail
-                    thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
-                    
-                    try:
-                        img = PILImage.open(file)
-                        img = ImageOps.exif_transpose(img) # Apply EXIF orientation
-                        img = img.convert('RGB')
-                        img.save(full_disk_path, quality=85, optimize=True)
-                        os.chmod(full_disk_path, 0o644)
-                        create_thumbnail(full_disk_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
-                        attachment = Attachment(
-                            defect_id=defect.id,
-                            file_path=file_path_for_db,
-                            thumbnail_path=thumbnail_path_for_db
-                        )
-                        db.session.add(attachment)
-                        db.session.commit()
-                        attachment_ids.append(attachment.id)
-                    except Exception as e:
-                        logger.error(f'Error processing file {file.filename}: {str(e)}')
-                        flash(f'Error uploading file {file.filename}.', 'error')
-                        continue
+                if file and file.filename and allowed_file(file.filename): # Added file.filename check
+                    mime_type = file.content_type
+                    if mime_type.startswith('image/'):
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f') # Added %f for microseconds
+                        original_filename_secure = secure_filename(file.filename)
+                        # Use defect.id available after initial commit of defect
+                        unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
+
+                        img_save_dir, thumb_save_dir = ensure_attachment_paths('attachments_img') # Uses new helper
+
+                        original_save_path = os.path.join(img_save_dir, unique_filename_base)
+                        file.seek(0) # Reset file pointer
+                        file.save(original_save_path)
+                        os.chmod(original_save_path, 0o644)
+                        # DB path relative to 'static/uploads/'
+                        file_path_for_db = os.path.join('uploads', 'attachments_img', unique_filename_base)
+
+                        thumbnail_filename = f"thumb_{unique_filename_base}"
+                        # thumbnail_save_path is the full disk path for saving thumbnail
+                        thumbnail_save_path = os.path.join(thumb_save_dir, thumbnail_filename)
+
+                        try:
+                            create_thumbnail(original_save_path, thumbnail_save_path)
+                            # DB path relative to 'static/uploads/'
+                            thumbnail_path_for_db = os.path.join('uploads', 'attachments_img', 'thumbnails', thumbnail_filename)
+
+                            attachment = Attachment(
+                                defect_id=defect.id,
+                                file_path=file_path_for_db,
+                                thumbnail_path=thumbnail_path_for_db,
+                                mime_type=mime_type # Save mime_type
+                            )
+                            db.session.add(attachment)
+                            db.session.commit()
+                            attachment_ids.append(attachment.id)
+                        except Exception as e: # Catch errors during thumbnailing or DB operations
+                            db.session.rollback()
+                            logger.error(f'Error processing image {original_filename_secure} in add_defect: {str(e)}')
+                            flash(f'Error processing image {original_filename_secure}.', 'error')
+                            continue # Continue with the next file
+                    else:
+                        # Handle non-image file if necessary for 'photos' field
+                        flash(f"File '{file.filename}' is not a supported image type for initial defect photos and was skipped.", "warning")
+                        continue # Skip this file
+                elif file and file.filename: # If file is present but not allowed by allowed_file()
+                    flash(f"File type for '{file.filename}' is not allowed.", "warning")
+                    continue
         if attachment_ids:
             return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect.id)))
         flash('Defect created successfully!', 'success')
