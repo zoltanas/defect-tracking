@@ -516,6 +516,7 @@ def project_detail(project_id):
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
     filter_status = request.args.get('filter', 'All')
+    tab = request.args.get('_anchor')
     defects_query = Defect.query.filter_by(project_id=project_id)
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
@@ -567,7 +568,7 @@ def project_detail(project_id):
         checklist.completed_items = completed_items
 
         filtered_checklists.append(checklist)
-    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role)
+    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, tab=tab)
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required
