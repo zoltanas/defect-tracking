@@ -75,13 +75,41 @@
             <!-- Attachments Card -->
             {% if attachments %}
                 <div class="bg-white shadow-lg rounded-lg p-6 order-1 lg:order-none">
-                    <h2 class="text-lg font-normal text-gray-500 mb-4">Attachments</h2>
-                    <button type="button" id="addNewAttachmentButton" class="mb-4 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add New Image</button>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-normal text-gray-500">Attachments</h2>
+                        <button type="button" id="addNewAttachmentButton" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add defect photo</button>
+                    </div>
                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                         {% for attachment in attachments %}
                             <div class="relative group">
-                                <div role="button" onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');" class="block rounded-lg overflow-hidden border border-gray-200 hover:border-primary transition-all duration-300 cursor-pointer">
-                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Attachment Thumbnail" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                                <div role="button"
+                                     {# onclick will be updated later to handle PDFs differently #}
+                                     onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');"
+                                     class="block rounded-lg overflow-hidden border border-gray-200 hover:border-primary transition-all duration-300 cursor-pointer">
+
+                                    {% if attachment.mime_type == 'application/pdf' %}
+                                        {% if attachment.thumbnail_path %}
+                                            <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="PDF Thumbnail" class="w-full h-32 sm:h-40 object-contain group-hover:opacity-80 transition-opacity pointer-events-none">
+                                        {% else %}
+                                            {# SVG Icon and text as placeholder for PDF #}
+                                            <div class="w-full h-32 sm:h-40 flex flex-col items-center justify-center bg-gray-100 text-gray-400 group-hover:opacity-80 transition-opacity">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3v4a1 1 0 001 1h4" /></svg>
+                                                <span class="mt-2 text-sm">PDF Document</span>
+                                            </div>
+                                        {% endif %}
+                                    {% elif attachment.mime_type and attachment.mime_type.startswith('image/') %}
+                                        <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Attachment Thumbnail" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                                    {% else %}
+                                         {# Fallback for unknown mime_types or old records without mime_type but with a thumbnail (likely images) #}
+                                         {% if attachment.thumbnail_path %}
+                                            <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}" alt="Attachment" class="w-full h-32 sm:h-40 object-cover group-hover:opacity-80 transition-opacity pointer-events-none">
+                                         {% else %}
+                                            <div class="w-full h-32 sm:h-40 flex flex-col items-center justify-center bg-gray-100 text-gray-400 group-hover:opacity-80 transition-opacity">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                <span class="mt-2 text-sm">File</span>
+                                            </div>
+                                         {% endif %}
+                                    {% endif %}
                                 </div>
                                 <button type="button" data-attachment-id="{{ attachment.id }}" class="absolute top-1 right-1 bg-red-500 hover:bg-red-700 text-white text-xs font-bold py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity delete-attachment-button">Delete</button>
                             </div>
@@ -549,7 +577,7 @@ document.addEventListener('DOMContentLoaded', function () {
             newAttachmentInput = document.createElement('input');
             newAttachmentInput.type = 'file';
             newAttachmentInput.id = 'newAttachmentInput';
-            newAttachmentInput.accept = 'image/*';
+            newAttachmentInput.accept = 'image/*,application/pdf';
             newAttachmentInput.classList.add('hidden');
             document.body.appendChild(newAttachmentInput); // Add it to the body
         }

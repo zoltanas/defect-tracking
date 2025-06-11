@@ -13,7 +13,7 @@ import shutil
 from PIL import Image as PILImage, ImageDraw, ImageOps
 import io
 from weasyprint import HTML
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path # Ensure this is present
 import logging
 from sqlalchemy import inspect
 import tempfile
@@ -182,7 +182,8 @@ class Attachment(db.Model):
     checklist_item_id = db.Column(db.Integer, db.ForeignKey('checklist_items.id'))
     comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'))
     file_path = db.Column(db.String(255))
-    thumbnail_path = db.Column(db.String(255))
+    thumbnail_path = db.Column(db.String(255)) # For images, or generic icon path for other types
+    mime_type = db.Column(db.String(100), nullable=True) # To store the MIME type
     defect = db.relationship('Defect', back_populates='attachments')
     checklist_item = db.relationship('ChecklistItem', back_populates='attachments')
     comment = db.relationship('Comment', back_populates='attachments')
@@ -263,25 +264,34 @@ def load_user(user_id):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-# Helper function to ensure thumbnail directory exists
-def ensure_thumbnail_directory():
-    thumbnail_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'thumbnails')
-    os.makedirs(thumbnail_dir, exist_ok=True)
-    # os.chmod(thumbnail_dir, 0o755) # Ensure permissions if needed, usually inherited
-    return thumbnail_dir
+# Helper function to ensure specific attachment subdirectories exist
+def ensure_attachment_paths(subfolder_name):
+    # Base directory for all uploads, relative to 'static'
+    base_upload_dir_name = 'uploads' # e.g., static/uploads/
+
+    # Full path for the specific subfolder (e.g., static/uploads/attachments_pdf)
+    specific_upload_dir = os.path.join(app.static_folder, base_upload_dir_name, subfolder_name)
+    os.makedirs(specific_upload_dir, exist_ok=True)
+
+    # For thumbnails, create a 'thumbnails' directory inside the image-specific subfolder
+    thumbnail_dir = None
+    if 'img' in subfolder_name.lower(): # Assuming image subfolders contain 'img'
+        thumbnail_dir = os.path.join(specific_upload_dir, 'thumbnails')
+        os.makedirs(thumbnail_dir, exist_ok=True)
+
+    return specific_upload_dir, thumbnail_dir # thumbnail_dir can be None
 
 def create_thumbnail(image_path, thumbnail_save_path, size=(300, 300)):
     try:
-        # Ensure the directory for the thumbnail exists
+        # Ensure the directory for the thumbnail exists (already done by ensure_attachment_paths if logic is sequential)
         thumbnail_dir_for_saving = os.path.dirname(thumbnail_save_path)
         if not os.path.exists(thumbnail_dir_for_saving):
-            os.makedirs(thumbnail_dir_for_saving, exist_ok=True)
-            # os.chmod(thumbnail_dir_for_saving, 0o755) # Ensure permissions if needed
+             os.makedirs(thumbnail_dir_for_saving, exist_ok=True) # Should be redundant if called after ensure_attachment_paths
 
         with PILImage.open(image_path) as img:
             img = ImageOps.exif_transpose(img) # Apply EXIF orientation
             img.thumbnail(size, PILImage.Resampling.LANCZOS)
-            img.save(thumbnail_save_path, quality=85, optimize=True) # Use the provided full save path
+            img.save(thumbnail_save_path, quality=85, optimize=True)
             os.chmod(thumbnail_save_path, 0o644)
         logger.debug(f'Created thumbnail: {thumbnail_save_path}')
     except Exception as e:
@@ -1040,29 +1050,80 @@ def add_defect_attachment(defect_id):
         return jsonify({'success': False, 'error': 'No selected file.'}), 400
 
     if file and allowed_file(file.filename):
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f') # Microseconds for uniqueness
-            original_filename_secure = secure_filename(file.filename)
-            # defect.id should be safe, already an int.
-            unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
-            
-            # Save original image to 'static/images/'
-            original_save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename_base)
-            file.save(original_save_path)
-            os.chmod(original_save_path, 0o644)
-            db_file_path = os.path.join('images', unique_filename_base) # Path for DB (relative to static)
+        mime_type = file.content_type
+        logger.info(f"Uploading file with MIME type: {mime_type}")
 
-            # Create thumbnail in 'static/images/thumbnails/'
-            thumbnail_dir = ensure_thumbnail_directory() 
-            thumbnail_filename_base = f"thumb_{unique_filename_base}"
-            thumbnail_save_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path to save
-            create_thumbnail(original_save_path, thumbnail_save_path) # create_thumbnail saves it
-            db_thumbnail_path = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Path for DB
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
+            original_filename_secure = secure_filename(file.filename)
+            unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
+
+            db_file_path = None
+            db_thumbnail_path = None
+
+            if mime_type.startswith('image/'):
+                img_dir, thumb_dir = ensure_attachment_paths('attachments_img') # static/uploads/attachments_img, static/uploads/attachments_img/thumbnails
+
+                original_save_path = os.path.join(img_dir, unique_filename_base)
+                file.seek(0) # Reset file pointer before saving
+                file.save(original_save_path)
+                os.chmod(original_save_path, 0o644)
+                # DB path relative to 'static' folder
+                db_file_path = os.path.join('uploads', 'attachments_img', unique_filename_base)
+
+                thumbnail_filename = f"thumb_{unique_filename_base}"
+                thumbnail_save_path = os.path.join(thumb_dir, thumbnail_filename) # Full disk path for saving thumbnail
+                create_thumbnail(original_save_path, thumbnail_save_path)
+                # DB path relative to 'static' folder
+                db_thumbnail_path = os.path.join('uploads', 'attachments_img', 'thumbnails', thumbnail_filename)
+                logger.info(f"Image attachment processed: {db_file_path}")
+
+            elif mime_type == 'application/pdf':
+                pdf_dir, _ = ensure_attachment_paths('attachments_pdf') # static/uploads/attachments_pdf
+
+                pdf_save_path = os.path.join(pdf_dir, unique_filename_base)
+                file.seek(0) # Reset file pointer
+                file.save(pdf_save_path)
+                os.chmod(pdf_save_path, 0o644)
+                # DB path relative to 'static' folder
+                db_file_path = os.path.join('uploads', 'attachments_pdf', unique_filename_base)
+                db_thumbnail_path = None # No thumbnail for PDFs in this step
+                # Optionally, set to a generic PDF icon: db_thumbnail_path = 'images/pdf_icon.png'
+
+                # Generate thumbnail for PDF
+                full_pdf_path_on_disk = os.path.join(app.static_folder, db_file_path) # Absolute path to the saved PDF
+
+                pdf_thumb_dir_relative = os.path.join('uploads', 'attachments_pdf_thumbs')
+                pdf_thumb_dir_abs = os.path.join(app.static_folder, pdf_thumb_dir_relative)
+                os.makedirs(pdf_thumb_dir_abs, exist_ok=True)
+
+                thumb_filename_pdf = 'thumb_' + os.path.splitext(unique_filename_base)[0] + '.png'
+                full_thumb_disk_path_pdf = os.path.join(pdf_thumb_dir_abs, thumb_filename_pdf)
+
+                try:
+                    logger.debug(f"Attempting to generate PDF thumbnail from: {full_pdf_path_on_disk}")
+                    images = convert_from_path(full_pdf_path_on_disk, first_page=1, last_page=1, fmt='png', size=(300, None))
+                    if images:
+                        images[0].save(full_thumb_disk_path_pdf, 'PNG')
+                        db_thumbnail_path = os.path.join(pdf_thumb_dir_relative, thumb_filename_pdf)
+                        logger.info(f"PDF thumbnail generated: {db_thumbnail_path}")
+                    else:
+                        logger.warning(f"pdf2image convert_from_path returned no images for {full_pdf_path_on_disk}")
+                        db_thumbnail_path = None # Fallback
+                except Exception as e:
+                    logger.error(f"Error generating PDF thumbnail for {unique_filename_base}: {e}", exc_info=True)
+                    db_thumbnail_path = None # Fallback
+
+                logger.info(f"PDF attachment processed: {db_file_path}")
+            else:
+                logger.warning(f"Unsupported file type attempted: {mime_type}")
+                return jsonify({'success': False, 'error': 'Unsupported file type. Only images and PDFs are allowed.'}), 400
 
             attachment = Attachment(
-                defect_id=defect.id, # Link directly to defect
+                defect_id=defect.id,
                 file_path=db_file_path,
-                thumbnail_path=db_thumbnail_path
+                thumbnail_path=db_thumbnail_path,
+                mime_type=mime_type
             )
             db.session.add(attachment)
             db.session.commit()
