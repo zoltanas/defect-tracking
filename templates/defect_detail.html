@@ -373,48 +373,28 @@
                 };
 
                 page.render(renderContext).promise.then(() => {
-                    // console.log('PDF rendered successfully'); // Original log
-                    updateStatus(''); // Clear status, hide spinner
+                    updateStatus('');
                     pdfCanvas.style.display = 'block';
 
                     const markerData = {{ marker | tojson }};
-                    /*
-                    var userRoleForJs = {{ user_role | tojson }};
-                    console.log("Static display - User role:", userRoleForJs);
 
-                    try {
-                        console.log("Static display - Marker data from template (JSON):", JSON.stringify(markerData, null, 2));
-                        if (markerData && typeof markerData.file_path !== 'undefined') {
-                            console.log("Static display - Marker file_path:", markerData.file_path);
-                        } else if (markerData) {
-                            console.log("Static display - Marker file_path: (attribute not found or undefined)");
-                        } else {
-                            console.log("Static display - markerData object is null or undefined before checking file_path.");
-                        }
-                    } catch (e) {
-                        console.error("Static display - Error stringifying or logging markerData:", e);
-                        console.log("Static display - Raw markerData object (if stringify failed):", markerData);
-                    }
-                    */
                     if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
                         ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
-                        // Use a more visible marker style
-                        const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015); // Responsive radius
+                        const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015);
                         const markerX = markerData.x * viewport.width;
                         const markerY = markerData.y * viewport.height;
-                        console.log("Static display - rendering page:", page, "Marker X:", markerX, "Marker Y:", markerY);
-
+                        // Original console.log for rendering page and marker drawn at are kept commented for now
+                        // console.log("Static display - rendering page:", page, "Marker X:", markerX, "Marker Y:", markerY);
                         ctx.beginPath();
                         ctx.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
-                        ctx.fillStyle = 'rgba(255, 0, 0, 0.7)'; // Semi-transparent red
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
                         ctx.fill();
-                        ctx.lineWidth = Math.max(1, markerRadius * 0.2); // Responsive line width
+                        ctx.lineWidth = Math.max(1, markerRadius * 0.2);
                         ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
                         ctx.stroke();
-                        console.log('Marker drawn at:', { x: markerX, y: markerY });
+                        // console.log('Marker drawn at:', { x: markerX, y: markerY });
                     } else {
-                        console.warn('Invalid or missing marker data:', markerData);
-                        // Don't show error here, as it might be normal if no marker for this PDF page
+                        console.warn('Invalid or missing marker data for drawing (Step 1 re-add):', markerData);
                     }
                 }).catch(error => {
                     console.error('Error rendering PDF page:', error);
