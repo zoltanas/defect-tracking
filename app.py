@@ -2203,13 +2203,19 @@ def draw(attachment_id):
             if next_url:
                 return jsonify({'status': 'success', 'message': 'No lines to save', 'redirect': next_url})
             return jsonify({'status': 'success', 'message': 'No lines to save'}), 200
-        img_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path))
-        if not os.path.exists(img_path):
-            return jsonify({'status': 'error', 'message': f'Image file not found: {attachment.file_path}'}), 404
+
+        # Correct Image Path for Opening and Saving:
+        # img_path_on_disk represents the full disk path to the image.
+        # attachment.file_path is relative to static folder e.g. 'uploads/attachments_img/filename.png'
+        img_path_on_disk = os.path.join(app.static_folder, attachment.file_path)
+        if not os.path.exists(img_path_on_disk):
+            logger.error(f"Image file not found at expected path: {img_path_on_disk}. Attachment file_path: {attachment.file_path}")
+            return jsonify({'status': 'error', 'message': f'Original image file not found: {attachment.file_path}'}), 404
+
         try:
-            with PILImage.open(img_path) as img:
+            with PILImage.open(img_path_on_disk) as img:
                 img = img.convert('RGB')
-                draw = ImageDraw.Draw(img)
+                draw_obj = ImageDraw.Draw(img) # Renamed to avoid conflict if 'draw' is used elsewhere
                 img_width, img_height = img.size
                 for line in lines:
                     points = line.get('points', [])
@@ -2218,13 +2224,13 @@ def draw(attachment_id):
                     if not isinstance(points, list) or len(points) < 2:
                         continue
                     if not isinstance(color, str) or not color.startswith('#'):
-                        color = '#000000'
+                        color = '#000000' # Default color
                     try:
-                        width = int(float(width))
-                        if width < 1:
-                            width = 1
+                        width = int(float(width)) # Ensure width is an integer
+                        if width < 1: width = 1 # Minimum width
                     except (ValueError, TypeError):
-                        width = 5
+                        width = 5 # Default width
+
                     scaled_points = []
                     for point in points:
                         try:
@@ -2232,20 +2238,41 @@ def draw(attachment_id):
                             y = float(point.get('y', 0)) * img_height
                             scaled_points.append((x, y))
                         except (ValueError, TypeError):
-                            continue
-                    if len(scaled_points) < 2:
+                            continue # Skip malformed point
+
+                    if len(scaled_points) < 2: # Need at least two points to draw a line
                         continue
-                    try:
+
+                    try: # Convert hex color to RGB tuple
                         rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
                     except ValueError:
-                        rgb = (0, 0, 0)
-                    draw.line(scaled_points, fill=rgb, width=width, joint='curve')
-                img.save(img_path, quality=95, optimize=True)
-            thumbnail_filename = f'thumb_{os.path.basename(attachment.file_path)}'
-            thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], thumbnail_filename)
-            create_thumbnail(img_path, thumbnail_path)
-            attachment.thumbnail_path = f'images/{thumbnail_filename}'
-            db.session.commit()
+                        rgb = (0, 0, 0) # Default to black if color conversion fails
+
+                    draw_obj.line(scaled_points, fill=rgb, width=width, joint='curve')
+
+                img.save(img_path_on_disk, quality=95, optimize=True)
+
+            # Correct Thumbnail Generation and Path Update:
+            # attachment.thumbnail_path is the relative path for DB, e.g., 'uploads/attachments_img/thumbnails/thumb_filename.png'
+            # thumbnail_save_path_on_disk is the full disk path for saving the new thumbnail.
+            if attachment.thumbnail_path: # Ensure there is a thumbnail path to begin with
+                thumbnail_save_path_on_disk = os.path.join(app.static_folder, attachment.thumbnail_path)
+
+                thumbnail_dir_for_saving = os.path.dirname(thumbnail_save_path_on_disk)
+                if not os.path.exists(thumbnail_dir_for_saving):
+                    os.makedirs(thumbnail_dir_for_saving, exist_ok=True)
+                    logger.info(f"Created thumbnail directory during draw operation: {thumbnail_dir_for_saving}")
+
+                create_thumbnail(img_path_on_disk, thumbnail_save_path_on_disk)
+                # attachment.thumbnail_path already holds the correct DB relative path.
+                # No change needed to attachment.thumbnail_path itself.
+            else:
+                # This case should ideally not happen if thumbnails are always created upon upload.
+                # If it can, decide on a fallback or log a warning.
+                logger.warning(f"Attachment {attachment.id} does not have a thumbnail_path. Cannot update thumbnail after drawing.")
+
+            db.session.commit() # Commit any changes to attachment (though thumbnail_path itself isn't changing here)
+
             if next_url:
                 return jsonify({'status': "success", 'message': 'Drawing saved successfully', 'redirect': next_url})
             return jsonify({'status': 'success', 'message': 'Drawing saved successfully'})
