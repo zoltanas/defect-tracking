@@ -175,6 +175,27 @@ class TestChecklistAsyncFeatures(unittest.TestCase):
         response = self.client.post(url_for('update_checklist_item_status', item_id=9999), json={'is_checked': True})
         self.assertEqual(response.status_code, 404)
 
+    def test_update_status_csrf_protection(self):
+        self._login('user1', 'password1')
+
+        original_csrf_status = app.config['WTF_CSRF_ENABLED']
+        app.config['WTF_CSRF_ENABLED'] = True
+
+        try:
+            response = self.client.post(
+                url_for('update_checklist_item_status', item_id=self.item1.id),
+                json={'is_checked': True}
+                # No X-CSRFToken header intentionally
+            )
+            # When CSRF is enforced and no token is provided, Flask-WTF should return 400
+            self.assertEqual(response.status_code, 400, "Expected 400 error due to missing CSRF token")
+            # Optionally, check response data if a specific error message is expected
+            # For example, if response.data is b'CSRF token missing or incorrect.'
+            # self.assertIn(b"CSRF token missing", response.data) # Adjust based on actual Flask-WTF response
+
+        finally:
+            app.config['WTF_CSRF_ENABLED'] = original_csrf_status
+
     def test_update_comments_success(self):
         self._login('user1', 'password1')
         new_comment_text = "These are updated comments."

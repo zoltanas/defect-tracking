@@ -1,8 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    let csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-    if (!csrfToken) {
-        console.error('JS: CSRF token not found or is empty. AJAX POST/DELETE calls will likely fail due to missing CSRF protection.');
-    }
     const checklistContainer = document.querySelector('div.container > div.bg-white.p-6');
 
     if (!checklistContainer) {
@@ -14,10 +10,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
     }
-
-    // if (!csrfToken) { // This check is now done above and includes an error log
-    //     console.warn('CSRF token not found in meta tag. AJAX requests will likely fail.');
-    // }
 
     function addAttachmentToDOM(itemElement, attachment, isEditMode) {
         const modeClass = isEditMode ? '.item-edit-mode' : '.item-view-mode';
@@ -158,6 +150,17 @@ document.addEventListener('DOMContentLoaded', function() {
     async function updateCheckboxStatus(itemId, checklistItem, checkboxElement) {
         const isChecked = checkboxElement.checked;
 
+        const csrfToken = window.csrfTokenGlobal;
+        if (!csrfToken) {
+            console.error('JS: window.csrfTokenGlobal not found or empty before updating checkbox status. Aborting.');
+            alert('Error: CSRF token (global) not found. Please refresh the page and try again.');
+            // Revert checkbox optimistic update
+            if (checkboxElement) {
+                checkboxElement.checked = !isChecked;
+            }
+            return;
+        }
+
         const fetchOptions = {
             method: 'POST',
             headers: {
@@ -230,11 +233,18 @@ document.addEventListener('DOMContentLoaded', function() {
         let saveOk = true;
 
         try {
+            const csrfTokenComments = window.csrfTokenGlobal;
+            if (!csrfTokenComments) {
+                console.error('JS: window.csrfTokenGlobal not found or empty before saving comments. Aborting save.');
+                alert('Error: CSRF token (global) not found for saving comments. Please refresh and try again.');
+                // Potentially indicate save failure to the user without toggling edit mode
+                return; // Abort the save operation
+            }
             const commentResponse = await fetch(`/checklist_item/${itemId}/update_comments`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
+                    'X-CSRFToken': csrfTokenComments
                 },
                 body: JSON.stringify({ comments: comments })
             });
@@ -257,15 +267,24 @@ document.addEventListener('DOMContentLoaded', function() {
             for (const file of files) {
                 formData.append('photos', file);
             }
-            try {
-                const photoResponse = await fetch(`/checklist_item/${itemId}/add_attachment`, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: formData
-                });
-                if (!photoResponse.ok) {
+
+            const csrfTokenPhotos = window.csrfTokenGlobal;
+            if (!csrfTokenPhotos) {
+                console.error('JS: window.csrfTokenGlobal not found or empty before uploading photos. Aborting photo upload.');
+                alert('Error: CSRF token (global) not found for uploading photos. Please refresh and try again.');
+                saveOk = false; // Indicate that the overall save is not fully successful
+            }
+
+            if (saveOk) { // Proceed only if CSRF token was found (and other conditions met)
+                try {
+                    const photoResponse = await fetch(`/checklist_item/${itemId}/add_attachment`, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': csrfTokenPhotos
+                        },
+                        body: formData
+                    });
+                    if (!photoResponse.ok) {
                     const errorData = await photoResponse.json().catch(() => ({}));
                     throw new Error(errorData.error || `Failed to upload photos (${photoResponse.status})`);
                 }
@@ -282,7 +301,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Error uploading photos:', error.message);
                 saveOk = false;
             }
-        }
+        } // Closing the if(saveOk) for photo upload
+    }
 
         if (saveOk) {
             toggleEditMode(checklistItem, false);
@@ -291,6 +311,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function deleteAttachment(itemId, attachmentId, attachmentElement, checklistItem) {
         if (!confirm('Are you sure you want to delete this attachment?')) return;
+
+        const csrfToken = window.csrfTokenGlobal;
+        if (!csrfToken) {
+            console.error('JS: window.csrfTokenGlobal not found or empty immediately before deleting attachment. Aborting.');
+            alert('Error: CSRF token (global) not found. Please refresh the page and try again.');
+            return;
+        }
 
         try {
             const response = await fetch(`/checklist_item/${itemId}/delete_attachment/${attachmentId}`, {
