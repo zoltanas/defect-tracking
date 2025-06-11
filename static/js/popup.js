@@ -189,7 +189,7 @@ function queueRenderPage(num) {
 }
 
 function onPrevPage() {
-    if (pageNum <= 1) return;
+    if (!pdfDoc || pageNum <= 1) return;
     pageNum--;
     queueRenderPage(pageNum);
 }

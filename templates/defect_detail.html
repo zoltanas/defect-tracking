@@ -259,6 +259,25 @@
         </div>
     </div>
 
+    <div id="pdfViewerModal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="text-xl font-semibold">PDF Viewer</h3>
+                <button id="closePdfModalButton" class="text-black text-2xl">&times;</button>
+            </div>
+            <div class="flex items-center justify-center space-x-2 py-2 border-b">
+                <button id="pdfPrevPage" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Prev</button>
+                <span id="pdfPageNum" class="text-sm"></span> / <span id="pdfPageCount" class="text-sm"></span>
+                <button id="pdfNextPage" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Next</button>
+                <button id="pdfZoomIn" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Zoom In</button>
+                <button id="pdfZoomOut" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">Zoom Out</button>
+            </div>
+            <div id="pdfRenderArea" class="flex-grow overflow-auto py-2">
+                <canvas id="pdfCanvas" class="mx-auto"></canvas>
+            </div>
+        </div>
+    </div>
+
     {% if marker %}
     <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
     <script>
