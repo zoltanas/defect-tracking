@@ -212,7 +212,7 @@
                             <canvas id="staticPdfCanvas" class="absolute top-0 left-0"></canvas>
                             <canvas id="staticMarkerCanvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
                         </div>
-                         <p class="text-sm text-gray-700 mt-2">Drawing: {{ marker.drawing_name if marker.drawing_name else (marker.drawing.name if marker.drawing else 'N/A') }} | Page: {{ marker.page_num if marker.page_num else '1' }} | X: {{ "%.3f"|format(marker.x) if marker.x is not none else 'N/A' }} | Y: {{ "%.3f"|format(marker.y) if marker.y is not none else 'N/A' }}</p>
+                         <p class="text-sm text-gray-700 mt-2">Drawing: {{ marker.drawing_name if marker.drawing_name else 'N/A' }} | Page: {{ marker.page_num if marker.page_num else '1' }} | X: {{ "%.3f"|format(marker.x) if marker.x is not none else 'N/A' }} | Y: {{ "%.3f"|format(marker.y) if marker.y is not none else 'N/A' }}</p>
                     {% else %}
                         <p class="text-sm text-gray-500">No drawing location specified for this defect.</p>
                     {% endif %}
@@ -274,7 +274,7 @@
             </div>
 
             <!-- Add Comment Form Card -->
-            {% if user_role in ['admin', 'expert', 'worker'] %}
+            {% if user_role in ['admin', 'expert', 'worker', 'contractor'] %}
                 <div class="bg-white shadow-lg rounded-lg p-6">
                     <h2 class="text-2xl font-semibold text-gray-700 mb-4">Add Comment</h2>
                     <form method="POST" enctype="multipart/form-data" class="space-y-4">
@@ -378,8 +378,9 @@
                     pdfCanvas.style.display = 'block';
 
                     const markerData = {{ marker | tojson }};
-                    // console.log('Marker data:', markerData); // Original log
-                    console.log("Static display - markerData from template:", markerData);
+                    console.log("Static display - User role:", "{{ user_role }}");
+                    console.log("Static display - Marker data from template:", markerData);
+                    if (markerData) { console.log("Static display - Marker file_path:", markerData.file_path); }
                     if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
                         ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
                         // Use a more visible marker style
