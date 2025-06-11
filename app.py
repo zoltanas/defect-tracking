@@ -554,6 +554,11 @@ def project_detail(project_id):
         return redirect(url_for('index'))
     filter_status = request.args.get('filter', 'All')
     defects_query = Defect.query.filter_by(project_id=project_id)
+
+    # Add this condition for expert users
+    if current_user.role == 'expert':
+        defects_query = defects_query.filter_by(creator_id=current_user.id)
+
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
     elif filter_status == 'Closed':
@@ -817,6 +822,13 @@ def defect_detail(defect_id):
             flash('You do not have access to this defect.', 'error')
             return redirect(url_for('index'))
 
+        # ADD THIS CHECK FOR EXPERT USER VIEWING PERMISSION
+        if current_user.role == 'expert' and defect.creator_id != current_user.id:
+            logger.warning(f"Expert user {current_user.id} attempted to view defect {defect_id} created by {defect.creator_id}.")
+            flash('You do not have permission to view this defect as it was not created by you.', 'error')
+            return redirect(url_for('project_detail', project_id=defect.project_id))
+        # END OF ADDED CHECK
+
         # Handle POST requests
         if request.method == 'POST':
             action = request.form.get('action')
@@ -903,6 +915,13 @@ def defect_detail(defect_id):
                 if access.role not in ['admin', 'expert']:
                     flash('You do not have permission to edit defects.', 'error')
                     return redirect(url_for('defect_detail', defect_id=defect_id))
+
+                # ADD THIS CHECK FOR EXPERT USER EDITING PERMISSION
+                if current_user.role == 'expert' and defect.creator_id != current_user.id:
+                    logger.warning(f"Expert user {current_user.id} attempted to edit defect {defect_id} created by {defect.creator_id}.")
+                    flash('You do not have permission to edit this defect as it was not created by you.', 'error')
+                    return redirect(url_for('defect_detail', defect_id=defect_id))
+                # END OF ADDED CHECK
 
                 error_occurred = False
                 
