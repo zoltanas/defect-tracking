@@ -228,9 +228,9 @@
                     } else {
                         {% if attachment.defect_id %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.defect_id) }}';
-                        {% elif attachment.checklist_item_id and attachment.checklist_item and attachment.checklist_item.checklist %}
+                                {% elif attachment.checklist_item_id and attachment.checklist_item and attachment.checklist_item.checklist and attachment.checklist_item.checklist.id %}
                             window.location.href = '{{ url_for("checklist_detail", checklist_id=attachment.checklist_item.checklist.id) }}';
-                        {% elif attachment.comment_id and attachment.comment %}
+                                {% elif attachment.comment_id and attachment.comment and attachment.comment.defect_id %}
                             window.location.href = '{{ url_for("defect_detail", defect_id=attachment.comment.defect_id) }}';
                         {% else %}
                             // Fallback if the context is unknown, though next_url should ideally be set

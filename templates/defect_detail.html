@@ -324,149 +324,209 @@
         // or if there's a general need to display a static marker.
         // It targets: staticPdfContainer, staticPdfStatus, staticPdfCanvas, staticMarkerCanvas
         const staticPdfContainer = document.getElementById('staticPdfContainer');
-        if (staticPdfContainer) { // Check if the static container exists on the page
-            console.log("Static marker display script executing.");
+        if (staticPdfContainer) {
+            console.log("DEFECT_DETAIL_STATIC_PDF: Script execution started for static PDF preview.");
             try {
                 const pdfStatusEl = document.getElementById('staticPdfStatus');
                 const pdfCanvas = document.getElementById('staticPdfCanvas');
                 const markerCanvas = document.getElementById('staticMarkerCanvas');
                 
                 if (!pdfStatusEl || !pdfCanvas || !markerCanvas) {
-                    throw new Error("One or more static canvas/container elements not found for static display.");
+                    console.error("DEFECT_DETAIL_STATIC_PDF: Critical elements missing (pdfStatusEl, pdfCanvas, or markerCanvas).");
+                    throw new Error("Essential PDF display elements are missing from the page.");
                 }
                 const ctx = markerCanvas.getContext('2d');
 
-            let pdfDoc = null;
-            let pageNum = 1; // Default to first page
-            let currentScale = 1; // Store current scale
+                let pdfDoc = null;
+                let pageNum = 1; // Default to first page
+                let currentScale = 1; // Store current scale
 
-            function updateStatus(message, isLoading = false) {
-                console.log('Status:', message);
-                if (isLoading) {
-                    pdfStatusEl.innerHTML = `
-                        <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        ${message}`;
-                } else {
-                    pdfStatusEl.textContent = message;
-                }
-                pdfStatusEl.style.display = message ? 'flex' : 'none'; // Use flex for centering spinner
-                 pdfCanvas.style.display = message ? 'none' : 'block'; // Hide canvas when status is shown
-            }
+                // Marker data from Flask template - this is already available in this scope
+                // const markerData = {{ marker|tojson|safe }}; // Already present, just for reference
 
-            function renderPage(page) {
-                const viewport = page.getViewport({ scale: currentScale });
-                // console.log('Viewport dimensions:', { width: viewport.width, height: viewport.height }); // Original log, can be kept or removed
+                function updateStatus(message, isLoading = false) {
+                    console.log(`DEFECT_DETAIL_STATIC_PDF: updateStatus - Message: "${message}", isLoading: ${isLoading}`);
+                    if (pdfStatusEl) {
+                        if (isLoading) {
+                            pdfStatusEl.innerHTML = `
+                                <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                ${message}`;
+                            pdfStatusEl.style.color = ''; // Reset color for loading messages
+                        } else {
+                            pdfStatusEl.textContent = message;
+                        }
+                        pdfStatusEl.style.display = message ? 'flex' : 'none';
+                        if (pdfCanvas) pdfCanvas.style.display = message && !message.toLowerCase().includes("error drawing") ? 'none' : 'block'; // Hide canvas if loading, show if error or success
 
-                // pdfContainer is already responsive via Tailwind's w-full and h-[...]
-                // Set canvas dimensions based on viewport
-                pdfCanvas.width = viewport.width;
-                pdfCanvas.height = viewport.height;
-                markerCanvas.width = viewport.width;
-                markerCanvas.height = viewport.height;
-
-                const renderContext = {
-                    canvasContext: pdfCanvas.getContext('2d'),
-                    viewport: viewport
-                };
-
-                page.render(renderContext).promise.then(() => {
-                    updateStatus('');
-                    pdfCanvas.style.display = 'block';
-
-                    const markerData = {{ marker | tojson }};
-
-                    if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
-                        ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
-                        const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015);
-                        const markerX = markerData.x * viewport.width;
-                        const markerY = markerData.y * viewport.height;
-                        // Original console.log for rendering page and marker drawn at are kept commented for now
-                        // console.log("Static display - rendering page:", page, "Marker X:", markerX, "Marker Y:", markerY);
-                        ctx.beginPath();
-                        ctx.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
-                        ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
-                        ctx.fill();
-                        ctx.lineWidth = Math.max(1, markerRadius * 0.2);
-                        ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-                        ctx.stroke();
-                        // console.log('Marker drawn at:', { x: markerX, y: markerY });
+                        if (!isLoading && message && message.toLowerCase().includes("error")) {
+                             pdfStatusEl.style.display = 'flex';
+                             pdfStatusEl.style.color = 'red';
+                        }
                     } else {
-                        console.warn('Invalid or missing marker data for drawing (Step 1 re-add):', markerData);
+                        console.warn("DEFECT_DETAIL_STATIC_PDF: updateStatus - pdfStatusEl is null.");
                     }
-                }).catch(error => {
-                    console.error('Error rendering PDF page:', error);
-                    console.log("Static display - error rendering PDF page:", error); // Added error log
-                    updateStatus('Error rendering PDF: ' + error.message);
-                });
-            }
-            
-            function calculateScaleAndRender(pdfPage) {
-                 // Calculate scale to fit width, then set height dynamically
-                const pageWidth = pdfPage.getViewport({ scale: 1 }).width;
-                currentScale = pdfContainer.clientWidth / pageWidth;
-                
-                // Update container height based on scaled PDF page height to maintain aspect ratio
-                const scaledViewport = pdfPage.getViewport({ scale: currentScale });
-                pdfContainer.style.height = `${scaledViewport.height}px`;
-
-                console.log('Calculated scale:', currentScale, 'Container clientWidth:', pdfContainer.clientWidth);
-                renderPage(pdfPage);
-            }
-
-            function loadPDF() {
-                const markerData = {{ marker | tojson }}; // Use markerData for clarity
-                if (!markerData || !markerData.file_path) {
-                    console.warn('No valid file_path in marker:', markerData);
-                    updateStatus('No drawing available for this defect.');
-                    return;
                 }
-                const pdfUrl = `/static/${markerData.file_path}`; // Ensure this path is correct
-                // console.log('Attempting to load PDF from:', pdfUrl); // Original log
-                console.log("Static display - pdfUrl:", pdfUrl);
-                updateStatus('Loading PDF...', true);
 
-                pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
-                    pdfDoc = pdf;
-                    // console.log('PDF document loaded, pages:', pdf.numPages); // Original log
-                    // Use page number from marker if available, otherwise default to 1
-                    pageNum = markerData.page_num || 1; 
-                    if (pageNum > pdfDoc.numPages) {
-                        console.warn(`Marker page_num ${pageNum} exceeds PDF pages ${pdfDoc.numPages}. Defaulting to page 1.`);
-                        pageNum = 1;
+                function renderPage(page) {
+                    console.log("DEFECT_DETAIL_STATIC_PDF: renderPage - Starting for page number:", page.pageNumber);
+                    try {
+                        const viewport = page.getViewport({ scale: currentScale });
+                        pdfCanvas.width = viewport.width;
+                        pdfCanvas.height = viewport.height;
+                        markerCanvas.width = viewport.width;
+                        markerCanvas.height = viewport.height;
+
+                        const renderContext = {
+                            canvasContext: pdfCanvas.getContext('2d'),
+                            viewport: viewport
+                        };
+                        console.log("DEFECT_DETAIL_STATIC_PDF: renderPage - Calling page.render().");
+                        page.render(renderContext).promise.then(() => {
+                            console.log("DEFECT_DETAIL_STATIC_PDF: renderPage - page.render() successful.");
+                            updateStatus(''); // Clear loading message
+                            pdfCanvas.style.display = 'block';
+
+                            const markerData = {{ marker | tojson }}; // Re-fetch or use global if sure it's unchanged
+                            console.log("DEFECT_DETAIL_STATIC_PDF: renderPage - Marker data for drawing:", markerData);
+
+                            if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number' && markerData.page_num === page.pageNumber) {
+                                ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
+                                const markerRadius = Math.max(5, Math.min(viewport.width, viewport.height) * 0.015);
+                                const markerX = markerData.x * viewport.width;
+                                const markerY = markerData.y * viewport.height;
+                                console.log("DEFECT_DETAIL_STATIC_PDF: renderPage - Drawing marker at (scaled coords): X=", markerX, "Y=", markerY);
+                                ctx.beginPath();
+                                ctx.arc(markerX, markerY, markerRadius, 0, 2 * Math.PI, false);
+                                ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+                                ctx.fill();
+                                ctx.lineWidth = Math.max(1, markerRadius * 0.2);
+                                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                                ctx.stroke();
+                            } else {
+                                console.warn('DEFECT_DETAIL_STATIC_PDF: renderPage - Invalid or missing marker coordinates, or marker not for this page.', markerData);
+                            }
+                        }).catch(renderError => {
+                            console.error('DEFECT_DETAIL_STATIC_PDF: renderPage - Error during page.render() promise:', renderError);
+                            updateStatus('Error rendering PDF page content: ' + (renderError.message || String(renderError)));
+                        });
+                    } catch (e) {
+                        console.error('DEFECT_DETAIL_STATIC_PDF: renderPage - Synchronous error:', e);
+                        updateStatus('Critical error displaying PDF page: ' + (e.message || String(e)));
                     }
-                    return pdfDoc.getPage(pageNum);
-                }).then(page => {
-                    // console.log(`PDF page ${pageNum} loaded`); // Original log
-                    calculateScaleAndRender(page);
-                     // Add resize listener after initial load
-                    window.addEventListener('resize', () => {
-                        // Recalculate scale and re-render on resize
-                        // Debounce this if it causes performance issues
-                        // console.log('Window resized, recalculating scale and re-rendering.'); // Original log
-                        calculateScaleAndRender(page); // Re-use the loaded page object
-                    });
-                }).catch(error => {
-                    console.error('Error loading PDF:', error);
-                    console.log("Static display - error loading PDF:", error); // Added error log
-                    updateStatus('Error loading PDF: ' + (error.message || 'Unknown error'));
-                });
-            }
-            
-            // console.log('Initializing defect_detail page PDF rendering'); // Original log
-            loadPDF();
+                }
 
-        } catch (error) {
-            console.error('General error in defect_detail JavaScript:', error);
-            console.log("Static display - general error in script:", error); // Added error log
-            const statusEl = document.getElementById('pdfStatus'); // This ID seems to be from an older version, staticPdfStatus is used above
-            const actualStatusEl = document.getElementById('staticPdfStatus') || statusEl; // Try the correct one first
-            if (actualStatusEl) {
-                actualStatusEl.textContent = 'Error initializing drawing viewer: ' + (error.message || 'Unknown error');
-                actualStatusEl.style.display = 'flex'; // Use flex for centering
+                function calculateScaleAndRender(pdfPage) {
+                    console.log("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - Starting for page", pdfPage ? pdfPage.pageNumber : 'N/A');
+                    if (!staticPdfContainer) {
+                        console.error("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - staticPdfContainer is null.");
+                        updateStatus("Error: PDF display container missing.");
+                        return;
+                    }
+                     if (!pdfPage) {
+                        console.error("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - pdfPage is null.");
+                        updateStatus("Error: PDF page data missing for scaling.");
+                        return;
+                    }
+                    // Calculate scale to fit width, then set height dynamically
+                    const pageWidth = pdfPage.getViewport({ scale: 1 }).width;
+                    currentScale = staticPdfContainer.clientWidth / pageWidth; // Changed pdfContainer to staticPdfContainer
+
+                    const scaledViewport = pdfPage.getViewport({ scale: currentScale });
+                    staticPdfContainer.style.height = `${scaledViewport.height}px`; // Changed pdfContainer to staticPdfContainer
+
+                    console.log('DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - Calculated scale:', currentScale, 'Container clientWidth:', staticPdfContainer.clientWidth);
+                    renderPage(pdfPage);
+                }
+
+                function loadPDF() {
+                    console.log("DEFECT_DETAIL_STATIC_PDF: loadPDF - Starting.");
+                    const markerData = {{ marker | tojson }}; // Use markerData for clarity
+                    console.log("DEFECT_DETAIL_STATIC_PDF: loadPDF - Marker data from template:", markerData);
+
+                    if (!markerData || typeof markerData !== 'object') {
+                        console.warn('DEFECT_DETAIL_STATIC_PDF: loadPDF - markerData is null, undefined, or not an object.', markerData);
+                        updateStatus('Drawing data is unavailable.');
+                        return;
+                    }
+                    if (!markerData.file_path || typeof markerData.file_path !== 'string') {
+                        console.warn('DEFECT_DETAIL_STATIC_PDF: loadPDF - No valid file_path in markerData:', markerData.file_path);
+                        updateStatus('No drawing file specified for this defect.');
+                        return;
+                    }
+
+                    let rawFilePath = markerData.file_path;
+                    if (rawFilePath.startsWith('/static/')) {
+                        rawFilePath = rawFilePath.substring('/static/'.length);
+                    }
+                    // This logic for drawings/ prefix might need adjustment based on actual file_path structure
+                    if (!rawFilePath.startsWith('drawings/')) {
+                        const parts = rawFilePath.split('/');
+                        const fileName = parts.pop();
+                        if (parts.length > 0 && parts[0] === 'drawings') {
+                           // Path was like 'drawings/subfolder/file.pdf', already handled by outer if or doesn't need 'drawings/' prefix
+                        } else { // e.g. 'file.pdf' or 'some_other_folder/file.pdf'
+                            rawFilePath = 'drawings/' + fileName;
+                        }
+                    }
+                    const pdfUrl = `/static/${rawFilePath.startsWith('/') ? rawFilePath.substring(1) : rawFilePath}`;
+                    console.log("DEFECT_DETAIL_STATIC_PDF: loadPDF - Attempting to load PDF from URL:", pdfUrl);
+                    updateStatus('Loading PDF...', true);
+
+                    pdfjsLib.getDocument(pdfUrl).promise.then(loadedPdf => {
+                        pdfDoc = loadedPdf;
+                        console.log('DEFECT_DETAIL_STATIC_PDF: loadPDF - PDF document loaded. Total pages:', pdfDoc.numPages);
+                        pageNum = markerData.page_num || 1;
+                        if (pageNum > pdfDoc.numPages || pageNum < 1) {
+                            console.warn(`DEFECT_DETAIL_STATIC_PDF: Requested page ${pageNum} is out of range (Total: ${pdfDoc.numPages}). Defaulting to page 1.`);
+                            pageNum = 1;
+                        }
+                        console.log("DEFECT_DETAIL_STATIC_PDF: loadPDF - Attempting to get page:", pageNum);
+                        return pdfDoc.getPage(pageNum);
+                    }).then(page => {
+                        console.log("DEFECT_DETAIL_STATIC_PDF: loadPDF - PDF page", pageNum, "loaded successfully.");
+                        calculateScaleAndRender(page);
+                        let resizeTimeout;
+                        window.addEventListener('resize', () => {
+                            clearTimeout(resizeTimeout);
+                            resizeTimeout = setTimeout(() => {
+                                if (pdfDoc && pdfDoc.getPage) { // Check if pdfDoc is still valid and has getPage
+                                    pdfDoc.getPage(pageNum).then(calculateScaleAndRender).catch(pageError => {
+                                        console.error("DEFECT_DETAIL_STATIC_PDF: Error getting page on resize:", pageError);
+                                        updateStatus("Error processing PDF on resize: " + (pageError.message || String(pageError)));
+                                    });
+                                } else {
+                                    console.warn("DEFECT_DETAIL_STATIC_PDF: pdfDoc not available for resize handling.");
+                                }
+                            }, 250);
+                        });
+                    }).catch(error => {
+                        console.error('DEFECT_DETAIL_STATIC_PDF: loadPDF - Error during getDocument or getPage promise chain:', error);
+                        let errorMessage = 'Unknown error';
+                        if (error && error.message) errorMessage = error.message;
+                        else if (error && typeof error === 'string') errorMessage = error;
+                        else if (error && error.name === 'MissingPDFException') errorMessage = 'PDF file not found or could not be loaded.';
+                        else if (error && error.name === 'InvalidPDFException') errorMessage = 'Invalid or corrupted PDF file.';
+                        else if (error && error.status === 404) errorMessage = 'PDF file not found (404). Check path: ' + pdfUrl;
+                        updateStatus('Error loading PDF document: ' + errorMessage);
+                    });
+                }
+
+                loadPDF();
+
+            } catch (outerError) {
+                console.error("DEFECT_DETAIL_STATIC_PDF: General synchronous error in static PDF script setup:", outerError);
+                // Use updateStatus if available and elements are there, otherwise alert.
+                if (typeof updateStatus === 'function' && document.getElementById('staticPdfStatus')) {
+                     updateStatus('Fatal error initializing PDF preview: ' + (outerError.message || String(outerError)));
+                } else {
+                    alert('A critical error occurred setting up the PDF preview. Please refresh the page or contact support if the issue persists.');
+                }
             }
+        } else {
+             console.warn("DEFECT_DETAIL_STATIC_PDF: staticPdfContainer element was not found in the DOM... PDF preview cannot be initialized.");
         }
     </script>
     {% endif %}
