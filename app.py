@@ -1287,7 +1287,7 @@ def add_checklist(project_id):
         return redirect(url_for('project_detail', project_id=project_id, _anchor='checklists'))
     return render_template('add_checklist.html', project=project, templates=templates)
 
-@app.route('/checklist/<int:checklist_id>', methods=['GET', 'POST'])
+@app.route('/checklist/<int:checklist_id>', methods=['GET']) # Removed POST from methods
 @login_required
 def checklist_detail(checklist_id):
     checklist = db.session.get(Checklist, checklist_id)
@@ -1299,97 +1299,221 @@ def checklist_detail(checklist_id):
         flash('You do not have access to this checklist.', 'error')
         return redirect(url_for('index'))
     items = ChecklistItem.query.filter_by(checklist_id=checklist_id).all()
-    if request.method == 'POST':
-        logger.debug(f'Received POST for checklist {checklist_id}')
-        logger.debug(f"Request.files content at start of POST: {request.files}") # New log
-        try:
-            for item in items:
-                checked_key = f'item_{item.id}_checked'
-                comments_key = f'item_{item.id}_comments'
-                # New logs for item and key
-                logger.debug(f"Processing item {item.id}. Attempting to get files with key: item_{item.id}_photos")
-                photos_key = f'item_{item.id}_photos'
-                files = request.files.getlist(photos_key)
-                logger.debug(f"Files found for key '{photos_key}': {files}") # New log
-                item.is_checked = checked_key in request.form
-                item.comments = request.form.get(comments_key, '').strip()
-                attachment_ids = []
-                for file in files:
-                    # New logging statements
-                    logger.debug(f"Processing uploaded file object: {file}")
-                    if file: # Check if file object itself is not None
-                        logger.debug(f"Uploaded file.filename: {file.filename}")
-                        logger.debug(f"Result of allowed_file for '{file.filename}': {allowed_file(file.filename)}")
-                    else:
-                        logger.debug("Uploaded file object is None or falsey.")
-
-                    if file and allowed_file(file.filename):
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        filename = secure_filename(f'checklist_{item.id}_{timestamp}_{file.filename}')
-                        # Path for storing in DB (relative to static folder)
-                        db_file_path = os.path.join('images', filename)
-                        disk_save_full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                        
-                        thumbnail_dir = ensure_thumbnail_directory()
-                        thumbnail_filename_base = f'thumb_{filename}'
-                        thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
-                        db_thumbnail_path = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
-
-                        # Logging paths
-                        logger.debug(f"Original image disk save full path: {disk_save_full_path}")
-                        logger.debug(f"Thumbnail image disk path: {thumbnail_disk_path}")
-                        logger.debug(f"DB file path for attachment: {db_file_path}")
-                        logger.debug(f"DB thumbnail path for attachment: {db_thumbnail_path}")
-
-                        try:
-                            logger.info(f"Processing file: {file.filename} for checklist item {item.id}")
-                            img = PILImage.open(file) 
-                            img = ImageOps.exif_transpose(img)
-                            img = img.convert('RGB')
-
-                            logger.info(f"Attempting to save original image to: {disk_save_full_path}")
-                            img.save(disk_save_full_path, quality=85, optimize=True)
-                            os.chmod(disk_save_full_path, 0o644)
-                            logger.info(f"Successfully saved original image to: {disk_save_full_path}")
-
-                            logger.info(f"Attempting to create thumbnail: {thumbnail_disk_path} from {disk_save_full_path}")
-                            create_thumbnail(disk_save_full_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
-                            logger.info(f"Successfully created thumbnail: {thumbnail_disk_path}")
-
-                            logger.info(f"Creating attachment record with db_file_path: {db_file_path}, db_thumbnail_path: {db_thumbnail_path}")
-                            attachment = Attachment(
-                                checklist_item_id=item.id,
-                                file_path=db_file_path, 
-                                thumbnail_path=db_thumbnail_path 
-                            )
-                            db.session.add(attachment)
-                            db.session.commit() # Commit for this specific attachment
-                            logger.info(f"Successfully committed attachment {attachment.id} for item {item.id}")
-
-                            attachment_ids.append(attachment.id)
-                        except Exception as e:
-                            flash(f'Error uploading file {file.filename}: {str(e)}', 'error')
-                            logger.error(f'Error uploading file {file.filename} for item {item.id}: {str(e)}', exc_info=True)
-                            db.session.rollback()
-                            continue
-                if attachment_ids:
-                    # Redirect to draw the first uploaded image
-                    # This part remains outside the file loop, but uses the collected attachment_ids
-                    return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('checklist_detail', checklist_id=checklist_id)))
-
-            # The main commit for item.is_checked and item.comments happens after processing all files for that item
-            db.session.commit()
-            flash('Checklist updated successfully!', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash(f'Error updating checklist: {str(e)}', 'error')
-            logger.error(f'Error updating checklist {checklist_id}: {str(e)}')
-            return redirect(url_for('checklist_detail', checklist_id=checklist_id))
-        return redirect(url_for('project_detail', project_id=checklist.project.id, _anchor='checklists'))
+    # The POST block that handled form submission for all items has been removed.
+    # All updates will be handled by the new AJAX routes.
     project = checklist.project
     return render_template('checklist_detail.html', checklist=checklist, items=items, project=project)
 
-@app.route('/checklist/<int:checklist_id>/delete', methods=['POST'])
+# --- New AJAX routes for Checklist Item Updates ---
+
+@app.route('/checklist_item/<int:item_id>/update_status', methods=['POST'])
+@login_required
+def update_checklist_item_status(item_id):
+    item = db.session.get(ChecklistItem, item_id)
+    if not item:
+        return jsonify(success=False, error='Checklist item not found.'), 404
+
+    checklist = db.session.get(Checklist, item.checklist_id)
+    if not checklist:
+        return jsonify(success=False, error='Associated checklist not found.'), 404 # Should not happen
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
+    if not access:
+        return jsonify(success=False, error='Access denied to this project.'), 403
+
+    data = request.get_json(force=True, silent=True) # Kept force=True, silent=True
+    if data is None:
+        # Retain a simpler error message if JSON parsing fails or content is not JSON
+        app.logger.error(f"PY update_checklist_item_status: Failed to parse JSON or no JSON data for item {item_id}. Request Content-Type: {request.content_type}")
+        return jsonify(success=False, error='Invalid request: No JSON data or incorrect Content-Type.'), 400
+
+    if 'is_checked' not in data:
+        return jsonify(success=False, error='Missing is_checked status in request.'), 400
+
+    is_checked_from_request = data.get('is_checked')
+    item.is_checked = bool(is_checked_from_request) # Ensure it's a boolean
+    db.session.add(item)
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"PY update_checklist_item_status: Error during DB commit for item {item_id}: {str(e)}", exc_info=True)
+        return jsonify(success=False, message="Database error during update."), 500
+
+    updated_item_check = db.session.get(ChecklistItem, item_id) # Re-fetch to confirm
+    if not updated_item_check:
+        app.logger.error(f"PY update_checklist_item_status: Item {item_id} NOT FOUND after commit. Critical error.")
+        return jsonify(success=False, message="Failed to confirm update, item not found after commit."), 500
+
+    response_new_status = updated_item_check.is_checked
+    return jsonify(success=True, message='Status updated', new_status=response_new_status)
+
+@app.route('/checklist_item/<int:item_id>/update_comments', methods=['POST'])
+@login_required
+def update_checklist_item_comments(item_id):
+    item = db.session.get(ChecklistItem, item_id)
+    if not item:
+        return jsonify(success=False, error='Checklist item not found.'), 404
+
+    checklist = db.session.get(Checklist, item.checklist_id)
+    if not checklist:
+        return jsonify(success=False, error='Associated checklist not found.'), 404
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
+    if not access:
+        return jsonify(success=False, error='Access denied to this project.'), 403
+
+    data = request.get_json()
+    if data is None or 'comments' not in data:
+        return jsonify(success=False, error='Missing comments in request.'), 400
+
+    try:
+        item.comments = data['comments'].strip()
+        db.session.commit()
+        logger.info(f"Checklist item {item_id} comments updated by user {current_user.id}")
+        return jsonify(success=True, message='Comments updated', new_comments=item.comments)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating checklist item {item_id} comments: {str(e)}", exc_info=True)
+        return jsonify(success=False, error='Server error updating comments.'), 500
+
+@app.route('/checklist_item/<int:item_id>/add_attachment', methods=['POST'])
+@login_required
+def add_checklist_item_attachment(item_id):
+    item = db.session.get(ChecklistItem, item_id)
+    if not item:
+        return jsonify(success=False, error='Checklist item not found.'), 404
+
+    checklist = db.session.get(Checklist, item.checklist_id)
+    if not checklist:
+        return jsonify(success=False, error='Associated checklist not found.'), 404
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
+    if not access: # Any user with project access can add attachments for now
+        return jsonify(success=False, error='Access denied to this project.'), 403
+
+    if 'photos' not in request.files:
+        return jsonify(success=False, error='No photo files part in the request.'), 400
+
+    files = request.files.getlist('photos')
+    if not files or all(f.filename == '' for f in files):
+        return jsonify(success=False, error='No selected files.'), 400
+
+    new_attachments_data = []
+
+    for file in files:
+        if file and allowed_file(file.filename):
+            mime_type = file.content_type
+            if not mime_type.startswith('image/'):
+                logger.warning(f"Skipping non-image file {file.filename} for checklist item {item_id}")
+                continue # Skip non-image files
+
+            try:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
+                original_filename_secure = secure_filename(file.filename)
+                unique_filename_base = f"checklistitem_{item.id}_{timestamp}_{original_filename_secure}"
+
+                # Using 'attachments_img' subfolder within 'static/uploads/'
+                img_dir, thumb_dir = ensure_attachment_paths('attachments_img')
+
+                original_save_path = os.path.join(img_dir, unique_filename_base)
+                file.seek(0)
+                file.save(original_save_path)
+                os.chmod(original_save_path, 0o644)
+                # DB path relative to 'static' folder
+                db_file_path = os.path.join('uploads', 'attachments_img', unique_filename_base)
+
+                thumbnail_filename = f"thumb_{unique_filename_base}"
+                thumbnail_save_path = os.path.join(thumb_dir, thumbnail_filename)
+                create_thumbnail(original_save_path, thumbnail_save_path)
+                # DB path relative to 'static' folder
+                db_thumbnail_path = os.path.join('uploads', 'attachments_img', 'thumbnails', thumbnail_filename)
+
+                attachment = Attachment(
+                    checklist_item_id=item.id,
+                    file_path=db_file_path,
+                    thumbnail_path=db_thumbnail_path,
+                    mime_type=mime_type
+                )
+                db.session.add(attachment)
+                db.session.commit() # Commit each attachment to get its ID
+
+                new_attachments_data.append({
+                    'id': attachment.id,
+                    'thumbnail_url': url_for('static', filename=attachment.thumbnail_path),
+                    'original_url': url_for('static', filename=attachment.file_path)
+                })
+                logger.info(f"Attachment {attachment.id} added to checklist item {item_id} by user {current_user.id}")
+
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Error adding attachment to checklist item {item_id}: {str(e)}", exc_info=True)
+                # Continue to next file if one fails
+                # Consider returning partial success or specific errors per file
+        elif file: # File present but not allowed
+             logger.warning(f"File type not allowed for {file.filename} for checklist item {item_id}")
+
+
+    if not new_attachments_data:
+        return jsonify(success=False, error='No valid image files processed.'), 400
+
+    return jsonify(success=True, message=f'{len(new_attachments_data)} attachment(s) added.', attachments=new_attachments_data)
+
+@app.route('/checklist_item/<int:item_id>/delete_attachment/<int:attachment_id>', methods=['POST']) # Using POST for simplicity with JS fetch
+@login_required
+def delete_checklist_item_attachment_ajax(item_id, attachment_id): # Renamed to avoid conflict with existing route
+    attachment = db.session.get(Attachment, attachment_id)
+    if not attachment:
+        return jsonify(success=False, error='Attachment not found.'), 404
+
+    # Verify attachment belongs to the item_id
+    if attachment.checklist_item_id != item_id:
+        return jsonify(success=False, error='Attachment does not belong to this checklist item.'), 400
+
+    item = db.session.get(ChecklistItem, item_id)
+    if not item: # Should be redundant if attachment.checklist_item_id is valid
+        return jsonify(success=False, error='Checklist item not found.'), 404
+
+    checklist = db.session.get(Checklist, item.checklist_id)
+    if not checklist:
+        return jsonify(success=False, error='Associated checklist not found.'), 404
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
+    if not access: # Any user with project access can delete for now, adjust if needed
+        return jsonify(success=False, error='Access denied to this project.'), 403
+
+    try:
+        # Delete physical files (original and thumbnail)
+        # Paths are relative to 'static' folder, e.g., 'uploads/attachments_img/file.jpg'
+        if attachment.file_path:
+            full_file_path = os.path.join(app.static_folder, attachment.file_path)
+            if os.path.exists(full_file_path):
+                os.remove(full_file_path)
+                logger.info(f"Deleted file: {full_file_path}")
+            else:
+                logger.warning(f"Attachment file not found for deletion: {full_file_path}")
+
+        if attachment.thumbnail_path:
+            full_thumbnail_path = os.path.join(app.static_folder, attachment.thumbnail_path)
+            if os.path.exists(full_thumbnail_path):
+                os.remove(full_thumbnail_path)
+                logger.info(f"Deleted thumbnail: {full_thumbnail_path}")
+            else:
+                logger.warning(f"Attachment thumbnail not found for deletion: {full_thumbnail_path}")
+
+        db.session.delete(attachment)
+        db.session.commit()
+        logger.info(f"Attachment {attachment_id} deleted from checklist item {item_id} by user {current_user.id}")
+        return jsonify(success=True, message='Attachment deleted successfully.')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting attachment {attachment_id} from checklist item {item_id}: {str(e)}", exc_info=True)
+        return jsonify(success=False, error='Server error deleting attachment.'), 500
+
+# --- End of new AJAX routes ---
+
+@app.route('/checklist/<int:checklist_id>', methods=['GET']) # Removed POST from methods
 @login_required
 def delete_checklist(checklist_id):
     checklist = db.session.get(Checklist, checklist_id)

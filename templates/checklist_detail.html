@@ -1,5 +1,11 @@
 {% extends "layout.html" %}
-{% block title %}Checklist: {{ checklist.name }}{% endblock %}
+
+{% block head %}
+    {{ super() if super }} {# Include this if layout.html has a head block you want to inherit #}
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}Checklist: {{ checklist.name }}{% endblock %}</title> {# Ensure title block is still effective #}
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto py-8 px-4 sm:px-6 lg:px-8">
    <!-- Header: Project Title and Back Button -->
@@ -11,65 +17,107 @@
    </div>
 
     {% if items %}
-        <form method="POST" action="{{ url_for('checklist_detail', checklist_id=checklist.id) }}" enctype="multipart/form-data" class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
+        {# Removed main form tag and Save All Changes button #}
+        {# CSRF token will need to be handled per AJAX request later #}
+        <div class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
             <h2 class="text-2xl font-semibold text-gray-700 mb-6">{{ checklist.name }}</h2>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {# <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> #} {# Removed, will be handled with JS AJAX #}
             
             <div class="space-y-6">
                 {% for item in items %}
-                <div class="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                        <div class="flex-grow mb-3 sm:mb-0">
-                            <label for="item_{{ item.id }}_checked" class="flex items-center cursor-pointer">
-                                <input type="checkbox" name="item_{{ item.id }}_checked" id="item_{{ item.id }}_checked" 
-                                       class="h-5 w-5 text-primary rounded border-gray-300 focus:ring-primary"
-                                       {% if item.is_checked %}checked{% endif %}>
-                                <span class="ml-3 text-md text-gray-700">{{ item.item_text }}</span>
-                            </label>
+                {# Main container for each checklist item, with data attributes for JS interaction #}
+                <div class="checklist-item p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-item-id="{{ item.id }}" data-mode="view">
+
+                    {# View Mode Structure (Default) #}
+                    <div class="item-view-mode">
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between">
+                            <div class="flex-grow mb-3 sm:mb-0">
+                                <label for="item_{{ item.id }}_checked_view" class="flex items-center cursor-pointer">
+                                    <input type="checkbox" name="item_{{ item.id }}_checked_view" id="item_{{ item.id }}_checked_view"
+                                           class="h-5 w-5 text-primary rounded border-gray-300 focus:ring-primary"
+                                           {% if item.is_checked %}checked{% endif %}>
+                                    <span class="ml-3 text-md text-gray-700">{{ item.item_text }}</span>
+                                </label>
+                            </div>
+                            <div class="w-full sm:w-auto sm:ml-4 flex-shrink-0">
+                                <button type="button" class="edit-item-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs">Edit</button>
+                            </div>
                         </div>
-                        <div class="w-full sm:w-auto sm:ml-4 flex-shrink-0">
-                            {# Add other controls like status select if needed per original design #}
+                        <div class="item-comments-view text-gray-600 text-sm mt-2 pl-8"> {# pl-8 to align with checkbox text #}
+                            {{ item.comments if item.comments else '' }}
+                        </div>
+                        <div class="mt-3 pl-8"> {# pl-8 to align with checkbox text #}
+                            {% set item_attachments = item.attachments %}
+                            {% if item_attachments %}
+                                <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                    {% for attachment in item_attachments %}
+                                    <div role="button"
+                                         class="w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150"
+                                         onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');">
+                                        <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}"
+                                             alt="Thumbnail for attachment {{ attachment.id }}"
+                                             class="max-w-full max-h-full object-contain pointer-events-none">
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <label for="item_{{ item.id }}_comments" class="block text-sm font-medium text-gray-600 mb-1">Comments:</label>
-                        <textarea name="item_{{ item.id }}_comments" id="item_{{ item.id }}_comments" rows="2"
-                                  class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
-                                  placeholder="Add comments for this item...">{{ item.comments if item.comments else '' }}</textarea>
-                    </div>
-                    <div class="mt-3">
-                        <label for="item_{{ item.id }}_photos" class="block text-sm font-medium text-gray-600 mb-1">Attach Photos (Optional):</label>
-                        <input type="file" name="item_{{ item.id }}_photos" id="item_{{ item.id }}_photos" multiple accept="image/*"
-                               class="mt-1 block w-full text-sm text-gray-500 border border-gray-300 rounded-md shadow-sm cursor-pointer
-                                      file:mr-4 file:py-2 file:px-3 file:rounded-l-md file:border-0
-                                      file:text-sm file:font-semibold file:bg-gray-100 file:text-primary
-                                      hover:file:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-primary">
+
+                    {# Edit Mode Structure (Initially hidden, toggled by JS) #}
+                    <div class="item-edit-mode hidden">
+                        {# Checkbox and item text could be repeated here if their interaction changes, or managed by JS. For now, assume they are mainly for view and edit focuses on comments/attachments. #}
+                        {# For simplicity, we'll keep the checkbox and text in the view mode, and JS will handle their state if needed during save. #}
+                         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2">
+                            <div class="flex-grow mb-3 sm:mb-0">
+                                <label for="item_{{ item.id }}_checked_edit" class="flex items-center cursor-pointer">
+                                    <input type="checkbox" name="item_{{ item.id }}_checked_edit" id="item_{{ item.id }}_checked_edit"
+                                           class="h-5 w-5 text-primary rounded border-gray-300 focus:ring-primary"
+                                           {% if item.is_checked %}checked{% endif %}>
+                                    <span class="ml-3 text-md text-gray-700">{{ item.item_text }}</span>
+                                 </label>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label for="item_{{ item.id }}_comments_edit" class="block text-sm font-medium text-gray-600 mb-1">Comments:</label>
+                            <textarea name="item_{{ item.id }}_comments_edit" id="item_{{ item.id }}_comments_edit" rows="3"
+                                      class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                                      placeholder="Edit comments...">{{ item.comments if item.comments else '' }}</textarea>
+                        </div>
+                        <div class="mt-3">
+                            <label for="item_{{ item.id }}_photos_edit" class="block text-sm font-medium text-gray-600 mb-1">Upload New Photos:</label>
+                            <input type="file" name="item_{{ item.id }}_photos_edit" id="item_{{ item.id }}_photos_edit" multiple accept="image/*"
+                                   class="mt-1 block w-full text-sm text-gray-500 border border-gray-300 rounded-md shadow-sm cursor-pointer
+                                          file:mr-4 file:py-2 file:px-3 file:rounded-l-md file:border-0
+                                          file:text-sm file:font-semibold file:bg-gray-100 file:text-primary
+                                          hover:file:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-primary">
+                        </div>
                         {% set item_attachments = item.attachments %}
                         {% if item_attachments %}
-                            <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"> {# Adjusted grid columns for potentially smaller items, and gap #}
-                                {% for attachment in item_attachments %}
-                                <div role="button"
-                                     class="w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150"
-                                     onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');">
-                                    <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}"
-                                         alt="Thumbnail for attachment {{ attachment.id }}"
-                                         class="max-w-full max-h-full object-contain pointer-events-none">
+                            <div class="mt-3">
+                                <p class="block text-sm font-medium text-gray-600 mb-1">Existing Attachments:</p>
+                                <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                    {% for attachment in item_attachments %}
+                                    <div class="relative group w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center">
+                                        <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}"
+                                             alt="Thumbnail for attachment {{ attachment.id }}"
+                                             class="max-w-full max-h-full object-contain">
+                                        <button type="button" class="delete-attachment-btn absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 text-xs opacity-0 group-hover:opacity-100" data-attachment-id="{{ attachment.id }}" aria-label="Delete attachment">X</button>
+                                    </div>
+                                    {% endfor %}
                                 </div>
-                                {% endfor %}
                             </div>
                         {% endif %}
+                        <div class="mt-4 flex items-center">
+                            <button type="button" class="save-item-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs">Save</button>
+                            <button type="button" class="cancel-edit-btn bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded text-xs ml-2">Cancel</button>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
             </div>
-
-            <div class="pt-6 border-t border-gray-200 mt-8">
-                <button type="submit"
-                        class="w-full sm:w-auto bg-primary hover:bg-primary-hover text-white font-semibold py-2 px-4 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary text-sm">
-                    Save All Changes
-                </button>
-            </div>
-        </form>
+        </div>
     {% else %}
         <div class="text-center py-12 bg-white p-6 rounded-lg shadow-md">
             <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
@@ -81,4 +129,6 @@
         </div>
     {% endif %}
 </div>
+
+<script src="{{ url_for('static', filename='js/checklist_detail.js') }}" defer></script>
 {% endblock %}
