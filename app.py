@@ -1113,37 +1113,48 @@ def add_defect_attachment(defect_id):
                 logger.info(f"Image attachment processed: {db_file_path}")
 
             elif mime_type == 'application/pdf':
+                app.logger.info(f"Processing PDF attachment: {original_filename_secure}")
                 pdf_dir, _ = ensure_attachment_paths('attachments_pdf') # Gets static/uploads/attachments_pdf
+                app.logger.info(f"PDF original save directory: {pdf_dir}")
+
                 absolute_pdf_path = os.path.join(pdf_dir, unique_filename_base)
+                app.logger.info(f"Attempting to save PDF to: {absolute_pdf_path}")
                 file.seek(0)
                 file.save(absolute_pdf_path)
                 os.chmod(absolute_pdf_path, 0o644)
+                app.logger.info(f"PDF saved successfully to: {absolute_pdf_path}")
+
                 db_file_path = os.path.join('uploads', 'attachments_pdf', unique_filename_base)
+                app.logger.info(f"DB path for original PDF: {db_file_path}")
 
                 # PDF Thumbnail Generation
                 db_thumbnail_path = None # Default to None
                 try:
-                    # Get the directory for saving PDF thumbnails
-                    # ensure_attachment_paths with 'attachments_pdf_thumbs' will create and return static/uploads/attachments_pdf_thumbs for both values
                     pdf_thumb_save_dir, _ = ensure_attachment_paths('attachments_pdf_thumbs')
+                    app.logger.info(f"PDF thumbnail save directory: {pdf_thumb_save_dir}")
 
                     thumb_filename = 'thumb_' + os.path.splitext(unique_filename_base)[0] + '.png'
                     absolute_thumb_path = os.path.join(pdf_thumb_save_dir, thumb_filename)
+                    app.logger.info(f"Attempting to generate PDF thumbnail. Original PDF path: {absolute_pdf_path}, Thumbnail save path: {absolute_thumb_path}")
+
+                    if not os.path.exists(absolute_pdf_path):
+                        app.logger.error(f"CRITICAL: Original PDF file does not exist at {absolute_pdf_path} before calling convert_from_path.")
+                        raise FileNotFoundError(f"Original PDF not found at {absolute_pdf_path} for thumbnail generation")
 
                     images = convert_from_path(absolute_pdf_path, first_page=1, last_page=1, fmt='png', size=(300, None))
                     if images:
                         images[0].save(absolute_thumb_path, 'PNG')
-                        os.chmod(absolute_thumb_path, 0o644) # Set permissions for the thumbnail
-                        # Relative path for DB, from 'static/' directory
+                        os.chmod(absolute_thumb_path, 0o644)
                         db_thumbnail_path = os.path.join('uploads', 'attachments_pdf_thumbs', thumb_filename)
-                        logger.info(f"PDF thumbnail generated: {db_thumbnail_path}")
+                        app.logger.info(f"PDF thumbnail generated successfully: {absolute_thumb_path}. DB path: {db_thumbnail_path}")
                     else:
-                        logger.warning(f"PDF thumbnail generation returned no images for {unique_filename_base}")
+                        app.logger.warning(f"PDF thumbnail generation returned no images for {unique_filename_base}. Original PDF: {absolute_pdf_path}")
                 except Exception as e:
-                    logger.error(f"Error generating PDF thumbnail for {unique_filename_base}: {e}", exc_info=True)
+                    # Log the full error with traceback
+                    app.logger.error(f"PDF Thumbnail generation failed for {unique_filename_base}: {str(e)}", exc_info=True)
                     # db_thumbnail_path remains None
 
-                logger.info(f"PDF attachment processed. Original: {db_file_path}, Thumbnail: {db_thumbnail_path}")
+                app.logger.info(f"PDF attachment processed. Final DB original path: {db_file_path}, Final DB thumbnail path: {db_thumbnail_path}")
             else:
                 logger.warning(f"Unsupported file type attempted: {mime_type}")
                 return jsonify({'success': False, 'error': 'Unsupported file type. Only images and PDFs are allowed.'}), 400
@@ -1156,20 +1167,23 @@ def add_defect_attachment(defect_id):
             )
             db.session.add(attachment)
             db.session.commit()
-            logger.info(f"Attachment {attachment.id} added to defect {defect.id} by user {current_user.id}")
+            app.logger.info(f"Attachment record saved to DB: ID {attachment.id}, Defect ID {defect.id}, File Path {db_file_path}, Thumbnail Path {db_thumbnail_path}, MIME Type {mime_type}")
+
             # The JS expects to reload, but sending back details is good practice
             return jsonify({
                 'success': True, 
                 'message': 'Attachment added successfully.',
                 'attachment': { 
                     'id': attachment.id,
-                    'file_path_url': url_for('static', filename=attachment.file_path),
-                    'thumbnail_path_url': url_for('static', filename=attachment.thumbnail_path)
+                    'file_path_url': url_for('static', filename=attachment.file_path) if attachment.file_path else None,
+                    'thumbnail_path_url': url_for('static', filename=attachment.thumbnail_path) if attachment.thumbnail_path else None,
+                    'mime_type': attachment.mime_type
                 }
             })
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error adding attachment to defect {defect.id}: {str(e)}", exc_info=True)
+            # Use app.logger for consistency and ensure exc_info=True for traceback
+            app.logger.error(f"Overall error adding attachment to defect {defect.id}: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
     else:
         return jsonify({'success': False, 'error': 'File type not allowed.'}), 400
