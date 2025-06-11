@@ -37,7 +37,7 @@
             </h1>
         {% endif %}
         {% if current_user.role == 'admin' %}
-        <form method="POST" action="{{ url_for('delete_checklist', checklist_id=checklist.id) }}" class="inline">
+        <form method="POST" action="{{ url_for('delete_checklist_route', checklist_id=checklist.id) }}" class="inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit"
                     class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap mr-2"
