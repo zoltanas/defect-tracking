@@ -2,7 +2,6 @@
 
 {% block head %}
     {{ super() if super }} {# Include this if layout.html has a head block you want to inherit #}
-    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Checklist: {{ checklist.name }}{% endblock %}</title> {# Ensure title block is still effective #}
 {% endblock %}
 
