@@ -378,9 +378,24 @@
                     pdfCanvas.style.display = 'block';
 
                     const markerData = {{ marker | tojson }};
-                    console.log("Static display - User role:", "{{ user_role }}");
-                    console.log("Static display - Marker data from template:", markerData);
-                    if (markerData) { console.log("Static display - Marker file_path:", markerData.file_path); }
+                    /*
+                    var userRoleForJs = {{ user_role | tojson }};
+                    console.log("Static display - User role:", userRoleForJs);
+
+                    try {
+                        console.log("Static display - Marker data from template (JSON):", JSON.stringify(markerData, null, 2));
+                        if (markerData && typeof markerData.file_path !== 'undefined') {
+                            console.log("Static display - Marker file_path:", markerData.file_path);
+                        } else if (markerData) {
+                            console.log("Static display - Marker file_path: (attribute not found or undefined)");
+                        } else {
+                            console.log("Static display - markerData object is null or undefined before checking file_path.");
+                        }
+                    } catch (e) {
+                        console.error("Static display - Error stringifying or logging markerData:", e);
+                        console.log("Static display - Raw markerData object (if stringify failed):", markerData);
+                    }
+                    */
                     if (markerData && typeof markerData.x === 'number' && typeof markerData.y === 'number') {
                         ctx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
                         // Use a more visible marker style
