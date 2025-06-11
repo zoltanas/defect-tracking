@@ -2,99 +2,73 @@
 {% block title %}Defect: {{ defect.description | truncate(30) }}{% endblock %}
 
 {% block content %}
-    <!-- Header: Defect Title and Back Button -->
-    <div class="flex flex-col sm:flex-row justify-between items-start mb-6 pb-4 border-b border-gray-300">
-        <div>
-            <div id="descriptionDisplayContainer" class="flex items-center mb-2">
-                <h1 id="defectDescriptionText" class="text-3xl font-bold text-gray-800 break-words mr-3">{{ defect.description }}</h1>
-                {% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
-                <button type="button" id="inlineEditDescriptionButton" class="text-sm text-blue-500 hover:text-blue-700 flex items-center p-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                    <span>Edit</span>
-                </button>
-                {% endif %}
-            </div>
-            <div id="descriptionEditForm" class="hidden mt-2">
-                <textarea id="descriptionTextarea" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" rows="4">{{ defect.description }}</textarea>
-                <div class="mt-2">
-                    <button type="button" id="saveDescriptionButton" class="bg-primary hover:bg-primary-hover text-white px-3 py-1 rounded-md text-sm font-medium">Save Description</button>
-                    <button type="button" id="cancelDescriptionEditButton" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-md text-sm font-medium">Cancel</button>
-                </div>
-            </div>
-            <p class="text-sm text-gray-600 mb-2">Part of Project: <a href="{{ url_for('project_detail', project_id=project.id) }}" class="text-primary hover:underline">{{ project.name }}</a></p>
-            <!-- NEW: Compact details for mobile -->
-            <div class="block sm:hidden mt-2 space-y-1">
-                <div>
-                    <span class="px-2 py-0.5 text-xs font-semibold rounded-full
-                        {% if defect.status.lower() == 'open' %} bg-yellow-100 text-yellow-800
-                        {% elif defect.status.lower() == 'closed' %} bg-green-100 text-green-800
-                        {% else %} bg-gray-100 text-gray-800
-                        {% endif %}">
-                        {{ defect.status | capitalize }}
-                    </span>
-                </div>
-                <p class="text-xs text-gray-600">
-                    Created by: <span class="font-medium text-gray-800">{{ defect.creator.username }}</span> on <span class="font-medium text-gray-800">{{ defect.creation_date.strftime('%Y-%m-%d') }}</span>
-                </p>
-                {% if defect.close_date %}
-                <p class="text-xs text-gray-600">
-                    Closed on: <span class="font-medium text-gray-800">{{ defect.close_date.strftime('%Y-%m-%d') }}</span>
-                </p>
-                {% endif %}
-            </div>
+    <!-- Header: Project Title and Back Button -->
+    <div class="flex flex-row justify-between items-center mb-6 pb-4 border-b border-gray-300">
+        <div class="flex items-center"> <!-- Wrapper for back button and title -->
+            <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mr-4 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back</a>
+            <h1 class="text-3xl font-bold text-gray-800">
+                Project: <span class="text-primary">{{ project.name }}</span>
+            </h1>
         </div>
-        <div>
-            <a href="{{ url_for('project_detail', project_id=project.id, filter=defect.status) }}" class="mt-3 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium whitespace-nowrap">Back to Project</a>
-        </div>
+        <!-- Any other elements that might need to be on the far right can go here, if any -->
     </div>
 
-    <!-- Wrapper for Defect Title and Defect Details Card -->
-    <div class="mb-6 hidden sm:block">
-        <!-- Defect Information Card (Moved Here) -->
-        <div class="bg-white shadow-lg rounded-lg p-4 sm:p-6">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Defect Details</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-                <div id="statusContainer"> <!-- Wrapper for easy JS targeting -->
-                    <dt class="text-sm font-medium text-gray-500">Status</dt>
-                    <dd class="mt-1">
-                        {% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
-                            <select id="statusSelect" name="status" class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary text-sm">
-                                <option value="Open" {% if defect.status.lower() == 'open' %}selected{% endif %}>Open</option>
-                                <option value="Closed" {% if defect.status.lower() == 'closed' %}selected{% endif %}>Closed</option>
-                                {# Add other statuses if they exist #}
-                            </select>
-                            <span id="statusUpdateMessage" class="ml-2 text-xs text-green-600"></span> <!-- For 'Saved!' message -->
-                        {% else %}
-                            <span id="statusDisplaySpan" class="px-3 py-1 text-sm font-semibold rounded-full 
-                                {% if defect.status.lower() == 'open' %} bg-yellow-100 text-yellow-800 
-                                {% elif defect.status.lower() == 'closed' %} bg-green-100 text-green-800
-                                {% else %} bg-gray-100 text-gray-800 
-                                {% endif %}">
-                                {{ defect.status | capitalize }}
-                            </span>
-                        {% endif %}
-                    </dd>
-                </div>
-                <div>
-                        <dt class="text-sm font-medium text-gray-500">Location in Drawing</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ defect.location if defect.location else 'N/A' }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Created By</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ defect.creator.username }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Creation Date</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
-                    </div>
-                    {% if defect.close_date %}
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Close Date</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
-                        </div>
-                    {% endif %}
-                </div>
+    <!-- New Defect Information Card -->
+    <div class="bg-white shadow-lg rounded-lg p-6 mb-6">
+        <!-- Defect Description and Edit Form -->
+        <div id="descriptionDisplayContainer" class="flex items-center mb-2">
+            <h1 id="defectDescriptionText" class="text-2xl font-bold text-gray-800 break-words mr-3">{{ defect.description }}</h1>
+            {% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
+            <button type="button" id="inlineEditDescriptionButton" class="text-sm text-blue-500 hover:text-blue-700 flex items-center p-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                <span>Edit</span>
+            </button>
+            {% endif %}
+        </div>
+        <div id="descriptionEditForm" class="hidden mt-2">
+            <textarea id="descriptionTextarea" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary" rows="4">{{ defect.description }}</textarea>
+            <div class="mt-2">
+                <button type="button" id="saveDescriptionButton" class="bg-primary hover:bg-primary-hover text-white px-3 py-1 rounded-md text-sm font-medium">Save Description</button>
+                <button type="button" id="cancelDescriptionEditButton" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-md text-sm font-medium">Cancel</button>
             </div>
+        </div>
+
+        <!-- Defect Status, Creator, Dates -->
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <dt class="text-sm font-medium text-gray-500">Status</dt>
+                <dd class="mt-1" id="statusContainer"> {# Re-using statusContainer ID for JS compatibility #}
+                    {% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
+                        <select id="statusSelect" name="status" class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary text-sm">
+                            <option value="Open" {% if defect.status.lower() == 'open' %}selected{% endif %}>Open</option>
+                            <option value="Closed" {% if defect.status.lower() == 'closed' %}selected{% endif %}>Closed</option>
+                        </select>
+                        <span id="statusUpdateMessage" class="ml-2 text-xs text-green-600"></span>
+                    {% else %}
+                        <span id="statusDisplaySpan" class="px-3 py-1 text-sm font-semibold rounded-full
+                            {% if defect.status.lower() == 'open' %} bg-yellow-100 text-yellow-800
+                            {% elif defect.status.lower() == 'closed' %} bg-green-100 text-green-800
+                            {% else %} bg-gray-100 text-gray-800
+                            {% endif %}">
+                            {{ defect.status | capitalize }}
+                        </span>
+                    {% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt class="text-sm font-medium text-gray-500">Created By</dt>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.creator.username }}</dd>
+            </div>
+            <div>
+                <dt class="text-sm font-medium text-gray-500">Creation Date</dt>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+            </div>
+            {% if defect.close_date %}
+            <div>
+                <dt class="text-sm font-medium text-gray-500">Close Date</dt>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+            </div>
+            {% endif %}
         </div>
     </div>
 
