@@ -394,46 +394,38 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Event listener for Defects tab
-    defectsTabButton.addEventListener('click', function () {
+    defectsTabButton.addEventListener('click', function (event) {
+        // event.preventDefault(); // Not strictly needed for button elements, but good practice if they were <a>
         switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
+        window.location.hash = 'defects';
     });
 
     // Event listener for Checklists tab
-    checklistsTabButton.addEventListener('click', function () {
+    checklistsTabButton.addEventListener('click', function (event) {
+        // event.preventDefault();
         switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
+        window.location.hash = 'checklists';
     });
 
-    // Function to update URL without reloading page
-    function updateURLAnchor(tabName) {
-        const currentUrl = new URL(window.location.href);
-        if (tabName && tabName !== 'defects') { // Assuming 'defects' is default, so no anchor needed
-            currentUrl.searchParams.set('_anchor', tabName);
+    // Initial tab setup based on URL hash
+    function activateTabFromHash() {
+        const hash = window.location.hash;
+        if (hash === '#checklists') {
+            // Directly call switchTab to avoid recursive hash change if click() is used
+            switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
         } else {
-            currentUrl.searchParams.delete('_anchor'); // Remove if 'defects' or no tab
+            // Default to defects tab (includes #defects, empty hash, or any other hash)
+            switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
         }
-        history.replaceState({}, '', currentUrl.toString());
     }
 
-    // Event listener for Defects tab
-    defectsTabButton.addEventListener('click', function () {
-        switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
-        updateURLAnchor('defects');
-    });
+    // Activate tab on initial load
+    activateTabFromHash();
 
-    // Event listener for Checklists tab
-    checklistsTabButton.addEventListener('click', function () {
-        switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
-        updateURLAnchor('checklists');
-    });
-
-    // Initial tab setup based on 'tab' variable from Flask
-    const initialTab = "{{ tab or 'defects' }}"; // Default to 'defects' if tab is not provided
-
-    if (initialTab === 'checklists') {
-        checklistsTabButton.click(); // This will also call updateURLAnchor via the click listener
-    } else {
-        defectsTabButton.click(); // This will also call updateURLAnchor
-    }
+    // Optional: Listen for hash changes if user uses browser back/forward for hash navigation
+    // window.addEventListener('hashchange', activateTabFromHash, false);
+    // For this specific task, direct click updates hash, and initial load reads it.
+    // The above listener would be for full browser history support of hash changes.
 });
 </script>
 {% endblock %}
