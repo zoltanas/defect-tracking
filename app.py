@@ -800,8 +800,8 @@ def defect_detail(defect_id):
                     db.session.add(comment)
                     db.session.commit() # Commit comment to get comment.id for attachments
                     attachment_ids = []
-                    if 'photos' in request.files:
-                        files = request.files.getlist('photos')
+                    if 'comment_photos' in request.files:
+                        files = request.files.getlist('comment_photos')
                         for file in files:
                             if file and allowed_file(file.filename):
                                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
