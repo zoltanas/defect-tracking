@@ -559,6 +559,13 @@ def project_detail(project_id):
             continue
         elif filter_status == 'Closed' and has_open_items:
             continue
+
+        # Calculate completion status
+        total_items = len(items)
+        completed_items = sum(1 for item in items if item.is_checked)
+        checklist.total_items = total_items
+        checklist.completed_items = completed_items
+
         filtered_checklists.append(checklist)
     return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role)
 
