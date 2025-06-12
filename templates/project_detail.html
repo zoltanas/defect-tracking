@@ -76,6 +76,7 @@
                     <select id="filter_defects" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
                         <option value="All" {% if filter_status == 'All' %}selected{% endif %}>All Defects</option>
                         <option value="Open" {% if filter_status == 'Open' %}selected{% endif %}>Open</option>
+                        <option value="OpenNoReply" {% if filter_status == 'OpenNoReply' %}selected{% endif %}>Open with no reply</option>
                         <option value="OpenWithReply" {% if filter_status == 'OpenWithReply' %}selected{% endif %}>Open with reply</option>
                         <option value="Closed" {% if filter_status == 'Closed' %}selected{% endif %}>Closed</option>
                     </select>
