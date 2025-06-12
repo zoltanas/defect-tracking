@@ -569,6 +569,8 @@ def project_detail(project_id):
 
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
+    elif filter_status == 'OpenNoReply':
+        defects = defects_query.filter_by(status='open').outerjoin(Defect.comments).filter(Comment.id == None).all()
     elif filter_status == 'OpenWithReply':
         open_defects = defects_query.filter_by(status='open').all()
         defects_with_reply_from_other = []
