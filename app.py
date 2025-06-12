@@ -477,8 +477,31 @@ def accept_invite(token):
 def index():
     # Get project IDs where the user has access (either as creator or assigned)
     project_ids = [access.project_id for access in current_user.projects]
-    projects = Project.query.filter(Project.id.in_(project_ids)).all()
-    return render_template('project_list.html', projects=projects)
+    projects_query = Project.query.filter(Project.id.in_(project_ids))
+
+    projects_data = []
+    for project in projects_query.all():
+        open_defects_count = Defect.query.filter_by(project_id=project.id, status='open').count()
+
+        open_defects_with_reply_count = Defect.query.filter(
+            Defect.project_id == project.id,
+            Defect.status == 'open',
+            Defect.comments.any()
+        ).count()
+
+        open_checklists_count = Checklist.query.filter(
+            Checklist.project_id == project.id,
+            Checklist.items.any(ChecklistItem.is_checked == False)
+        ).count()
+
+        projects_data.append({
+            'project': project,
+            'open_defects_count': open_defects_count,
+            'open_defects_with_reply_count': open_defects_with_reply_count,
+            'open_checklists_count': open_checklists_count,
+        })
+
+    return render_template('project_list.html', projects_data=projects_data)
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
