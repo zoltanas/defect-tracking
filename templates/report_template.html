@@ -5,260 +5,262 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Report - {{ project.name }}</title>
     <style>
+        /* --- General Page Setup --- */
         @page {
             size: A4;
             margin: 1cm;
         }
         body {
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            font-size: 9pt; /* Reduced font size */
-            color: #222; /* Darker text color */
-            line-height: 1.4;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 8pt;
+            line-height: 1.3;
+            color: #333;
         }
         .container {
             width: 100%;
-            margin: 0 auto;
-        }
-        .header, .footer {
-            text-align: center;
-            margin-bottom: 5px; /* Significantly reduced margin for header */
-            padding-bottom: 8px; /* Reduced padding */
-            border-bottom: 1px solid #eee;
-        }
-        .footer {
-            margin-top: 25px; /* Reduced margin */
-            padding-top: 8px; /* Reduced padding */
-            border-top: 1px solid #eee;
-            font-size: 0.75em; /* Slightly reduced font size */
-            color: #777;
-        }
-        h1 {
-            font-size: 20pt; /* Reduced font size */
-            color: #2c3e50;
-            margin-bottom: 0; /* Kept as 0, good */
-        }
-        h2 {
-            font-size: 16pt; /* Reduced font size */
-            color: #34495e;
-            margin-top: 25px; /* Adjusted margin */
-            margin-bottom: 10px; /* Adjusted margin */
-            border-bottom: 2px solid #bdc3c7;
-            padding-bottom: 3px; /* Adjusted padding */
-        }
-        h3 {
-            font-size: 12pt; /* Reduced font size */
-            color: #7f8c8d;
-            margin-top: 15px; /* Adjusted margin */
-            margin-bottom: 8px; /* Adjusted margin */
-        }
-        h4 {
-            font-size: 10pt; /* Reduced font size */
-            color: #333;
-            margin-top: 10px; /* Adjusted margin */
-            margin-bottom: 3px; /* Adjusted margin */
-        }
-        p {
-            margin: 0 0 8px 0; /* Reduced bottom margin */
-        }
-        strong {
-            font-weight: bold;
         }
 
-        .item-card {
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px; /* Reduced padding */
-            margin-bottom: 15px; /* Reduced margin */
-            background-color: #fff;
+        /* --- Header & Footer --- */
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .header h1 {
+            font-size: 18pt;
+            color: #2c3e50;
+            margin: 0;
+            font-weight: bold;
+        }
+        .header p {
+            font-size: 8pt;
+            color: #666;
+            margin: 2px 0;
+        }
+
+        /* --- Main Content Table --- */
+        .defects-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            table-layout: fixed;
+            word-wrap: break-word;
+        }
+        .defects-table th, .defects-table td {
+            border: 1px solid #ccc;
+            padding: 4px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .defects-table th {
+            background-color: #e9ecef;
+            font-weight: bold;
+            font-size: 9pt;
+        }
+        
+        /* General rule: Prevent defects from splitting across pages */
+        .defects-table tbody tr {
             page-break-inside: avoid;
         }
-        .item-card p {
-            margin: 2px 0; /* Reduced margin */
+        /* NEW: Exception for the first defect to allow it to split */
+        .defects-table tbody tr:first-child {
+            page-break-inside: auto;
         }
-        .item-details {
-            margin-left: 5px; /* Reduced margin */
+
+        /* --- Table Cell Content Styling --- */
+        .defect-description {
+            font-weight: bold;
+            font-size: 9pt;
+            margin-bottom: 4px;
+            display: block;
         }
-        .attachments, .comments-section, .markers-section {
-            margin-top: 8px; /* Reduced margin */
-            padding-top: 8px; /* Reduced padding */
-            border-top: 1px dashed #eee;
+        .meta-info {
+            font-size: 7pt;
+            color: #555;
+            margin-bottom: 5px;
         }
-        .attachments img, .comment-attachments img { /* Checklist item images will also use this */
-            max-width: 48%; /* Allow two images side-by-side */
-            /* max-height: 200px; Removed to maintain aspect ratio */
-            margin: 3px; /* Reduced margin */
-            border: 1px solid #ccc;
+        .meta-info span {
+            margin-right: 10px;
+            display: inline-block;
+        }
+
+        /* --- Status Colors --- */
+        .status { font-weight: bold; }
+        .status-open { color: #c0392b; }
+        .status-closed { color: #27ae60; }
+
+        /* --- Gallery for MAIN DEFECT IMAGES (Two-Column) --- */
+        .two-col-gallery {
+            margin-top: 10px;
+            font-size: 0;
+        }
+        .two-col-gallery .image-item {
+            display: inline-block;
+            width: 49%;
+            vertical-align: top;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            font-size: 8pt;
+        }
+        .two-col-gallery .image-item:nth-child(odd) {
+            margin-right: 2%; 
+        }
+        .two-col-gallery .image-item img {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
             border-radius: 3px;
-            display: inline-block; /* Enable side-by-side layout */
-            vertical-align: top; /* Align images at the top */
+            display: block;
         }
-        /* Removed .markers-section img as it's no longer used
-        .markers-section img {
-            max-width: 450px;
-            max-height: 450px;
-            display: left;
-            margin: 10px auto;
-            border: 1px solid #ccc;
+
+        /* --- Gallery for COMMENT IMAGES (30% Width) --- */
+        .comment-image-gallery {
+            margin-top: 10px;
+            font-size: 0;
+            min-height: 0;
+        }
+        .comment-image-gallery .image-item {
+            display: inline-block;
+            width: 30%;
+            vertical-align: top;
+            margin-right: 5%;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            font-size: 8pt;
+        }
+        .comment-image-gallery .image-item:nth-child(3n) {
+            margin-right: 0;
+        }
+        .comment-image-gallery .image-item img {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
             border-radius: 3px;
+            display: block;
         }
-        */
+
+        /* --- Comments Section --- */
+        .comments-section {
+            margin-top: 10px;
+            padding-top: 5px;
+            border-top: 1px dashed #e0e0e0;
+        }
         .comment {
-            padding: 5px; /* Reduced padding */
-            border: 1px solid #f0f0f0;
-            margin-top: 5px; /* Reduced margin */
+            padding: 3px;
+            border: 1px solid #eef;
+            margin-top: 3px;
             border-radius: 3px;
-            background-color: #fdfdfd;
+            background-color: #f8f9fa;
+            display: flex;
+            flex-direction: column;
+            page-break-inside: avoid;
         }
         .comment p {
-            margin: 1px 0; /* Reduced margin */
+            margin: 0;
+            margin-bottom: 3px;
         }
+        .comment-user {
+            font-weight: bold;
+            font-size: 7pt;
+        }
+
         .no-data {
             color: #777;
             font-style: italic;
+            padding: 20px;
+            text-align: center;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px; /* Reduced margin */
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 5px; /* Reduced padding */
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        .status-open { color: #c0392b; }
-        .status-closed { color: #27ae60; }
+
     </style>
 </head>
 <body>
+    
     <div class="container">
         <div class="header">
-            <h1>{{ project.name }} Report</h1>
-            <p><strong>Generated on:</strong> {{ generation_date }}</p>
-            <p><strong>Filter Applied:</strong> {{ filter_status }}</p>
+            <h1>{{ project.name }} - Defects Report</h1>
+            <p><strong>Generated on:</strong> {{ generation_date }} | <strong>Filter Applied:</strong> {{ filter_status }}</p>
         </div>
 
-
-            <!-- <h2>Defects</h2> -->
-            {% if defects %}
-                {% for defect in defects %}
-                <div class="item-card">
-                    <h2>Defect {{ defect.id }}: {{ defect.description }}</h2>
-                    <div class="item-details">
-                        <h4><strong>Status:</strong> <span class="status-{{ defect.status.lower() }}">{{ defect.status }}</span>   |   <strong>Created by:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}   |   <strong>Created:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</h4>
-                        <!-- <p><strong>Created by:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}</p>
-                        <p><strong>Created Date:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</p> -->
-                        {% if defect.close_date %}
-                        <p><strong>Close Date:</strong> {{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                        {% endif %}
-
-                        {# {% if defect.markers %}
-                        <div class="markers-section">
-                            <p><strong>Marked Drawing:</strong>
-                                {% if defect.markers[0].drawing %}
-                                    {{ defect.markers[0].drawing.name }}
-                                {% else %}
-                                    Drawing information not available.
-                                {% endif %}
-                            </p>
-                            {% if defect.marked_drawing_image_path %}
-                                {% set abs_marked_drawing_path = get_absolute_static_path(defect.marked_drawing_image_path) %}
-                                {% if abs_marked_drawing_path %}
-                                    <img src="file://{{ abs_marked_drawing_path }}" alt="Marked Drawing for Defect {{ defect.id }}">
-                                {% else %}
-                                    <p><em>(Marked drawing path could not be resolved: {{ defect.marked_drawing_image_path }})</em></p>
-                                {% endif %}
-                            {% elif defect.markers[0].drawing and defect.markers[0].drawing.file_path %}
-                                <p><em>(Original drawing path: {{ defect.markers[0].drawing.file_path }}. Could not generate marked image.)</em></p>
-                            {% else %}
-                                <p><em>(No marked drawing available.)</em></p>
-                            {% endif %}
-                        </div>
-                        {% endif %} #}
-
-                        {% set defect_direct_attachments = defect.attachments|selectattr('comment_id', 'none')|selectattr('checklist_item_id', 'none')|list %}
-                        {% if defect_direct_attachments or defect.marked_drawing_image_path %}
-                        <div class="attachments">
-                            <p><strong>Attachments:</strong></p>
-                            {% if defect.marked_drawing_image_path %}
-                                {% set abs_marked_drawing_path = get_absolute_static_path(defect.marked_drawing_image_path) %}
-                                {% if abs_marked_drawing_path %}
-                                    <img src="file://{{ abs_marked_drawing_path }}" alt="Marked Drawing for Defect {{ defect.id }}">
-                                {% else %}
-                                    <span><em>(Marked drawing path could not be resolved: {{ defect.marked_drawing_image_path }})</em></span>
-                                {% endif %}
-                            {% endif %}
-                            {% for attachment in defect_direct_attachments %}
-                                {% if attachment.thumbnail_path %}
-                                    {% set abs_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
-                                    {% if abs_thumb_path %}
-                                        <img src="file://{{ abs_thumb_path }}" alt="Thumbnail">
-                                    {% else %}
-                                        <span><em>(Invalid thumbnail path: {{ attachment.thumbnail_path }})</em></span>
-                                    {% endif %}
-                                {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                    {% set abs_file_path = get_absolute_static_path(attachment.file_path) %}
-                                    {% if abs_file_path %}
-                                        <img src="file://{{ abs_file_path }}" alt="Attachment">
-                                    {% else %}
-                                        <span><em>(Invalid image attachment path: {{ attachment.file_path }})</em></span>
-                                    {% endif %}
-                                {% elif attachment.file_path %}
-                                    <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
-                                {% else %}
-                                    <span><em>(Attachment path missing)</em></span>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-
-                        {% if defect.comments %}
-                        <div class="comments-section">
-                            <p><strong>Comments:</strong></p>
-                            {% for comment in defect.comments %}
-                            <div class="comment">
-                                <p><strong>{{ comment.user.username if comment.user else 'N/A' }}</strong> ({{ comment.created_at.strftime('%Y-%m-%d %H:%M:%S') if comment.created_at else 'N/A' }}):</p>
-                                <p>{{ comment.content }}</p>
-                                {% if comment.attachments %}
-                                <div class="comment-attachments">
-                                    {% for attachment in comment.attachments %}
-                                        {% if attachment.thumbnail_path %}
-                                            {% set abs_comment_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
-                                            {% if abs_comment_thumb_path %}
-                                                <img src="file://{{ abs_comment_thumb_path }}" alt="Comment Thumbnail">
-                                            {% else %}
-                                                <span><em>(Invalid comment thumbnail path: {{ attachment.thumbnail_path }})</em></span>
-                                            {% endif %}
-                                        {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                            {% set abs_comment_file_path = get_absolute_static_path(attachment.file_path) %}
-                                            {% if abs_comment_file_path %}
-                                                <img src="file://{{ abs_comment_file_path }}" alt="Comment Attachment">
-                                            {% else %}
-                                                <span><em>(Invalid comment image attachment path: {{ attachment.file_path }})</em></span>
-                                            {% endif %}
-                                        {% elif attachment.file_path %}
-                                            <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
-                                        {% else %}
-                                            <span><em>(Comment attachment path missing)</em></span>
-                                        {% endif %}
-                                    {% endfor %}
-                                </div>
+        {% if defects %}
+            <table class="defects-table">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">#</th>
+                        <th style="width: 95%;">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for defect in defects %}
+                    <tr>
+                        <td>{{ defect.id }}</td>
+                        <td>
+                            <strong class="defect-description">{{ defect.description }}</strong>
+                            <div class="meta-info">
+                                <span class="status status-{{ defect.status.lower() }}"><strong>Status:</strong> {{ defect.status }}</span>
+                                
+                                <span><strong>Author:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}</span>
+                                <span><strong>Created:</strong> {{ defect.creation_date.strftime('%Y-%m-%d') if defect.creation_date else 'N/A' }}</span>
+                                {% if defect.close_date %}
+                                <span><strong>Closed:</strong> {{ defect.close_date.strftime('%Y-%m-%d') }}</span>
                                 {% endif %}
                             </div>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            {% else %}
-                <p class="no-data">No defects match the current filter.</p>
-            {% endif %}
+
+                            <!-- MAIN DEFECT IMAGES SECTION -->
+                            {% set defect_direct_attachments = defect.attachments|selectattr('comment_id', 'none')|selectattr('checklist_item_id', 'none')|list %}
+                            {% if defect.marked_drawing_image_path or defect_direct_attachments %}
+                            <div class="two-col-gallery">
+                                {% if defect.marked_drawing_image_path %}
+                                    {% set abs_marked_drawing_path = get_absolute_static_path(defect.marked_drawing_image_path) %}
+                                    {% if abs_marked_drawing_path %}
+                                        <div class="image-item">
+                                            <img src="file://{{ abs_marked_drawing_path }}" alt="Marked Drawing">
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+
+                                {% for attachment in defect_direct_attachments %}
+                                    {% set abs_path = get_absolute_static_path(attachment.thumbnail_path or attachment.file_path) %}
+                                    {% if abs_path and (abs_path.lower().endswith(('.jpg', '.jpeg', '.png'))) %}
+                                        <div class="image-item">
+                                            <img src="file://{{ abs_path }}" alt="Attachment">
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            
+                            <!-- COMMENTS SECTION -->
+                            {% if defect.comments %}
+                            <div class="comments-section">
+                                {% for comment in defect.comments %}
+                                <div class="comment">
+                                    <p class="comment-user">{{ comment.user.username if comment.user else 'N/A' }} ({{ comment.created_at.strftime('%Y-%m-%d %H:%M') if comment.created_at else 'N/A' }}):</p>
+                                    <p>{{ comment.content }}</p>
+                                    
+                                    <!-- COMMENT IMAGES SECTION -->
+                                    {% if comment.attachments %}
+                                        <div class="comment-image-gallery">
+                                        {% for attachment in comment.attachments %}
+                                            {% set abs_path = get_absolute_static_path(attachment.thumbnail_path or attachment.file_path) %}
+                                            {% if abs_path and (abs_path.lower().endswith(('.jpg', '.jpeg', '.png'))) %}
+                                                <div class="image-item">
+                                                    <img src="file://{{ abs_path }}" alt="Comment Attachment">
+                                                </div>
+                                            {% endif %}
+                                        {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="no-data">No defects match the current filter.</p>
+        {% endif %}
     </div>
 </body>
 </html>
