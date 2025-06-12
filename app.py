@@ -559,6 +559,7 @@ def project_detail(project_id):
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
     filter_status = request.args.get('filter', 'All')
+    active_tab_override = request.args.get('active_tab_override', 'defects') # New line
     defects_query = Defect.query.filter_by(project_id=project_id)
 
     # Add this condition for expert users, but not for Technical Supervisors
@@ -631,7 +632,7 @@ def project_detail(project_id):
         checklist.completed_items = completed_items
 
         filtered_checklists.append(checklist)
-    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role)
+    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override)
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required

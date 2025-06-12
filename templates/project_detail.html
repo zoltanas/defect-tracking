@@ -36,9 +36,21 @@
 <div class="mx-[-1rem]"> <!-- NEW FULL-WIDTH WRAPPER -->
 
     <!-- Tab Navigation -->
+    {% set base_button_classes = "flex-1 text-center py-3 px-6 text-lg font-bold focus:outline-none transition-all duration-150 ease-in-out rounded-t-lg border-gray-300 border-l border-r border-t" %}
+    {% set active_button_style = "bg-white text-primary relative z-10 mb-[-1px]" %}
+    {% set inactive_button_style = "bg-gray-200 text-gray-700 hover:bg-gray-300 border-b" %}
+
+    {% if active_tab_name == 'checklists' %}
+        {% set defects_button_classes = base_button_classes + " " + inactive_button_style %}
+        {% set checklists_button_classes = base_button_classes + " " + active_button_style %}
+    {% else %} {# Default to defects active #}
+        {% set defects_button_classes = base_button_classes + " " + active_button_style %}
+        {% set checklists_button_classes = base_button_classes + " " + inactive_button_style %}
+    {% endif %}
+
     <div id="tab-navigation" class="flex">
-        <button id="defects-tab-button" class="flex-1 text-center py-3 px-6 text-lg font-bold focus:outline-none transition-all duration-150 ease-in-out rounded-t-lg border-gray-300 border-l border-r border-t bg-white text-primary relative z-10 mb-[-1px]">Defects</button>
-        <button id="checklists-tab-button" class="flex-1 text-center py-3 px-6 text-lg font-bold focus:outline-none transition-all duration-150 ease-in-out rounded-t-lg border-gray-300 border-l border-r border-t bg-gray-200 text-gray-700 hover:bg-gray-300 border-b">Checklists</button>
+        <button id="defects-tab-button" class="{{ defects_button_classes }}">Defects</button>
+        <button id="checklists-tab-button" class="{{ checklists_button_classes }}">Checklists</button>
     </div>
     <div class="bg-white shadow-lg rounded-b-lg border-l border-r border-b border-gray-300">
         <!-- Actions and Filter Card -->
@@ -69,7 +81,7 @@
                 </div>
                 <div id="filter-checklists-wrapper" class="flex items-center gap-2 mt-3 sm:mt-0 w-full sm:w-auto hidden">
                     <label for="filter_checklists" class="text-sm font-medium text-gray-700 mr-2">Filter:</label>
-                    <select id="filter_checklists" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value + '#checklists'" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                    <select id="filter_checklists" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value + '&active_tab_override=checklists#checklists'" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
                         <option value="All" {% if filter_status == 'All' %}selected{% endif %}>All Checklists</option>
                         <option value="Open" {% if filter_status == 'Open' %}selected{% endif %}>Open</option>
                         <option value="Closed" {% if filter_status == 'Closed' %}selected{% endif %}>Closed</option>
@@ -78,10 +90,11 @@
             </div>
         </div>
 
-        <!-- Tab Panes -->
-        <div id="defects-pane" class="tab-pane px-4">
-            <div class="mb-8">
-                {% if defects %}
+        <!-- Tab Panes Wrapper -->
+        <div id="tab-panes-wrapper" style="visibility: hidden;">
+            <div id="defects-pane" class="tab-pane px-4 {% if active_tab_name == 'checklists' %}hidden{% endif %}" {% if active_tab_name == 'checklists' %}style="display: none;"{% endif %}> {# Correct: shows if active_tab_name is 'defects' or undefined #}
+                <div class="mb-8">
+                    {% if defects %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for defect in defects %}
                             <a href="{{ url_for('defect_detail', defect_id=defect.id) }}" class="block bg-gray-50 p-5 rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300 border-t border-l border-r border-gray-200">
@@ -134,7 +147,7 @@
                 {% endif %}
             </div>
         </div>
-        <div id="checklists-pane" class="tab-pane hidden px-4">
+        <div id="checklists-pane" class="tab-pane px-4 {% if active_tab_name == 'checklists' %}{% else %}hidden{% endif %}" {% if active_tab_name != 'checklists' %}style="display: none;"{% endif %}> {# Correct: shows if active_tab_name is 'checklists', hidden otherwise #}
             <div class="mb-8"> {# Assuming Checklists section should also have mb-8, adding it for consistency #}
                 {% if checklists %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -163,6 +176,7 @@
                 {% endif %}
             </div>
         </div>
+        </div> <!-- End of tab-panes-wrapper -->
     </div>
 
 </div> <!-- END OF NEW FULL-WIDTH WRAPPER -->
@@ -383,20 +397,27 @@ document.addEventListener('DOMContentLoaded', function () {
     const reportDefectsButton = document.getElementById('report-defects-button');
     const filterDefectsWrapper = document.getElementById('filter-defects-wrapper');
     const filterChecklistsWrapper = document.getElementById('filter-checklists-wrapper');
+    const tabPanesWrapper = document.getElementById('tab-panes-wrapper'); // Get the new wrapper
+
+    const activeTabButtonClasses = ['bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]'];
+    const inactiveTabButtonClasses = ['bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b'];
 
     // Function to switch tabs
     function switchTab(activeButton, activePane, inactiveButton, inactivePane) {
         // Style active button
-        activeButton.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b');
-        activeButton.classList.add('bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]');
+        activeButton.classList.remove(...inactiveTabButtonClasses);
+        activeButton.classList.add(...activeTabButtonClasses);
 
         // Style inactive button
-        inactiveButton.classList.remove('bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]');
-        inactiveButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b');
+        inactiveButton.classList.remove(...activeTabButtonClasses);
+        inactiveButton.classList.add(...inactiveTabButtonClasses);
 
         // Show active pane and hide inactive one
+        activePane.style.display = ''; // Reset any inline display:none
         activePane.classList.remove('hidden');
-        inactivePane.classList.add('hidden');
+
+        inactivePane.classList.add('hidden'); // This class should apply display:none !important
+        // No need to add inline style for inactivePane if 'hidden' class handles it.
 
         // Show/hide specific action buttons and filters
         if (activePane === defectsPane) {
@@ -437,11 +458,17 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initial tab setup based on URL hash
     function activateTabFromHash() {
         const hash = window.location.hash;
+        // The server should have already set the correct active tab if active_tab_override was present.
+        // This function primarily ensures that if the hash is the *only* indicator (e.g. back button, manual hash change),
+        // the tabs switch correctly.
+        // It's also okay if it re-applies the state the server already set.
         if (hash === '#checklists') {
-            // Directly call switchTab to avoid recursive hash change if click() is used
+            // Check if checklistsTabButton is ALREADY active. If so, do nothing to prevent visual glitch.
+            // This check is only strictly necessary if switchTab itself causes a visual change even when re-applying same state.
+            // For robustness, let's assume switchTab is fine.
             switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
         } else {
-            // Default to defects tab (includes #defects, empty hash, or any other hash)
+            // Default to defects tab if hash is not #checklists or no hash
             switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
         }
     }
@@ -449,6 +476,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Activate tab on initial load
     activateTabFromHash();
 
+    if (tabPanesWrapper) { // New block
+        tabPanesWrapper.style.visibility = 'visible';
+    }
     // Optional: Listen for hash changes if user uses browser back/forward for hash navigation
     // window.addEventListener('hashchange', activateTabFromHash, false);
     // For this specific task, direct click updates hash, and initial load reads it.
