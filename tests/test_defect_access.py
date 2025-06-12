@@ -546,6 +546,169 @@ def test_tech_supervisor_sees_manage_templates_button_on_project_page(test_clien
     assert "Manage Templates" in response_data
     logout(test_client)
 
+
+class TestDefectOpenWithReplyFilter:
+    def setup_method(self, method):
+        # Common setup for these tests: create users, project
+        with app.app_context():
+            self.creator_user = User.query.filter_by(username='test_expert1').first()
+            # Ensure users exist, create if not (though module fixture should handle this)
+            if not self.creator_user:
+                self.creator_user = User(username='test_expert1', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert')
+                db.session.add(self.creator_user)
+
+            self.other_user = User.query.filter_by(username='test_expert2').first()
+            if not self.other_user:
+                self.other_user = User(username='test_expert2', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert')
+                db.session.add(self.other_user)
+
+            self.admin_user = User.query.filter_by(username='test_admin').first()
+            if not self.admin_user:
+                self.admin_user = User(username='test_admin', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin')
+                db.session.add(self.admin_user)
+
+            db.session.commit()
+
+            self.project = Project.query.filter_by(name='Filter Test Project').first()
+            if not self.project:
+                self.project = Project(name='Filter Test Project')
+                db.session.add(self.project)
+                db.session.commit()
+
+            self.project_id = self.project.id # Store project_id
+
+            # Grant access for users to the project
+            for user in [self.creator_user, self.other_user, self.admin_user]:
+                access = ProjectAccess.query.filter_by(user_id=user.id, project_id=self.project.id).first()
+                if not access:
+                    # Determine role based on user object if complex, or assign default for test
+                    role_to_assign = user.role if hasattr(user, 'role') else 'expert'
+                    access = ProjectAccess(user_id=user.id, project_id=self.project.id, role=role_to_assign)
+                    db.session.add(access)
+            db.session.commit()
+
+    def teardown_method(self, method):
+        with app.app_context():
+            # More robust cleanup: query defects by project_id and then their comments
+            defects_to_delete = Defect.query.filter_by(project_id=self.project_id).all()
+            for defect in defects_to_delete:
+                Comment.query.filter_by(defect_id=defect.id).delete()
+                db.session.delete(defect)
+            db.session.commit()
+
+            # Optionally, delete the project if it was uniquely created for this test class
+            # project_to_delete = Project.query.get(self.project_id)
+            # if project_to_delete:
+            # ProjectAccess.query.filter_by(project_id=project_to_delete.id).delete()
+            # db.session.delete(project_to_delete)
+            # db.session.commit()
+
+
+    def test_filter_open_with_reply_defect_visible_last_comment_by_other(self, test_client):
+        # Scenario 1: Defect is 'open', last comment by other user -> VISIBLE
+        login(test_client, self.admin_user.username, 'password')
+
+        defect1 = Defect(description="S1 Open Defect Reply by Other", project_id=self.project_id, creator_id=self.creator_user.id, status='open', creation_date=datetime.utcnow())
+        db.session.add(defect1)
+        db.session.commit()
+
+        comment1_defect1 = Comment(defect_id=defect1.id, user_id=self.creator_user.id, content="Creator's first comment", created_at=datetime.utcnow() - timedelta(hours=2))
+        comment2_defect1 = Comment(defect_id=defect1.id, user_id=self.other_user.id, content="Other user's reply", created_at=datetime.utcnow() - timedelta(hours=1))
+        db.session.add_all([comment1_defect1, comment2_defect1])
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect1.description in response.data.decode()
+        logout(test_client)
+
+    def test_filter_open_with_reply_defect_hidden_last_comment_by_creator(self, test_client):
+        # Scenario 2: Defect is 'open', last comment by creator -> HIDDEN
+        login(test_client, self.admin_user.username, 'password')
+
+        defect2 = Defect(description="S2 Open Defect Last Reply by Creator", project_id=self.project_id, creator_id=self.creator_user.id, status='open', creation_date=datetime.utcnow())
+        db.session.add(defect2)
+        db.session.commit()
+
+        comment1_defect2 = Comment(defect_id=defect2.id, user_id=self.other_user.id, content="Other user's first comment", created_at=datetime.utcnow() - timedelta(hours=2))
+        comment2_defect2 = Comment(defect_id=defect2.id, user_id=self.creator_user.id, content="Creator's reply", created_at=datetime.utcnow() - timedelta(hours=1))
+        db.session.add_all([comment1_defect2, comment2_defect2])
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect2.description not in response.data.decode()
+        logout(test_client)
+
+    def test_filter_open_with_reply_defect_hidden_no_comments(self, test_client):
+        # Scenario 3: Defect is 'open', no comments -> HIDDEN
+        login(test_client, self.admin_user.username, 'password')
+
+        defect3 = Defect(description="S3 Open Defect No Comments", project_id=self.project_id, creator_id=self.creator_user.id, status='open', creation_date=datetime.utcnow())
+        db.session.add(defect3)
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect3.description not in response.data.decode()
+        logout(test_client)
+
+    def test_filter_open_with_reply_defect_hidden_closed_status(self, test_client):
+        # Scenario 4: Defect is 'closed', even if last comment by other -> HIDDEN
+        login(test_client, self.admin_user.username, 'password')
+
+        defect4 = Defect(description="S4 Closed Defect Reply by Other", project_id=self.project_id, creator_id=self.creator_user.id, status='closed', creation_date=datetime.utcnow(), close_date=datetime.utcnow())
+        db.session.add(defect4)
+        db.session.commit()
+
+        comment1_defect4 = Comment(defect_id=defect4.id, user_id=self.other_user.id, content="Other user's reply", created_at=datetime.utcnow() - timedelta(hours=1))
+        db.session.add(comment1_defect4)
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect4.description not in response.data.decode()
+        logout(test_client)
+
+    def test_filter_open_with_reply_defect_visible_multiple_comments_last_by_other(self, test_client):
+        # Scenario 5: Defect is 'open', multiple comments, very last by other -> VISIBLE
+        login(test_client, self.admin_user.username, 'password')
+
+        defect5 = Defect(description="S5 Open Defect Multi Comments Last by Other", project_id=self.project_id, creator_id=self.creator_user.id, status='open', creation_date=datetime.utcnow())
+        db.session.add(defect5)
+        db.session.commit()
+
+        comments = [
+            Comment(defect_id=defect5.id, user_id=self.creator_user.id, content="C1", created_at=datetime.utcnow() - timedelta(minutes=50)),
+            Comment(defect_id=defect5.id, user_id=self.other_user.id, content="O1", created_at=datetime.utcnow() - timedelta(minutes=40)),
+            Comment(defect_id=defect5.id, user_id=self.creator_user.id, content="C2", created_at=datetime.utcnow() - timedelta(minutes=30)),
+            Comment(defect_id=defect5.id, user_id=self.other_user.id, content="O2 - Last one", created_at=datetime.utcnow() - timedelta(minutes=20))
+        ]
+        db.session.add_all(comments)
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect5.description in response.data.decode()
+        logout(test_client)
+
+    def test_filter_open_with_reply_defect_hidden_only_comment_by_creator(self, test_client):
+        # Additional Scenario: Open defect, only one comment, and it's by the creator -> HIDDEN
+        login(test_client, self.admin_user.username, 'password')
+
+        defect6 = Defect(description="S6 Open Defect Only Comment by Creator", project_id=self.project_id, creator_id=self.creator_user.id, status='open', creation_date=datetime.utcnow())
+        db.session.add(defect6)
+        db.session.commit()
+
+        comment1_defect6 = Comment(defect_id=defect6.id, user_id=self.creator_user.id, content="Creator's only comment", created_at=datetime.utcnow() - timedelta(hours=1))
+        db.session.add(comment1_defect6)
+        db.session.commit()
+
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        assert response.status_code == 200
+        assert defect6.description not in response.data.decode()
+        logout(test_client)
+
 def test_tech_supervisor_can_access_template_pages(test_client):
     login(test_client, 'tech_supervisor', 'password')
 

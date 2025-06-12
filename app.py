@@ -569,9 +569,17 @@ def project_detail(project_id):
 
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
+    elif filter_status == 'OpenWithReply':
+        open_defects = defects_query.filter_by(status='open').all()
+        defects_with_reply_from_other = []
+        for defect in open_defects:
+            last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
+            if last_comment and last_comment.user_id != defect.creator_id:
+                defects_with_reply_from_other.append(defect)
+        defects = defects_with_reply_from_other
     elif filter_status == 'Closed':
         defects = defects_query.filter_by(status='closed').all()
-    else:
+    else: # All
         defects = defects_query.all()
 
     for defect in defects:
