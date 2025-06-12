@@ -288,5 +288,67 @@ class TestChecklistAsyncFeatures(unittest.TestCase):
         self.assertFalse(os.path.exists(full_file_path), f"File should be deleted: {full_file_path}")
         self.assertFalse(os.path.exists(full_thumb_path), f"Thumbnail should be deleted: {full_thumb_path}")
 
+    def test_filter_open_checklists(self):
+        self._login('user1', 'password1')
+        # Setup:
+        # Checklist 1: Open (1 item checked, 1 item unchecked)
+        checklist_open = self._create_checklist(self.project1.id, name='Filter Test Open Checklist')
+        self._create_checklist_item(checklist_open.id, text='Item FO1', is_checked=True)
+        self._create_checklist_item(checklist_open.id, text='Item FO2', is_checked=False)
+
+        # Checklist 2: Closed (2 items checked)
+        checklist_closed = self._create_checklist(self.project1.id, name='Filter Test Closed Checklist')
+        self._create_checklist_item(checklist_closed.id, text='Item FC1', is_checked=True)
+        self._create_checklist_item(checklist_closed.id, text='Item FC2', is_checked=True)
+
+        # Checklist 3: Empty (considered Closed)
+        checklist_empty = self._create_checklist(self.project1.id, name='Filter Test Empty Checklist')
+
+        # Make request with filter=Open
+        response = self.client.get(url_for('project_detail', project_id=self.project1.id, filter='Open'))
+        self.assertEqual(response.status_code, 200)
+
+        response_data_str = response.data.decode('utf-8')
+        self.assertIn('>Filter Test Open Checklist</h3>', response_data_str)
+        self.assertNotIn('>Filter Test Closed Checklist</h3>', response_data_str)
+        self.assertNotIn('>Filter Test Empty Checklist</h3>', response_data_str)
+
+    def test_filter_closed_checklists(self):
+        self._login('user1', 'password1')
+        # Setup
+        checklist_open = self._create_checklist(self.project1.id, name='Filter Test Open Checklist B')
+        self._create_checklist_item(checklist_open.id, text='Item FOB1', is_checked=False) # At least one unchecked
+
+        checklist_closed = self._create_checklist(self.project1.id, name='Filter Test Closed Checklist B')
+        self._create_checklist_item(checklist_closed.id, text='Item FCB1', is_checked=True) # All checked
+        self._create_checklist_item(checklist_closed.id, text='Item FCB2', is_checked=True)
+
+        checklist_empty = self._create_checklist(self.project1.id, name='Filter Test Empty Checklist B')
+
+        response = self.client.get(url_for('project_detail', project_id=self.project1.id, filter='Closed'))
+        self.assertEqual(response.status_code, 200)
+        response_data_str = response.data.decode('utf-8')
+        self.assertNotIn('>Filter Test Open Checklist B</h3>', response_data_str)
+        self.assertIn('>Filter Test Closed Checklist B</h3>', response_data_str)
+        self.assertIn('>Filter Test Empty Checklist B</h3>', response_data_str) # Empty is Closed
+
+    def test_filter_all_checklists(self):
+        self._login('user1', 'password1')
+        # Setup
+        checklist_open = self._create_checklist(self.project1.id, name='Filter Test Open Checklist C')
+        self._create_checklist_item(checklist_open.id, text='Item FOC1', is_checked=False)
+
+        checklist_closed = self._create_checklist(self.project1.id, name='Filter Test Closed Checklist C')
+        self._create_checklist_item(checklist_closed.id, text='Item FCC1', is_checked=True)
+
+        checklist_empty = self._create_checklist(self.project1.id, name='Filter Test Empty Checklist C')
+
+        response = self.client.get(url_for('project_detail', project_id=self.project1.id, filter='All'))
+        self.assertEqual(response.status_code, 200)
+        response_data_str = response.data.decode('utf-8')
+        self.assertIn('>Filter Test Open Checklist C</h3>', response_data_str)
+        self.assertIn('>Filter Test Closed Checklist C</h3>', response_data_str)
+        self.assertIn('>Filter Test Empty Checklist C</h3>', response_data_str)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -599,17 +599,32 @@ def project_detail(project_id):
             }
 
 
-    checklists = Checklist.query.filter_by(project_id=project_id).all()
+    checklists_query = Checklist.query.filter_by(project_id=project_id)
+    # The user story implies filtering on the main 'filter' parameter.
+    # So, filter_status (from request.args.get('filter', 'All')) will drive both.
+
+    checklists = checklists_query.all()
     filtered_checklists = []
+
     for checklist in checklists:
         items = ChecklistItem.query.filter_by(checklist_id=checklist.id).all()
-        has_open_items = any(not item.is_checked for item in items)
-        if filter_status == 'Open' and not has_open_items:
-            continue
-        elif filter_status == 'Closed' and has_open_items:
-            continue
 
-        # Calculate completion status
+        all_items_checked = True # Assume all checked initially
+        if not items: # If a checklist has no items
+            all_items_checked = True # Corrected: Empty checklist is considered Closed.
+        else: # Checklist has items
+            all_items_checked = all(item.is_checked for item in items)
+
+        # Now apply filter logic
+        if filter_status == 'Open':
+            if all_items_checked: # If all items are checked (i.e., it's Closed), skip it for 'Open' filter.
+                continue
+        elif filter_status == 'Closed':
+            if not all_items_checked: # If not all items are checked (i.e., it's Open), skip it for 'Closed' filter.
+                continue
+        # If filter_status is 'All', or it matches the criteria, it's included.
+
+        # Calculate completion status for display
         total_items = len(items)
         completed_items = sum(1 for item in items if item.is_checked)
         checklist.total_items = total_items
