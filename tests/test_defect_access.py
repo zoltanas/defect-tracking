@@ -719,9 +719,12 @@ class TestDefectFilters: # Renamed class
         db.session.add_all([comment1_defect2, comment2_defect2])
         db.session.commit()
 
-        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply', follow_redirects=True) # Added follow_redirects
         assert response.status_code == 200
-        assert defect2.description not in response.data.decode()
+        # Last comment by creator_user_id. Current user is admin_user_id.
+        # Since creator_user_id != admin_user_id, condition last_comment.user_id != current_user.id is TRUE.
+        # So, defect SHOULD be visible.
+        assert defect2.description in response.data.decode(), "Defect S2 should be visible as last comment by creator is not current_user (admin)"
         logout(test_client)
 
     def test_filter_open_with_reply_defect_hidden_no_comments(self, test_client):
@@ -788,9 +791,12 @@ class TestDefectFilters: # Renamed class
         db.session.add(comment1_defect6)
         db.session.commit()
 
-        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply')
+        response = test_client.get(f'/project/{self.project_id}?filter=OpenWithReply', follow_redirects=True) # Added follow_redirects
         assert response.status_code == 200
-        assert defect6.description not in response.data.decode()
+        # Last comment by creator_user_id. Current user is admin_user_id.
+        # Since creator_user_id != admin_user_id, condition last_comment.user_id != current_user.id is TRUE.
+        # So, defect SHOULD be visible.
+        assert defect6.description in response.data.decode(), "Defect S6 should be visible as last comment by creator is not current_user (admin)"
         logout(test_client)
 
     def test_open_with_reply_filter_technical_supervisor(self, test_client): # Removed app from signature
@@ -883,8 +889,8 @@ class TestDefectFilters: # Renamed class
         # Expected: Defect A (creator=TS, last_reply=TS) should NOT be visible.
         assert defect_a.description not in response_data, "Defect A (creator=TS, last_reply=TS) should NOT be visible"
 
-        # Expected: Defect B (creator=Other, last_reply=TS) SHOULD be visible.
-        assert defect_b.description in response_data, "Defect B (creator=Other, last_reply=TS) SHOULD be visible"
+        # Expected: Defect B (creator=Other, last_reply=TS) should NOT be visible (because ts_user is filtering and ts_user made the last comment).
+        assert defect_b.description not in response_data, "Defect B (creator=Other, last_reply=TS, filtered by TS) should NOT be visible"
 
         # Expected: Defect C (creator=TS, last_reply=Other) SHOULD be visible.
         assert defect_c.description in response_data, "Defect C (creator=TS, last_reply=Other) SHOULD be visible"
@@ -892,9 +898,79 @@ class TestDefectFilters: # Renamed class
         # Expected: Defect D (no reply) should NOT be visible
         assert defect_d_no_reply.description not in response_data, "Defect D (no reply) should NOT be visible"
 
-        # Expected: Defect E (creator=Other, last_reply=Other) should NOT be visible
-        assert defect_e.description not in response_data, "Defect E (creator=Other, last_reply=Other) should NOT be visible"
+        # Expected: Defect E (creator=Other, last_reply=Other) SHOULD be visible (last comment by Other, current_user is TS)
+        assert defect_e.description in response_data, "Defect E (creator=Other, last_reply=Other, filtered by TS) SHOULD be visible"
         logout(test_client) # Added logout
+
+    def test_open_with_reply_filter_other_user(self, test_client):
+        # Setup: Create users (filter_user, another_commenter_user)
+        # Ensure these usernames are different from those in other tests to avoid conflicts if tests run in parallel or share state unexpectedly.
+        filter_user = User.query.filter_by(username='filteruser_oufr').first()
+        if not filter_user:
+            filter_user = User(username='filteruser_oufr', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='contractor')
+            db.session.add(filter_user)
+
+        another_commenter_user = User.query.filter_by(username='commenter_oufr').first()
+        if not another_commenter_user:
+            another_commenter_user = User(username='commenter_oufr', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert')
+            db.session.add(another_commenter_user)
+
+        # Create a project (committing users first if they were just created)
+        # It's often better to commit after adding all initial objects for a setup block,
+        # but if IDs are needed (e.g. for ProjectAccess), commit earlier or use flush.
+        # For this structure, let's commit users before creating project that might need their IDs for access.
+        db.session.commit()
+
+        project = Project(name='Filter Test Project OUFR')
+        db.session.add(project)
+        db.session.commit() # Commit project to get its ID
+
+        # Grant access to project
+        db.session.add(ProjectAccess(user_id=filter_user.id, project_id=project.id, role='contractor'))
+        db.session.add(ProjectAccess(user_id=another_commenter_user.id, project_id=project.id, role='expert'))
+        db.session.commit() # Commit access rights
+
+        # Defect X: Creator: filter_user, Last Comment: filter_user
+        defect_x = Defect(project_id=project.id, description='Defect X (Cr: FU, Co: FU)', status='open', creator_id=filter_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_x)
+        db.session.flush()
+        comment_x = Comment(defect_id=defect_x.id, user_id=filter_user.id, content='FilterUser comment on Defect X', created_at=datetime.utcnow())
+        db.session.add(comment_x)
+
+        # Defect Y: Creator: another_commenter_user, Last Comment: filter_user
+        defect_y = Defect(project_id=project.id, description='Defect Y (Cr: ACU, Co: FU)', status='open', creator_id=another_commenter_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_y)
+        db.session.flush()
+        comment_y = Comment(defect_id=defect_y.id, user_id=filter_user.id, content='FilterUser comment on Defect Y', created_at=datetime.utcnow())
+        db.session.add(comment_y)
+
+        # Defect Z: Creator: filter_user, Last Comment: another_commenter_user
+        defect_z = Defect(project_id=project.id, description='Defect Z (Cr: FU, Co: ACU)', status='open', creator_id=filter_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_z)
+        db.session.flush()
+        comment_z = Comment(defect_id=defect_z.id, user_id=another_commenter_user.id, content='AnotherCommenterUser comment on Defect Z', created_at=datetime.utcnow())
+        db.session.add(comment_z)
+
+        db.session.commit() # Final commit for all defects and comments
+
+        # Log in as filter_user
+        login(test_client, 'filteruser_oufr', 'password') # Adapted to use login helper
+
+        response = test_client.get(f'/project/{project.id}?filter=OpenWithReply', follow_redirects=True) # Added follow_redirects
+        assert response.status_code == 200 # Expect 200 after following redirects
+
+        response_data = response.get_data(as_text=True)
+
+        # Expected: Defect X (Last Comment by self) should NOT be visible.
+        assert defect_x.description not in response_data, "Defect X (Last Comment by self) should NOT be visible"
+
+        # Expected: Defect Y (Last Comment by self) should NOT be visible.
+        assert defect_y.description not in response_data, "Defect Y (Last Comment by self) should NOT be visible"
+
+        # Expected: Defect Z (Last Comment not by self) SHOULD be visible.
+        assert defect_z.description in response_data, "Defect Z (Last Comment not by self) SHOULD be visible"
+
+        logout(test_client)
 
 
 def test_tech_supervisor_can_access_template_pages(test_client):

@@ -573,9 +573,27 @@ def project_detail(project_id):
         open_defects = defects_query.filter_by(status='open').all()
         defects_with_reply_from_other = []
         for defect in open_defects:
-            last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
-            if last_comment and last_comment.user_id != defect.creator_id:
-                defects_with_reply_from_other.append(defect)
+            try:
+                app.logger.info(f"[DEBUG_REDIRECT] Processing defect ID: {defect.id}, Desc: '{defect.description}' for OpenWithReply filter.")
+                app.logger.info(f"[DEBUG_REDIRECT] Current user: ID={current_user.id}, Authenticated={current_user.is_authenticated}")
+
+                last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
+
+                if not last_comment:
+                    app.logger.info(f"[DEBUG_REDIRECT] No last comment found for defect ID: {defect.id}.")
+                    continue
+
+                app.logger.info(f"[DEBUG_REDIRECT] Last comment for defect ID {defect.id}: CommentID={last_comment.id}, CommenterUserID={last_comment.user_id}")
+
+                if last_comment.user_id != current_user.id:
+                    app.logger.info(f"[DEBUG_REDIRECT] Defect ID {defect.id} will be INCLUDED (commenter {last_comment.user_id} != current_user {current_user.id}).")
+                    defects_with_reply_from_other.append(defect)
+                else:
+                    app.logger.info(f"[DEBUG_REDIRECT] Defect ID {defect.id} will be EXCLUDED (commenter {last_comment.user_id} == current_user {current_user.id}).")
+
+            except Exception as e:
+                app.logger.error(f"[DEBUG_REDIRECT] EXCEPTION while processing defect ID {defect.id} in OpenWithReply: {str(e)}", exc_info=True)
+                # continue # Optional: to continue processing other defects if one fails
         defects = defects_with_reply_from_other
     elif filter_status == 'Closed':
         defects = defects_query.filter_by(status='closed').all()
