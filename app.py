@@ -483,11 +483,14 @@ def index():
     for project in projects_query.all():
         open_defects_count = Defect.query.filter_by(project_id=project.id, status='open').count()
 
-        open_defects_with_reply_count = Defect.query.filter(
-            Defect.project_id == project.id,
-            Defect.status == 'open',
-            Defect.comments.any()
-        ).count()
+        # Calculate open_defects_with_reply_count with new logic
+        count_open_defects_with_other_user_reply = 0
+        all_open_defects = Defect.query.filter_by(project_id=project.id, status='open').all()
+        for defect in all_open_defects:
+            last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
+            if last_comment and last_comment.user_id != current_user.id:
+                count_open_defects_with_other_user_reply += 1
+        open_defects_with_reply_count = count_open_defects_with_other_user_reply
 
         open_checklists_count = Checklist.query.filter(
             Checklist.project_id == project.id,
