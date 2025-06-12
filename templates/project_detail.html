@@ -48,7 +48,7 @@
         {% set checklists_button_classes = base_button_classes + " " + inactive_button_style %}
     {% endif %}
 
-    <div id="tab-navigation" class="flex">
+    <div id="tab-navigation" class="flex" style="visibility: hidden;">
         <button id="defects-tab-button" class="{{ defects_button_classes }}">Defects</button>
         <button id="checklists-tab-button" class="{{ checklists_button_classes }}">Checklists</button>
     </div>
@@ -500,7 +500,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Activate tab on initial load
     activateTabFromHash();
 
-    if (tabPanesWrapper) { // New block
+    const tabNavigation = document.getElementById('tab-navigation'); // Added
+    if (tabNavigation) {                                            // Added
+        tabNavigation.style.visibility = 'visible';                // Added
+    }                                                               // Added
+
+    if (tabPanesWrapper) {
         tabPanesWrapper.style.visibility = 'visible';
     }
     // Optional: Listen for hash changes if user uses browser back/forward for hash navigation
