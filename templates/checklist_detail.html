@@ -65,8 +65,8 @@
 
                     {# View Mode Structure (Default) #}
                     <div class="item-view-mode">
-                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                            <div class="flex-grow mb-3 sm:mb-0">
+                        <div class="flex items-center justify-between"> {# Changed flex-col sm:flex-row items-start sm:items-center TO flex items-center #}
+                            <div class="flex-grow"> {# Removed mb-3 sm:mb-0 #}
                                 <label for="item_{{ item.id }}_checked_view" class="flex items-center cursor-pointer">
                                     <input type="checkbox" name="item_{{ item.id }}_checked_view" id="item_{{ item.id }}_checked_view"
                                            class="h-5 w-5 text-primary rounded border-gray-300 focus:ring-primary"
@@ -74,7 +74,7 @@
                                     <span class="ml-3 text-md text-gray-700">{{ item.item_text }}</span>
                                 </label>
                             </div>
-                            <div class="w-full sm:w-auto sm:ml-4 flex-shrink-0">
+                            <div class="w-auto ml-3 flex-shrink-0"> {# Changed w-full sm:w-auto sm:ml-4 TO w-auto ml-3 #}
                                 <button type="button" class="edit-item-btn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</button> {# Adjusted px-3 py-1 to px-2 py-1 #}
                             </div>
                         </div>
