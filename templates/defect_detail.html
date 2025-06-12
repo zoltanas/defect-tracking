@@ -1022,6 +1022,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 updateLocationEditStatus('Select a drawing to place a marker or view existing.', false);
                 pdfDocLocationEdit = null;
                 if(locationEditPdfCanvas) locationEditPdfCanvas.classList.add('hidden'); // Hide canvas
+                if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
                 if(removeLocationButton) removeLocationButton.classList.add('hidden'); // Hide remove button if no drawing
                 currentMarkerDataLocation = null; // Clear marker data if no drawing selected
                 if(markerXLocationInput) markerXLocationInput.value = '';
@@ -1031,6 +1032,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             updateLocationEditStatus('Loading PDF...', true);
+            if (locationEditPdfContainer) locationEditPdfContainer.classList.remove('hidden');
             const pdfUrl = `/static/${filePath}`;
             pdfjsLib.getDocument(pdfUrl).promise.then(loadedPdfDoc => {
                 pdfDocLocationEdit = loadedPdfDoc;
@@ -1064,16 +1066,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.error(`Error loading PDF ${pdfUrl}:`, err);
                 updateLocationEditStatus('Error loading PDF: ' + err.message, false);
                 pdfDocLocationEdit = null;
+                if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
             });
         }
 
         function renderPageLocationEdit(pageNumber) {
             if (!pdfDocLocationEdit || !locationEditPdfContainer || !locationEditPdfCanvas) {
                 updateLocationEditStatus('PDF document or canvas not ready.', false);
+                if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
                 return;
             }
             console.log("Editable display - renderPageLocationEdit - pageNumber:", pageNumber, "currentScaleLocationEdit:", currentScaleLocationEdit);
             updateLocationEditStatus('Loading page ' + pageNumber + '...', true);
+            if (locationEditPdfContainer) locationEditPdfContainer.classList.remove('hidden');
             pdfDocLocationEdit.getPage(pageNumber).then(page => {
                 currentPageNumLocationEdit = pageNumber;
                 if(pageNumLocationInput) pageNumLocationInput.value = currentPageNumLocationEdit;
@@ -1091,14 +1096,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 const renderContext = { canvasContext: locationEditPdfCanvas.getContext('2d'), viewport: viewport };
                 page.render(renderContext).promise.then(() => {
                     updateLocationEditStatus('', false); // Clear status, show canvas
+                    if (locationEditPdfContainer) locationEditPdfContainer.classList.remove('hidden');
                     drawMarkerLocationEdit();
                 }).catch(err => {
                     console.error(`Error rendering page ${pageNumber}:`, err);
                     updateLocationEditStatus('Error rendering PDF page: ' + err.message, false);
+                    if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
                 });
             }).catch(err => {
                 console.error(`Error getting page ${pageNumber}:`, err);
                 updateLocationEditStatus('Error getting PDF page: ' + err.message, false);
+                if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
             });
         }
 
@@ -1150,10 +1158,12 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Initial load if a drawing is pre-selected (e.g., existing marker)
         if (drawingSelectLocationEdit.value) {
+            if (locationEditPdfContainer) locationEditPdfContainer.classList.remove('hidden');
             loadPdfForLocationEditing();
         } else {
              updateLocationEditStatus('Select a drawing to place a marker.', false);
-             if(locationEditPdfCanvas) locationEditPdfCanvas.classList.add('hidden');
+             if (locationEditPdfCanvas) locationEditPdfCanvas.classList.add('hidden');
+             if (locationEditPdfContainer) locationEditPdfContainer.classList.add('hidden');
         }
 
         window.addEventListener('resize', () => { // Debounce this in a real app
