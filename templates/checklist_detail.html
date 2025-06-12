@@ -52,16 +52,16 @@
    </div>
 
     {% if items %}
-        {# Removed main form tag and Save All Changes button #}
+        {# Removed main form tag and Save All Changes Button #}
         {# CSRF token will need to be handled per AJAX request later #}
-        <div class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-6">
+        <div class="bg-white p-6 sm:p-8 shadow-xl rounded-xl space-y-4"> {# Adjusted space-y-6 to space-y-4 #}
             <h2 class="text-2xl font-semibold text-gray-700 mb-6">{{ checklist.name }}</h2>
             {# <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> #} {# Removed, will be handled with JS AJAX #}
             
-            <div class="space-y-6">
+            <div class="space-y-4"> {# Adjusted space-y-6 to space-y-4 #}
                 {% for item in items %}
                 {# Main container for each checklist item, with data attributes for JS interaction #}
-                <div class="checklist-item p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-item-id="{{ item.id }}" data-mode="view">
+                <div class="checklist-item p-3 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-item-id="{{ item.id }}" data-mode="view"> {# Adjusted p-4 to p-3 #}
 
                     {# View Mode Structure (Default) #}
                     <div class="item-view-mode">
@@ -75,10 +75,10 @@
                                 </label>
                             </div>
                             <div class="w-full sm:w-auto sm:ml-4 flex-shrink-0">
-                                <button type="button" class="edit-item-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs">Edit</button>
+                                <button type="button" class="edit-item-btn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</button> {# Adjusted px-3 py-1 to px-2 py-1 #}
                             </div>
                         </div>
-                        <div class="item-comments-view text-gray-600 text-sm mt-2 pl-8"> {# pl-8 to align with checkbox text #}
+                        <div class="item-comments-view text-gray-600 text-sm mt-2 pl-8 border-t border-gray-200 mt-3 pt-3"> {# Added border, mt-3, pt-3. Kept pl-8 based on analysis #}
                             {{ item.comments if item.comments else '' }}
                         </div>
                         <div class="mt-3 pl-8"> {# pl-8 to align with checkbox text #}
