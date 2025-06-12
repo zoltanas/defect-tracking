@@ -13,8 +13,8 @@
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
-            font-size: 10pt;
-            color: #333;
+            font-size: 9pt; /* Reduced font size */
+            color: #222; /* Darker text color */
             line-height: 1.4;
         }
         .container {
@@ -23,94 +23,93 @@
         }
         .header, .footer {
             text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
+            margin-bottom: 15px; /* Reduced margin */
+            padding-bottom: 8px; /* Reduced padding */
             border-bottom: 1px solid #eee;
         }
         .footer {
-            margin-top: 30px;
-            padding-top: 10px;
+            margin-top: 25px; /* Reduced margin */
+            padding-top: 8px; /* Reduced padding */
             border-top: 1px solid #eee;
-            font-size: 0.8em;
+            font-size: 0.75em; /* Slightly reduced font size */
             color: #777;
         }
         h1 {
-            font-size: 24pt;
+            font-size: 20pt; /* Reduced font size */
             color: #2c3e50;
             margin-bottom: 0;
         }
         h2 {
-            font-size: 18pt;
+            font-size: 16pt; /* Reduced font size */
             color: #34495e;
-            margin-top: 30px;
-            margin-bottom: 15px;
+            margin-top: 25px; /* Adjusted margin */
+            margin-bottom: 10px; /* Adjusted margin */
             border-bottom: 2px solid #bdc3c7;
-            padding-bottom: 5px;
+            padding-bottom: 3px; /* Adjusted padding */
         }
         h3 {
-            font-size: 14pt;
+            font-size: 12pt; /* Reduced font size */
             color: #7f8c8d;
-            margin-top: 20px;
-            margin-bottom: 10px;
+            margin-top: 15px; /* Adjusted margin */
+            margin-bottom: 8px; /* Adjusted margin */
         }
         h4 {
-            font-size: 11pt;
+            font-size: 10pt; /* Reduced font size */
             color: #333;
-            margin-top: 15px;
-            margin-bottom: 5px;
+            margin-top: 10px; /* Adjusted margin */
+            margin-bottom: 3px; /* Adjusted margin */
         }
         p {
-            margin: 0 0 10px 0;
+            margin: 0 0 8px 0; /* Reduced bottom margin */
         }
         strong {
             font-weight: bold;
         }
-        .project-info {
-            margin-bottom: 25px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border: 1px solid #ecf0f1;
-            border-radius: 4px;
-        }
-        .project-info p {
-            margin: 5px 0;
-        }
+
         .item-card {
             border: 1px solid #ddd;
             border-radius: 4px;
-            padding: 15px;
-            margin-bottom: 20px;
+            padding: 10px; /* Reduced padding */
+            margin-bottom: 15px; /* Reduced margin */
             background-color: #fff;
             page-break-inside: avoid;
         }
         .item-card p {
-            margin: 3px 0;
+            margin: 2px 0; /* Reduced margin */
         }
         .item-details {
-            margin-left: 10px;
+            margin-left: 5px; /* Reduced margin */
         }
         .attachments, .comments-section, .markers-section {
-            margin-top: 10px;
-            padding-top: 10px;
+            margin-top: 8px; /* Reduced margin */
+            padding-top: 8px; /* Reduced padding */
             border-top: 1px dashed #eee;
         }
-        .attachments img, .comment-attachments img, .markers-section img {
-            max-width: 150px; /* Increased max-width for better visibility */
-            max-height: 150px; /* Increased max-height */
-            margin: 5px;
+        .attachments img, .comment-attachments img { /* Checklist item images will also use this */
+            max-width: 200px; /* Increased for better visibility */
+            max-height: 200px; /* Increased for better visibility */
+            margin: 3px; /* Reduced margin */
             border: 1px solid #ccc;
             border-radius: 3px;
             vertical-align: middle;
         }
+        .markers-section img {
+            max-width: 450px; /* Significantly increased for marked drawing visibility */
+            max-height: 450px; /* Significantly increased for marked drawing visibility */
+            display: left; /* For centering */
+            margin: 10px auto; /* Centering and spacing */
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
         .comment {
-            padding: 8px;
+            padding: 5px; /* Reduced padding */
             border: 1px solid #f0f0f0;
-            margin-top: 8px;
+            margin-top: 5px; /* Reduced margin */
             border-radius: 3px;
             background-color: #fdfdfd;
         }
         .comment p {
-            margin: 2px 0;
+            margin: 1px 0; /* Reduced margin */
         }
         .no-data {
             color: #777;
@@ -119,11 +118,11 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 20px;
+            margin-bottom: 15px; /* Reduced margin */
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 8px;
+            padding: 5px; /* Reduced padding */
             text-align: left;
         }
         th {
@@ -136,26 +135,21 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Project Report</h1>
-            <p><strong>Project:</strong> {{ project.name }}</p>
-        </div>
-
-        <div class="project-info">
-            <h3>Report Details</h3>
+            <h1>{{ project.name }} Report</h1>
             <p><strong>Generated on:</strong> {{ generation_date }}</p>
             <p><strong>Filter Applied:</strong> {{ filter_status }}</p>
         </div>
 
-        <div class="section defects-section">
-            <h2>Defects</h2>
+
+            <!-- <h2>Defects</h2> -->
             {% if defects %}
                 {% for defect in defects %}
                 <div class="item-card">
-                    <h4>Defect #{{ defect.id }}: {{ defect.description }}</h4>
+                    <h2>Defect {{ defect.id }}: {{ defect.description }}</h2>
                     <div class="item-details">
-                        <p><strong>Status:</strong> <span class="status-{{ defect.status.lower() }}">{{ defect.status }}</span></p>
-                        <p><strong>Creator:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}</p>
-                        <p><strong>Created Date:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</p>
+                        <h4><strong>Status:</strong> <span class="status-{{ defect.status.lower() }}">{{ defect.status }}</span>   |   <strong>Created by:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}   |   <strong>Created:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</h4>
+                        <!-- <p><strong>Created by:</strong> {{ defect.creator.username if defect.creator else 'N/A' }}</p>
+                        <p><strong>Created Date:</strong> {{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') if defect.creation_date else 'N/A' }}</p> -->
                         {% if defect.close_date %}
                         <p><strong>Close Date:</strong> {{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                         {% endif %}
@@ -254,76 +248,6 @@
             {% else %}
                 <p class="no-data">No defects match the current filter.</p>
             {% endif %}
-        </div>
-
-        {% if checklists %}
-        <div class="section checklists-section">
-            <h2>Checklists</h2>
-            {# The inner if condition is for when checklists might be an empty list after filtering,
-               but the outer if ensures this whole block is skipped if checklists is None or truly empty
-               before any processing. Given app.py now sends an empty list if checklists are excluded,
-               this outer `if checklists` (evaluating to true if list is not empty) is the primary control. #}
-            {% if checklists %}
-                {% for chk_data in checklists %}
-                <div class="item-card">
-                    <h3>{{ chk_data.checklist_info.name }}</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th>Status</th>
-                                <th>Comments</th>
-                                <th>Attachments</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        {% for item in chk_data['items'] %}
-                            <tr>
-                                <td>{{ item.item_text }}</td>
-                                <td><span class="status-{{ 'closed' if item.is_checked else 'open' }}">{{ 'Checked' if item.is_checked else 'Unchecked' }}</span></td>
-                                <td>{{ item.comments if item.comments else '' }}</td>
-                                <td>
-                                    {% if item.attachments %}
-                                        {% for attachment in item.attachments %}
-                                            {% if attachment.thumbnail_path %}
-                                                {% set abs_item_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
-                                                {% if abs_item_thumb_path %}
-                                                    <img src="file://{{ abs_item_thumb_path }}" alt="Item Thumbnail">
-                                                {% else %}
-                                                    <span><em>(Invalid item thumbnail path: {{ attachment.thumbnail_path }})</em></span>
-                                                {% endif %}
-                                            {% elif attachment.file_path and (attachment.file_path.lower().endswith('.jpg') or attachment.file_path.lower().endswith('.jpeg') or attachment.file_path.lower().endswith('.png')) %}
-                                                {% set abs_item_file_path = get_absolute_static_path(attachment.file_path) %}
-                                                {% if abs_item_file_path %}
-                                                    <img src="file://{{ abs_item_file_path }}" alt="Item Attachment">
-                                                {% else %}
-                                                    <span><em>(Invalid item image attachment path: {{ attachment.file_path }})</em></span>
-                                                {% endif %}
-                                            {% elif attachment.file_path %}
-                                                <span>{{ attachment.file_path.split('/')[-1] }} (non-image)</span>
-                                            {% else %}
-                                                <span><em>(Item attachment path missing)</em></span>
-                                            {% endif %}
-                                        {% endfor %}
-                                    {% else %}
-                                    <!-- No attachments -->
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% endfor %}
-            {% else %}
-                <p class="no-data">No checklists or items match the current filter.</p>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <div class="footer">
-            <p>End of Report</p>
-        </div>
     </div>
 </body>
 </html>
