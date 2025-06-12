@@ -78,12 +78,16 @@
                                 <button type="button" class="edit-item-btn bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</button> {# Adjusted px-3 py-1 to px-2 py-1 #}
                             </div>
                         </div>
-                        <div class="item-comments-view text-gray-600 text-sm mt-2 pl-8 border-t border-gray-200 mt-3 pt-3"> {# Added border, mt-3, pt-3. Kept pl-8 based on analysis #}
-                            {{ item.comments if item.comments else '' }}
-                        </div>
-                        <div class="mt-3 pl-8"> {# pl-8 to align with checkbox text #}
-                            {% set item_attachments = item.attachments %}
-                            {% if item_attachments %}
+                        {% set item_attachments = item.attachments %} {# Define item_attachments earlier for the condition #}
+                        {% if item.comments or item_attachments|length > 0 %}
+                        <div class="border-t border-gray-200 mt-3 pt-3"> {# Wrapper for comments and attachments with separator #}
+                            {% if item.comments %}
+                            <div class="text-gray-600 text-sm pl-8"> {# Simplified item-comments-view, pl-8 for alignment #}
+                                {{ item.comments }}
+                            </div>
+                            {% endif %}
+                            {% if item_attachments|length > 0 %}
+                            <div class="{% if item.comments %}mt-3{% endif %} pl-8"> {# Attachment container, conditional mt-3, pl-8 for alignment #}
                                 <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                                     {% for attachment in item_attachments %}
                                     <div role="button"
@@ -95,8 +99,10 @@
                                     </div>
                                     {% endfor %}
                                 </div>
+                            </div>
                             {% endif %}
                         </div>
+                        {% endif %}
                     </div>
 
                     {# Edit Mode Structure (Initially hidden, toggled by JS) #}
