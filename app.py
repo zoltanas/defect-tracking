@@ -2385,36 +2385,36 @@ def generate_new_report(project_id):
 
 
     # Fetch checklists
-    checklists_db = Checklist.query.filter_by(project_id=project_id).order_by(Checklist.name.asc()).all()
+    # checklists_db = Checklist.query.filter_by(project_id=project_id).order_by(Checklist.name.asc()).all()
     report_checklists = []
-    for checklist_obj in checklists_db:
-        items_db = ChecklistItem.query.options(
-            db.joinedload(ChecklistItem.attachments)
-        ).filter_by(checklist_id=checklist_obj.id).order_by(ChecklistItem.id.asc()).all()
+    # for checklist_obj in checklists_db:
+    #     items_db = ChecklistItem.query.options(
+    #         db.joinedload(ChecklistItem.attachments)
+    #     ).filter_by(checklist_id=checklist_obj.id).order_by(ChecklistItem.id.asc()).all()
 
-        filtered_items = []
-        for item_obj in items_db:
-            item_status_val = 'closed' if item_obj.is_checked else 'open'
-            if filter_status == 'Open' and item_status_val != 'open':
-                continue
-            elif filter_status == 'Closed' and item_status_val != 'closed':
-                continue
-            filtered_items.append(item_obj)
+    #     filtered_items = []
+    #     for item_obj in items_db:
+    #         item_status_val = 'closed' if item_obj.is_checked else 'open'
+    #         if filter_status == 'Open' and item_status_val != 'open':
+    #             continue
+    #         elif filter_status == 'Closed' and item_status_val != 'closed':
+    #             continue
+    #         filtered_items.append(item_obj)
 
-        if filtered_items: # Only add checklist if it has items matching the filter
-            report_checklists.append({'checklist_info': checklist_obj, 'items': filtered_items})
+    #     if filtered_items: # Only add checklist if it has items matching the filter
+    #         report_checklists.append({'checklist_info': checklist_obj, 'items': filtered_items})
 
     html_out = render_template(
         'report_template.html',
         project=project,
         generation_date=generation_date_str,
         defects=defects,
-        checklists=report_checklists,
+        checklists=report_checklists, # Ensure this is the empty list
         filter_status=filter_status,
         app_config=app.config
     )
 
-    logger.info(f"Fetched {len(report_checklists)} checklists with items matching filter for the report.")
+    logger.info(f"Fetched {len(report_checklists)} checklists with items matching filter for the report.") # This will now log 0
 
     logger.info("Rendering HTML template for WeasyPrint...")
     html_out = render_template(
@@ -2422,7 +2422,7 @@ def generate_new_report(project_id):
         project=project,
         generation_date=generation_date_str,
         defects=defects,
-        checklists=report_checklists,
+        checklists=report_checklists, # Ensure this is the empty list
         filter_status=filter_status,
         app_config=app.config
     )
