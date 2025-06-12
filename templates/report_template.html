@@ -256,8 +256,13 @@
             {% endif %}
         </div>
 
+        {% if checklists %}
         <div class="section checklists-section">
             <h2>Checklists</h2>
+            {# The inner if condition is for when checklists might be an empty list after filtering,
+               but the outer if ensures this whole block is skipped if checklists is None or truly empty
+               before any processing. Given app.py now sends an empty list if checklists are excluded,
+               this outer `if checklists` (evaluating to true if list is not empty) is the primary control. #}
             {% if checklists %}
                 {% for chk_data in checklists %}
                 <div class="item-card">
@@ -314,6 +319,7 @@
                 <p class="no-data">No checklists or items match the current filter.</p>
             {% endif %}
         </div>
+        {% endif %}
 
         <div class="footer">
             <p>End of Report</p>
