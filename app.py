@@ -353,6 +353,8 @@ def create_thumbnail(image_path, thumbnail_save_path, size=(300, 300)):
         with PILImage.open(image_path) as img:
             img = ImageOps.exif_transpose(img) # Apply EXIF orientation
             img.thumbnail(size, PILImage.Resampling.LANCZOS)
+            if img.mode == 'RGBA' or img.mode == 'P': # P mode can also have transparency
+                img = img.convert('RGB')
             img.save(thumbnail_save_path, quality=85, optimize=True)
             os.chmod(thumbnail_save_path, 0o644)
         logger.debug(f'Created thumbnail: {thumbnail_save_path}')

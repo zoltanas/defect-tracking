@@ -82,16 +82,17 @@
                         {% if item.comments or item_attachments|length > 0 %}
                         <div class="border-t border-gray-200 mt-3 pt-3"> {# Wrapper for comments and attachments with separator #}
                             {% if item.comments %}
-                            <div class="text-gray-600 text-sm pl-8"> {# Simplified item-comments-view, pl-8 for alignment #}
+                            <div class="text-gray-600 text-sm pl-8 checklist-item-comments-display"> {# Simplified item-comments-view, pl-8 for alignment #}
                                 {{ item.comments }}
                             </div>
                             {% endif %}
                             {% if item_attachments|length > 0 %}
-                            <div class="{% if item.comments %}mt-3{% endif %} pl-8"> {# Attachment container, conditional mt-3, pl-8 for alignment #}
-                                <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                            <div class="{% if item.comments %}mt-3{% endif %} pl-8 checklist-item-view-attachments-parent"> {# Attachment container, conditional mt-3, pl-8 for alignment #}
+                                <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 attachments-grid-view">
                                     {% for attachment in item_attachments %}
                                     <div role="button"
-                                         class="w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150"
+                                         class="w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150 attachment-display"
+                                         data-attachment-id="{{ attachment.id }}"
                                          onclick="openImagePopup('{{ url_for('static', filename=attachment.file_path) }}', '{{ attachment.id }}', '/draw/');">
                                         <img src="{{ url_for('static', filename=attachment.thumbnail_path) }}"
                                              alt="Thumbnail for attachment {{ attachment.id }}"

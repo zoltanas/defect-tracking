@@ -12,68 +12,120 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function addAttachmentToDOM(itemElement, attachment, isEditMode) {
-        const modeClass = isEditMode ? '.item-edit-mode' : '.item-view-mode';
-        const targetModeDiv = itemElement.querySelector(modeClass);
+        const targetModeDiv = itemElement.querySelector(isEditMode ? '.item-edit-mode' : '.item-view-mode');
         if (!targetModeDiv) {
-            console.error(`Cannot find ${modeClass} in item:`, itemElement);
+            console.error(`Cannot find ${isEditMode ? 'edit' : 'view'} mode div in item:`, itemElement);
             return;
         }
 
-        let attachmentsList = targetModeDiv.querySelector('.grid[class*="gap-3"]');
-        if (!attachmentsList) {
-            let baseAttachmentContainer = isEditMode ?
-                targetModeDiv.querySelector('.mt-3 > .grid[class*="gap-3"]') :
-                targetModeDiv.querySelector('.mt-3.pl-8 > .grid[class*="gap-3"]');
+        let attachmentsList;
 
-            if (!baseAttachmentContainer) {
-                // console.warn('Specific attachment grid not found, creating one for item ' + itemElement.dataset.itemId);
-                const parentDivForGrid = isEditMode ? targetModeDiv.querySelector('.mt-3') : targetModeDiv.querySelector('.mt-3.pl-8');
-                if (parentDivForGrid) {
-                    baseAttachmentContainer = document.createElement('div');
-                    baseAttachmentContainer.className = 'mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 attachments-list';
-                    parentDivForGrid.appendChild(baseAttachmentContainer);
-                } else {
-                    console.error('Parent div for creating attachment grid not found in', targetModeDiv);
-                    return;
-                }
+        if (isEditMode) {
+            // Edit Mode: Find or create attachments list container
+            // Assumes structure: .item-edit-mode -> .mt-3 (parent for grid) -> .attachments-grid-edit (the grid)
+            // The HTML for edit mode has a <p>Existing Attachments:</p> then the grid in a .mt-3 div.
+            let parentContainerForGrid = targetModeDiv.querySelector('.mt-3 > p + .grid[class*="gap-3"], .mt-3:not(:has(p)) > .grid[class*="gap-3"]');
+            if (parentContainerForGrid) { // If grid exists directly under .mt-3 (possibly after a <p>)
+                 attachmentsList = parentContainerForGrid;
+            } else {
+                 // Try to find .mt-3 that should host the "Existing Attachments" <p> and the grid
+                 let existingMt3 = targetModeDiv.querySelector('.mt-3');
+                 if (!existingMt3) {
+                    existingMt3 = document.createElement('div');
+                    existingMt3.className = 'mt-3';
+                    // Optionally add the <p> if it's always expected
+                    const p = document.createElement('p');
+                    p.className = 'block text-sm font-medium text-gray-600 mb-1';
+                    p.textContent = 'Existing Attachments:';
+                    existingMt3.appendChild(p);
+                    targetModeDiv.appendChild(existingMt3); // Append to item-edit-mode
+                 }
+                 // Now create the grid
+                attachmentsList = document.createElement('div');
+                attachmentsList.className = 'mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 attachments-grid-edit';
+                existingMt3.appendChild(attachmentsList);
             }
-            attachmentsList = baseAttachmentContainer;
+        } else { // View Mode Logic
+            const commentsAndAttachmentsAreaSelector = '.border-t.border-gray-200.mt-3.pt-3';
+            let commentsAndAttachmentsArea = targetModeDiv.querySelector(commentsAndAttachmentsAreaSelector);
+
+            if (!commentsAndAttachmentsArea) {
+                commentsAndAttachmentsArea = document.createElement('div');
+                commentsAndAttachmentsArea.className = 'border-t border-gray-200 mt-3 pt-3';
+                targetModeDiv.appendChild(commentsAndAttachmentsArea);
+            }
+
+            const parentDivForGridSelector = '.checklist-item-view-attachments-parent';
+            let parentDivForGrid = commentsAndAttachmentsArea.querySelector(parentDivForGridSelector);
+
+            if (!parentDivForGrid) {
+                parentDivForGrid = document.createElement('div');
+                parentDivForGrid.className = 'pl-8 checklist-item-view-attachments-parent';
+                if (commentsAndAttachmentsArea.querySelector('.checklist-item-comments-display')) {
+                    parentDivForGrid.classList.add('mt-3');
+                }
+                commentsAndAttachmentsArea.appendChild(parentDivForGrid);
+            }
+
+            const attachmentsListSelector = '.attachments-grid-view';
+            attachmentsList = parentDivForGrid.querySelector(attachmentsListSelector);
+
+            if (!attachmentsList) {
+                attachmentsList = document.createElement('div');
+                attachmentsList.className = 'mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 attachments-grid-view';
+                parentDivForGrid.appendChild(attachmentsList);
+            }
         }
 
+        if (!attachmentsList) {
+            console.error('Failed to find or create attachments list for item:', itemElement.dataset.itemId, 'Mode:', isEditMode ? 'edit' : 'view');
+            return;
+        }
+
+        // Create and append the attachment div
         const attachmentDiv = document.createElement('div');
-        attachmentDiv.classList.add('relative', 'group', 'w-28', 'h-28', 'p-1', 'bg-gray-100', 'rounded-md', 'flex', 'items-center', 'justify-center', 'attachment-display');
-        attachmentDiv.dataset.attachmentId = attachment.id;
+        attachmentDiv.dataset.attachmentId = attachment.id; // Universal attribute
 
         let thumbnailUrl = attachment.thumbnail_url;
         if (!thumbnailUrl && attachment.thumbnail_path) {
             thumbnailUrl = `/static/${attachment.thumbnail_path}`;
         }
-        if (!thumbnailUrl) thumbnailUrl = 'placeholder.png';
+        if (!thumbnailUrl) thumbnailUrl = 'placeholder.png'; // Fallback
 
         const img = document.createElement('img');
         img.src = thumbnailUrl;
         img.alt = `Thumbnail for attachment ${attachment.id}`;
         img.classList.add('max-w-full', 'max-h-full', 'object-contain');
-        if (!isEditMode) {
-            img.classList.add('pointer-events-none');
-            attachmentDiv.role = 'button';
-            attachmentDiv.classList.add('cursor-pointer', 'group', 'hover:bg-gray-200', 'transition-colors', 'duration-150');
-            if (typeof openImagePopup === 'function') {
-                attachmentDiv.onclick = () => openImagePopup(attachment.original_url || `/static/${attachment.file_path}`, attachment.id, '/draw/');
-            } else {
-                console.warn('openImagePopup function not found for view mode attachments.');
-            }
-        }
-        attachmentDiv.appendChild(img);
 
         if (isEditMode) {
+            attachmentDiv.className = 'relative group w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center attachment-display'; // Add attachment-display
+
             const deleteButton = document.createElement('button');
             deleteButton.type = 'button';
-            deleteButton.classList.add('delete-attachment-btn', 'absolute', 'top-0', 'right-0', 'bg-red-500', 'text-white', 'rounded-full', 'p-1', 'text-xs', 'opacity-0', 'group-hover:opacity-100');
+            deleteButton.className = 'delete-attachment-btn absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 text-xs opacity-0 group-hover:opacity-100';
             deleteButton.dataset.attachmentId = attachment.id;
             deleteButton.setAttribute('aria-label', 'Delete attachment');
             deleteButton.innerHTML = 'X';
+
+            attachmentDiv.appendChild(img);
             attachmentDiv.appendChild(deleteButton);
+        } else { // View Mode
+            // Classes from HTML: w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150 attachment-display
+            attachmentDiv.className = 'w-28 h-28 p-1 bg-gray-100 rounded-md flex items-center justify-center cursor-pointer group hover:bg-gray-200 transition-colors duration-150 attachment-display';
+            img.classList.add('pointer-events-none'); // From original code, seems correct
+            attachmentDiv.role = 'button'; // From original code
+
+            if (typeof openImagePopup === 'function') {
+                let originalUrl = attachment.original_url;
+                if (!originalUrl && attachment.file_path) {
+                    originalUrl = `/static/${attachment.file_path}`;
+                }
+                // If originalUrl is still undefined/null, openImagePopup might need to handle it or show placeholder/error
+                attachmentDiv.onclick = () => openImagePopup(originalUrl, attachment.id, '/draw/');
+            } else {
+                console.warn('openImagePopup function not found for view mode attachments.');
+            }
+            attachmentDiv.appendChild(img);
         }
         attachmentsList.appendChild(attachmentDiv);
     }
@@ -254,7 +306,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const commentResult = await commentResponse.json();
 
-            const commentsViewDiv = viewModeDiv.querySelector('.item-comments-view');
+            const commentsViewDiv = viewModeDiv.querySelector('.checklist-item-comments-display');
             if (commentsViewDiv) commentsViewDiv.textContent = commentResult.new_comments || comments;
 
         } catch (error) {
