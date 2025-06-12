@@ -185,13 +185,13 @@
                 <thead>
                     <tr>
                         <th style="width: 5%;">#</th>
-                        <th style="width: 95%;">Details</th>
+                        <th style="width: 95%;">Defect details</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for defect in defects %}
                     <tr>
-                        <td>{{ defect.id }}</td>
+                        <td>{{ loop.index }}</td>
                         <td>
                             <strong class="defect-description">{{ defect.description }}</strong>
                             <div class="meta-info">
