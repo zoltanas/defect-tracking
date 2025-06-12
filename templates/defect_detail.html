@@ -315,10 +315,7 @@
     </div>
 
     {% if marker %}
-    <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
-
         // Script for STATIC PDF/Marker Display (for non-authorized users or when not editing)
         // This script is active if a marker exists and the user is not authorized to edit,
         // or if there's a general need to display a static marker.
@@ -531,6 +528,12 @@
     </script>
     {% endif %}
 
+{% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
+    <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+    </script>
+{% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     if (typeof pdfjsLib === 'undefined') {
