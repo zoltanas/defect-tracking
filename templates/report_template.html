@@ -23,7 +23,7 @@
         }
         .header, .footer {
             text-align: center;
-            margin-bottom: 15px; /* Reduced margin */
+            margin-bottom: 5px; /* Significantly reduced margin for header */
             padding-bottom: 8px; /* Reduced padding */
             border-bottom: 1px solid #eee;
         }
@@ -37,7 +37,7 @@
         h1 {
             font-size: 20pt; /* Reduced font size */
             color: #2c3e50;
-            margin-bottom: 0;
+            margin-bottom: 0; /* Kept as 0, good */
         }
         h2 {
             font-size: 16pt; /* Reduced font size */
@@ -86,21 +86,24 @@
             border-top: 1px dashed #eee;
         }
         .attachments img, .comment-attachments img { /* Checklist item images will also use this */
-            max-width: 200px; /* Increased for better visibility */
-            max-height: 200px; /* Increased for better visibility */
+            max-width: 48%; /* Allow two images side-by-side */
+            /* max-height: 200px; Removed to maintain aspect ratio */
             margin: 3px; /* Reduced margin */
             border: 1px solid #ccc;
             border-radius: 3px;
-            vertical-align: middle;
+            display: inline-block; /* Enable side-by-side layout */
+            vertical-align: top; /* Align images at the top */
         }
+        /* Removed .markers-section img as it's no longer used
         .markers-section img {
-            max-width: 450px; /* Significantly increased for marked drawing visibility */
-            max-height: 450px; /* Significantly increased for marked drawing visibility */
-            display: left; /* For centering */
-            margin: 10px auto; /* Centering and spacing */
+            max-width: 450px;
+            max-height: 450px;
+            display: left;
+            margin: 10px auto;
             border: 1px solid #ccc;
             border-radius: 3px;
         }
+        */
         .comment {
             padding: 5px; /* Reduced padding */
             border: 1px solid #f0f0f0;
@@ -154,7 +157,7 @@
                         <p><strong>Close Date:</strong> {{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                         {% endif %}
 
-                        {% if defect.markers %}
+                        {# {% if defect.markers %}
                         <div class="markers-section">
                             <p><strong>Marked Drawing:</strong>
                                 {% if defect.markers[0].drawing %}
@@ -176,12 +179,20 @@
                                 <p><em>(No marked drawing available.)</em></p>
                             {% endif %}
                         </div>
-                        {% endif %}
+                        {% endif %} #}
 
                         {% set defect_direct_attachments = defect.attachments|selectattr('comment_id', 'none')|selectattr('checklist_item_id', 'none')|list %}
-                        {% if defect_direct_attachments %}
+                        {% if defect_direct_attachments or defect.marked_drawing_image_path %}
                         <div class="attachments">
                             <p><strong>Attachments:</strong></p>
+                            {% if defect.marked_drawing_image_path %}
+                                {% set abs_marked_drawing_path = get_absolute_static_path(defect.marked_drawing_image_path) %}
+                                {% if abs_marked_drawing_path %}
+                                    <img src="file://{{ abs_marked_drawing_path }}" alt="Marked Drawing for Defect {{ defect.id }}">
+                                {% else %}
+                                    <span><em>(Marked drawing path could not be resolved: {{ defect.marked_drawing_image_path }})</em></span>
+                                {% endif %}
+                            {% endif %}
                             {% for attachment in defect_direct_attachments %}
                                 {% if attachment.thumbnail_path %}
                                     {% set abs_thumb_path = get_absolute_static_path(attachment.thumbnail_path) %}
