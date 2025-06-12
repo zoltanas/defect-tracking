@@ -2271,7 +2271,7 @@ def generate_new_report(project_id):
     temp_files_to_clean = []
 
     # Fetch defects
-    defects_query = Defect.query.options(
+    defects_query_base = Defect.query.options(
         db.joinedload(Defect.creator),
         db.joinedload(Defect.attachments),
         db.joinedload(Defect.comments).joinedload(Comment.user),
@@ -2279,27 +2279,49 @@ def generate_new_report(project_id):
         db.joinedload(Defect.markers).joinedload(DefectMarker.drawing)
     ).filter_by(project_id=project_id)
 
-    # ADD THIS CONDITION FOR EXPERT USERS
-    if current_user.role == 'expert':
-        defects_query = defects_query.filter_by(creator_id=current_user.id)
-    # END OF ADDED CONDITION
+    user_is_privileged = current_user.role in ['admin', 'Technical supervisor']
 
     if filter_status == 'Open':
-        defects = defects_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
+        final_query = defects_query_base.filter_by(status='open')
+        if not user_is_privileged:
+            final_query = final_query.filter_by(creator_id=current_user.id)
+        defects = final_query.order_by(Defect.creation_date.asc()).all()
     elif filter_status == 'Closed':
-        defects = defects_query.filter_by(status='closed').order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
-    else: # All
-        # For 'All', we need to be careful. The original code fetched all and then Python-sorted.
-        # We should apply the creator_id filter at the query level first if the user is an expert.
-        # The status filtering and sorting will then apply to this subset.
+        final_query = defects_query_base.filter_by(status='closed')
+        if not user_is_privileged:
+            final_query = final_query.filter_by(creator_id=current_user.id)
+        defects = final_query.order_by(Defect.close_date.desc(), Defect.creation_date.asc()).all()
+    elif filter_status == 'OpenNoReply':
+        current_query = defects_query_base
+        if not user_is_privileged:
+            current_query = current_query.filter_by(creator_id=current_user.id)
+        current_query = current_query.filter_by(status='open').outerjoin(Defect.comments).filter(Comment.id == None)
+        defects = current_query.order_by(Defect.creation_date.asc()).all()
+    elif filter_status == 'OpenWithReply':
+        current_query = defects_query_base
+        if not user_is_privileged:
+            current_query = current_query.filter_by(creator_id=current_user.id)
 
-        # The expert filter is already applied to defects_query if applicable.
-        all_defects_db = defects_query.order_by(Defect.creation_date.asc()).all() # This now respects the expert filter
+        # Fetch open defects matching the current user/project filters
+        open_defects_for_user = current_query.filter_by(status='open').order_by(Defect.creation_date.asc()).all()
+
+        defects_with_reply_from_other = []
+        for defect_item in open_defects_for_user:
+            last_comment = Comment.query.filter_by(defect_id=defect_item.id).order_by(Comment.created_at.desc()).first()
+            if last_comment and last_comment.user_id != current_user.id:
+                defects_with_reply_from_other.append(defect_item)
+        defects = defects_with_reply_from_other
+    else:  # All
+        final_query_for_all = defects_query_base
+        if not user_is_privileged:
+            final_query_for_all = final_query_for_all.filter_by(creator_id=current_user.id)
+        all_defects_db = final_query_for_all.order_by(Defect.creation_date.asc()).all()
 
         # The python sorting logic for open/closed can remain the same
         defects = sorted([d for d in all_defects_db if d.status == 'open'], key=lambda d: d.creation_date if d.creation_date else datetime.min) + \
-                    sorted([d for d in all_defects_db if d.status == 'closed'],
-                           key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
+                  sorted([d for d in all_defects_db if d.status == 'closed'],
+                         key=lambda d: (d.close_date if d.close_date else datetime.min, d.creation_date if d.creation_date else datetime.min), reverse=True)
+
     logger.info(f"Fetched {len(defects)} defects for the report for user {current_user.username} (Role: {current_user.role}).")
 
     for defect in defects:
