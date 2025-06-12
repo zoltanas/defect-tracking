@@ -272,7 +272,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                        {% for item in chk_data.items %}
+                        {% for item in chk_data['items'] %}
                             <tr>
                                 <td>{{ item.item_text }}</td>
                                 <td><span class="status-{{ 'closed' if item.is_checked else 'open' }}">{{ 'Checked' if item.is_checked else 'Unchecked' }}</span></td>
