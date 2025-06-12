@@ -5,6 +5,8 @@ from app import app, db, User, Project, Defect, ProjectAccess, bcrypt, Template,
 from flask_login import login_user, logout_user, current_user
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
+from app import User, Project, Defect, Comment, ProjectAccess, db, bcrypt # Duplicated but ensures it's there
+from datetime import datetime # Duplicated but ensures it's there
 
 
 @pytest.fixture(scope='module')
@@ -615,7 +617,7 @@ def test_tech_supervisor_sees_manage_templates_button_on_project_page(test_clien
     logout(test_client)
 
 
-class TestDefectOpenWithReplyFilter:
+class TestDefectFilters: # Renamed class
     def setup_method(self, method):
         # Common setup for these tests: create users, project
         with app.app_context():
@@ -790,6 +792,110 @@ class TestDefectOpenWithReplyFilter:
         assert response.status_code == 200
         assert defect6.description not in response.data.decode()
         logout(test_client)
+
+    def test_open_with_reply_filter_technical_supervisor(self, test_client): # Removed app from signature
+        # Removed with app.app_context(): block to use test_client's context
+        # Setup: Create users (Admin, Technical Supervisor, Other User)
+        admin_user = User.query.filter_by(username='testadmin').first()
+        if not admin_user:
+            admin_user = User(username='testadmin', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin')
+            db.session.add(admin_user)
+
+        ts_user = User.query.filter_by(username='techsupervisor').first()
+        if not ts_user:
+            ts_user = User(username='techsupervisor', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='Technical supervisor')
+            db.session.add(ts_user)
+
+        other_user = User.query.filter_by(username='otheruser').first()
+        if not other_user:
+            other_user = User(username='otheruser', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='contractor') # Role doesn't strictly matter here
+            db.session.add(other_user)
+
+        # Removed one db.session.commit() here, will commit after all user creations if needed,
+        # but the main commit is after all setup.
+
+        # Create a project
+        project = Project(name='Filter Test Project TS') # Renamed to avoid collision
+        db.session.add(project)
+        # Removed db.session.commit() here
+
+        # Grant access to project
+        ProjectAccess.query.filter_by(project_id=project.id).delete()
+        db.session.add(ProjectAccess(user_id=admin_user.id, project_id=project.id, role='admin'))
+        db.session.add(ProjectAccess(user_id=ts_user.id, project_id=project.id, role='Technical supervisor'))
+        db.session.add(ProjectAccess(user_id=other_user.id, project_id=project.id, role='contractor'))
+        # Removed db.session.commit() here
+
+        # Defect A: Created by TS_User, Last comment by TS_User
+        defect_a = Defect(project_id=project.id, description='Defect A by TS', status='open', creator_id=ts_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_a)
+        db.session.flush() # Ensure defect_a.id is populated
+        comment_a = Comment(defect_id=defect_a.id, user_id=ts_user.id, content='TS comment on Defect A', created_at=datetime.utcnow())
+        db.session.add(comment_a)
+
+        # Defect B: Created by Other_User, Last comment by TS_User
+        defect_b = Defect(project_id=project.id, description='Defect B by Other', status='open', creator_id=other_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_b)
+        db.session.flush() # Ensure defect_b.id is populated
+        comment_b = Comment(defect_id=defect_b.id, user_id=ts_user.id, content='TS comment on Defect B', created_at=datetime.utcnow())
+        db.session.add(comment_b)
+
+        # Defect C: Created by TS_User, Last comment by Other_User
+        defect_c = Defect(project_id=project.id, description='Defect C by TS', status='open', creator_id=ts_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_c)
+        db.session.flush() # Ensure defect_c.id is populated
+        comment_c = Comment(defect_id=defect_c.id, user_id=other_user.id, content='Other comment on Defect C', created_at=datetime.utcnow())
+        db.session.add(comment_c)
+
+        # Defect D: Created by TS_User, no comments (should not appear in "OpenWithReply")
+        defect_d_no_reply = Defect(project_id=project.id, description='Defect D by TS no reply', status='open', creator_id=ts_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_d_no_reply)
+
+        # Defect E: Created by Other_User, last comment by Other_User (should not appear)
+        defect_e = Defect(project_id=project.id, description='Defect E by Other', status='open', creator_id=other_user.id, creation_date=datetime.utcnow())
+        db.session.add(defect_e)
+        db.session.flush() # Ensure defect_e.id is populated
+        comment_e = Comment(defect_id=defect_e.id, user_id=other_user.id, content='Other comment on Defect E', created_at=datetime.utcnow())
+        db.session.add(comment_e)
+
+        db.session.commit() # Commit all DB setup once at the end of this block
+
+        # Log in as TS_User (or any user, filter logic is independent of viewing user for this rule)
+        # Assuming 'auth' fixture has a login method similar to the 'login' utility function used elsewhere
+        # If 'auth' is from Flask-Login or similar, it might be auth.login_user(ts_user)
+        # For consistency with other tests, using the login utility if test_client is available or adapting auth.
+        # The provided snippet used `auth.login(username='techsupervisor', password='password')`
+        # This implies 'auth' is a fixture that provides this method.
+        # 'client' fixture is also passed, which is standard for Flask tests.
+
+        # The test signature includes 'client', 'auth', 'app'.
+        # The existing tests use `login(test_client, username, password)`.
+        # I will assume `auth` has a similar `login` method or adapt if `client` is the test_client.
+        # For now, I'll use the provided `auth.login` call.
+
+        login(test_client, 'techsupervisor', 'password') # Use the existing login helper
+
+        response = test_client.get(f'/project/{project.id}?filter=OpenWithReply') # Changed client to test_client
+        assert response.status_code == 200
+
+        response_data = response.get_data(as_text=True)
+
+        # Expected: Defect A (creator=TS, last_reply=TS) should NOT be visible.
+        assert defect_a.description not in response_data, "Defect A (creator=TS, last_reply=TS) should NOT be visible"
+
+        # Expected: Defect B (creator=Other, last_reply=TS) SHOULD be visible.
+        assert defect_b.description in response_data, "Defect B (creator=Other, last_reply=TS) SHOULD be visible"
+
+        # Expected: Defect C (creator=TS, last_reply=Other) SHOULD be visible.
+        assert defect_c.description in response_data, "Defect C (creator=TS, last_reply=Other) SHOULD be visible"
+
+        # Expected: Defect D (no reply) should NOT be visible
+        assert defect_d_no_reply.description not in response_data, "Defect D (no reply) should NOT be visible"
+
+        # Expected: Defect E (creator=Other, last_reply=Other) should NOT be visible
+        assert defect_e.description not in response_data, "Defect E (creator=Other, last_reply=Other) should NOT be visible"
+        logout(test_client) # Added logout
+
 
 def test_tech_supervisor_can_access_template_pages(test_client):
     login(test_client, 'tech_supervisor', 'password')
