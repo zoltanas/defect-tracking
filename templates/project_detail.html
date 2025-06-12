@@ -385,6 +385,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const projectId = {{ project.id }};
+
+    function getCurrentFilterValue() {
+        const filterDefectsSelect = document.getElementById('filter_defects');
+        const filterChecklistsSelect = document.getElementById('filter_checklists');
+        let currentFilter = 'All'; // Default
+
+        // Try to get from visible select first
+        if (filterDefectsSelect && !filterDefectsSelect.closest('.hidden')) {
+            currentFilter = filterDefectsSelect.value;
+        } else if (filterChecklistsSelect && !filterChecklistsSelect.closest('.hidden')) {
+            currentFilter = filterChecklistsSelect.value;
+        } else {
+            // Fallback to URL search parameter if selects are not available/visible
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('filter')) {
+                currentFilter = urlParams.get('filter');
+            }
+        }
+        return currentFilter;
+    }
+
     const defectsTabButton = document.getElementById('defects-tab-button');
     const checklistsTabButton = document.getElementById('checklists-tab-button');
     const defectsPane = document.getElementById('defects-pane');
@@ -443,16 +465,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Event listener for Defects tab
     defectsTabButton.addEventListener('click', function (event) {
-        // event.preventDefault(); // Not strictly needed for button elements, but good practice if they were <a>
-        switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
-        window.location.hash = 'defects';
+        event.preventDefault();
+        const currentFilter = getCurrentFilterValue();
+        const newUrl = `/project/${projectId}?filter=${currentFilter}&active_tab_override=defects#defects`;
+        window.location.href = newUrl;
     });
 
     // Event listener for Checklists tab
     checklistsTabButton.addEventListener('click', function (event) {
-        // event.preventDefault();
-        switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
-        window.location.hash = 'checklists';
+        event.preventDefault();
+        const currentFilter = getCurrentFilterValue();
+        const newUrl = `/project/${projectId}?filter=${currentFilter}&active_tab_override=checklists#checklists`;
+        window.location.href = newUrl;
     });
 
     // Initial tab setup based on URL hash
