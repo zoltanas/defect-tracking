@@ -368,7 +368,11 @@ def register():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        confirm_password = request.form['confirm_password']
         role = 'admin'
+        if password != confirm_password:
+            flash('Passwords do not match', 'danger')
+            return render_template('register.html')
         if User.query.filter_by(username=username).first():
             flash('Username already taken.', 'error')
             return redirect(url_for('register'))
