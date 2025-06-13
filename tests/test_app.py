@@ -23,6 +23,14 @@ def client():
     os.close(db_fd)
     os.unlink(db_path)
 
+@pytest.fixture
+def mail(client): # Depends on client to ensure app config is set
+    # The app instance is available via `app` imported from `app` module
+    # The client fixture ensures app.config is set up for testing.
+    with app.app_context(): # Ensure mail is initialized within app context
+        mail_instance = Mail(app)
+        yield mail_instance # Provide the mail instance to tests
+
 def test_admin_can_edit_own_defect(client):
     with app.app_context():
         # Create admin user
@@ -357,3 +365,403 @@ def test_login_verified_email(client):
     logout_response = client.get('/logout', follow_redirects=True)
     assert b'Logged out successfully.' in logout_response.data
     assert b'Login' in logout_response.data # Should be back on login page
+
+# --- Tests for manage_access route ---
+def test_manage_access_filters_users(client):
+    with app.app_context():
+        admin1 = User(username='admin1@example.com', email='admin1@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active', name='Admin One', company='Company A')
+        user_a = User(username='usera@example.com', email='usera@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert', status='active', name='User A', company='Company A')
+        user_b = User(username='userb@example.com', email='userb@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='contractor', status='active', name='User B', company='Company B')
+        db.session.add_all([admin1, user_a, user_b])
+        db.session.commit()
+
+        project_x = Project(name='Project X')
+        project_y = Project(name='Project Y')
+        db.session.add_all([project_x, project_y])
+        db.session.commit()
+
+        # Admin1 has access to project_x
+        ProjectAccess(user_id=admin1.id, project_id=project_x.id, role='admin').save()
+        # User A has access to project_x
+        ProjectAccess(user_id=user_a.id, project_id=project_x.id, role='expert').save()
+        # User B has access to project_y
+        ProjectAccess(user_id=user_b.id, project_id=project_y.id, role='contractor').save()
+        db.session.commit()
+
+    # Log in as admin1
+    client.post('/login', data={'username': 'admin1@example.com', 'password': 'password'})
+
+    response = client.get('/manage_access')
+    assert response.status_code == 200
+    response_data_str = response.data.decode('utf-8')
+
+    assert 'usera@example.com' in response_data_str
+    assert 'userb@example.com' not in response_data_str # User B is on a project admin1 doesn't manage directly for listing users
+    assert 'admin1@example.com' not in response_data_str # Admin should not be in the list of users to manage
+
+def test_manage_access_no_shared_projects_users(client):
+    with app.app_context():
+        admin2 = User(username='admin2@example.com', email='admin2@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active', name='Admin Two', company='Company C')
+        user_c = User(username='userc@example.com', email='userc@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert', status='active', name='User C', company='Company D')
+        db.session.add_all([admin2, user_c])
+        db.session.commit()
+
+        project_z = Project(name='Project Z')
+        project_w = Project(name='Project W') # user_c has access to this, but admin2 doesn't manage it
+        db.session.add_all([project_z, project_w])
+        db.session.commit()
+
+        ProjectAccess(user_id=admin2.id, project_id=project_z.id, role='admin').save()
+        ProjectAccess(user_id=user_c.id, project_id=project_w.id, role='expert').save()
+        db.session.commit()
+
+    client.post('/login', data={'username': 'admin2@example.com', 'password': 'password'})
+    response = client.get('/manage_access')
+    assert response.status_code == 200
+    # Based on manage_access.html, if relevant_users is empty, this message is shown
+    assert b'No relevant users found.' in response.data
+    assert 'userc@example.com' not in response.data.decode('utf-8')
+
+def test_manage_access_non_admin_redirect(client):
+    with app.app_context():
+        non_admin_user = User(username='nonadmin@example.com', email='nonadmin@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert', status='active', name='Non Admin', company='Company E')
+        db.session.add(non_admin_user)
+        db.session.commit()
+
+    client.post('/login', data={'username': 'nonadmin@example.com', 'password': 'password'})
+    response = client.get('/manage_access', follow_redirects=False) # Don't follow, check redirect
+    assert response.status_code == 302 # Should redirect
+
+    # Check flash message after redirect
+    redirect_response = client.get('/manage_access', follow_redirects=True)
+    assert b'Only admins can manage access.' in redirect_response.data
+    # Also check it redirects to index (or login if session is lost, but should be index)
+    assert b'Projects' in redirect_response.data # Assuming 'Projects' is on the index page
+
+
+# --- Tests for invite() route ---
+def test_invite_new_user(client, mail): # Use the mail fixture
+    with app.app_context():
+        admin_inviter = User(username='admin_invite@example.com', email='admin_invite@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active', name='Admin Inviter', company='Invite Corp')
+        db.session.add(admin_inviter)
+        project_to_invite = Project(name='Invite Project')
+        db.session.add(project_to_invite)
+        db.session.commit()
+        ProjectAccess(user_id=admin_inviter.id, project_id=project_to_invite.id, role='admin').save()
+        db.session.commit()
+
+    client.post('/login', data={'username': 'admin_invite@example.com', 'password': 'password'})
+
+    new_user_email = 'newbie@example.com'
+    with mail.record_messages() as outbox:
+        response = client.post('/invite', data={
+            'email': new_user_email,
+            'invite_project_ids': [str(project_to_invite.id)],
+            'role': 'contractor'
+        })
+
+    assert response.status_code == 200
+    json_response = response.get_json()
+    assert json_response['status'] == 'success'
+    assert 'invite_link' in json_response
+    assert json_response['invite_link'] is not None
+
+    with app.app_context():
+        invited_user = User.query.filter_by(email=new_user_email).first()
+        assert invited_user is not None
+        assert invited_user.status == 'pending_activation'
+        assert invited_user.username.startswith('temp_')
+
+        access = ProjectAccess.query.filter_by(user_id=invited_user.id, project_id=project_to_invite.id).first()
+        assert access is not None
+        assert access.role == 'contractor'
+
+    assert len(outbox) == 1
+    email_msg = outbox[0]
+    assert email_msg.recipients == [new_user_email]
+    assert "Accept Invitation & Register" in email_msg.html # Content for new user
+    assert json_response['invite_link'] in email_msg.html
+
+def test_invite_existing_active_user(client, mail):
+    with app.app_context():
+        admin_inviter = User(username='admin_inviter2@example.com', email='admin_inviter2@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active', name='Admin Inviter II', company='Invite Corp')
+        existing_active_user = User(username='existing@example.com', email='existing@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert', status='active', name='Existing User', company='Old Corp')
+        db.session.add_all([admin_inviter, existing_active_user])
+        project_to_share = Project(name='Project For Existing')
+        db.session.add(project_to_share)
+        db.session.commit()
+        ProjectAccess(user_id=admin_inviter.id, project_id=project_to_share.id, role='admin').save()
+        db.session.commit()
+
+    client.post('/login', data={'username': 'admin_inviter2@example.com', 'password': 'password'})
+
+    with mail.record_messages() as outbox:
+        response = client.post('/invite', data={
+            'email': 'existing@example.com',
+            'invite_project_ids': [str(project_to_share.id)],
+            'role': 'contractor' # New role for this project
+        })
+
+    assert response.status_code == 200
+    json_response = response.get_json()
+    assert json_response['status'] == 'success'
+    assert 'Access granted/updated for existing user' in json_response['message']
+    assert json_response.get('invite_link') is None
+
+    with app.app_context():
+        user_count = User.query.filter_by(email='existing@example.com').count()
+        assert user_count == 1 # No new user created
+
+        access = ProjectAccess.query.filter_by(user_id=existing_active_user.id, project_id=project_to_share.id).first()
+        assert access is not None
+        assert access.role == 'contractor' # Role should be updated/created
+
+    assert len(outbox) == 1
+    email_msg = outbox[0]
+    assert email_msg.recipients == ['existing@example.com']
+    assert "Your access to projects on the Defect Tracker application has been updated" in email_msg.html # Existing user content
+    assert project_to_share.name in email_msg.html # Project name should be mentioned
+
+def test_invite_existing_pending_user_fails(client, mail):
+    with app.app_context():
+        admin_inviter = User(username='admin_inviter3@example.com', email='admin_inviter3@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active', name='Admin Inviter III', company='Invite Corp')
+        pending_user = User(username='pending_user@example.com', email='pending_user@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='expert', status='pending_activation', name='Pending User', company='Wait Corp')
+        db.session.add_all([admin_inviter, pending_user])
+        project_whatever = Project(name='Some Project')
+        db.session.add(project_whatever)
+        db.session.commit()
+        ProjectAccess(user_id=admin_inviter.id, project_id=project_whatever.id, role='admin').save()
+        db.session.commit()
+
+    client.post('/login', data={'username': 'admin_inviter3@example.com', 'password': 'password'})
+
+    with mail.record_messages() as outbox:
+        response = client.post('/invite', data={
+            'email': 'pending_user@example.com',
+            'invite_project_ids': [str(project_whatever.id)],
+            'role': 'expert'
+        })
+
+    assert response.status_code == 409 # Conflict
+    json_response = response.get_json()
+    assert json_response['status'] == 'error'
+    assert 'A user with email pending_user@example.com already exists' in json_response['message']
+    assert 'please manage their account or ask them to complete activation' in json_response['message']
+
+    with app.app_context():
+        # Ensure no new ProjectAccess was created for the pending user for this project through this invite
+        access_count = ProjectAccess.query.filter_by(user_id=pending_user.id, project_id=project_whatever.id).count()
+        original_access = ProjectAccess.query.filter_by(user_id=pending_user.id).all() # Check if they had any prior access
+        assert len(original_access) == 0 # Assuming they had no access to this project before
+
+    assert len(outbox) == 0 # No email should be sent
+
+# --- Tests for accept_invite() route ---
+def test_accept_invite_new_user_success(client):
+    token = None
+    temp_user_id = None
+    with app.app_context():
+        admin = User(username='admin_for_invite_accept@example.com', email='admin_for_invite_accept@example.com', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active')
+        project = Project(name='Accept Test Project')
+        db.session.add_all([admin, project])
+        db.session.commit()
+        ProjectAccess(user_id=admin.id, project_id=project.id, role='admin').save()
+        db.session.commit()
+
+        # Simulate the creation of a temporary user via invite logic
+        temp_user_email = 'temp_accept@example.com'
+        temp_user = User(
+            username=f"temp_{os.urandom(8).hex()}",
+            email=temp_user_email,
+            password=bcrypt.generate_password_hash('temppass').decode('utf-8'),
+            role='expert',
+            status='pending_activation'
+        )
+        db.session.add(temp_user)
+        db.session.commit()
+        temp_user_id = temp_user.id
+
+        s = URLSafeTimedSerializer(app.config['SERIALIZER_SECRET_KEY'])
+        token = s.dumps({'user_id': temp_user.id})
+
+    assert token is not None
+    assert temp_user_id is not None
+
+    # GET the accept page
+    response_get = client.get(f'/accept_invite/{token}')
+    assert response_get.status_code == 200
+    assert b'Accept Invitation' in response_get.data
+    assert temp_user_email.encode('utf-8') in response_get.data # Email should be displayed
+
+    # POST to accept
+    new_name = "Accepted User"
+    new_company = "Accepted Corp"
+    new_password = "aStrongPassword123"
+    response_post = client.post(f'/accept_invite/{token}', data={
+        'name': new_name,
+        'company': new_company,
+        'password': new_password,
+        'confirm_password': new_password
+    }, follow_redirects=True)
+
+    assert response_post.status_code == 200 # Should redirect to index
+    assert b'Invitation accepted! You are now logged in.' in response_post.data
+    assert b'Projects' in response_post.data # Index page content
+
+    with app.app_context():
+        accepted_user = db.session.get(User, temp_user_id)
+        assert accepted_user is not None
+        assert accepted_user.name == new_name
+        assert accepted_user.company == new_company
+        assert bcrypt.check_password_hash(accepted_user.password, new_password)
+        assert accepted_user.status == 'active'
+        assert accepted_user.email == temp_user_email # Email should remain the same
+        assert accepted_user.username == temp_user_email # Username should be updated to email
+
+    # Check if user is logged in by accessing a protected route
+    profile_response = client.get('/edit_profile')
+    assert profile_response.status_code == 200
+    assert new_name.encode('utf-8') in profile_response.data
+
+def test_manage_access_shows_newly_invited_existing_user(client, mail):
+    with app.app_context():
+        # 1. Setup
+        admin_main = User(
+            username='admin_main@example.com',
+            email='admin_main@example.com',
+            password=bcrypt.generate_password_hash('password').decode('utf-8'),
+            role='admin',
+            status='active',
+            name='Admin Main',
+            company='Main Corp'
+        )
+        user_target = User(
+            username='target_user@example.com',
+            email='target_user@example.com',
+            password=bcrypt.generate_password_hash('password').decode('utf-8'),
+            role='expert',
+            status='active',
+            name='Target User',
+            company='Target Inc'
+        )
+        db.session.add_all([admin_main, user_target])
+        db.session.commit()
+
+        project_shared = Project(name='Shared Project Alpha')
+        db.session.add(project_shared)
+        db.session.commit()
+
+        # Grant admin_main access to project_shared
+        admin_access = ProjectAccess(user_id=admin_main.id, project_id=project_shared.id, role='admin')
+        db.session.add(admin_access)
+
+        # Create another project for user_target only
+        project_target_only = Project(name='Target Only Project')
+        db.session.add(project_target_only)
+        db.session.commit()
+
+        # Grant user_target access to project_target_only
+        target_only_access = ProjectAccess(user_id=user_target.id, project_id=project_target_only.id, role='expert')
+        db.session.add(target_only_access)
+        db.session.commit()
+
+    # Log in admin_main
+    login_resp = client.post('/login', data={'username': 'admin_main@example.com', 'password': 'password'})
+    assert login_resp.status_code == 302 # Redirect after login
+
+    # 2. Action Part 1 (Invite user_target to project_shared)
+    invited_role = 'contractor'
+    with mail.record_messages() as outbox: # Ensure we capture emails if any
+        invite_response = client.post('/invite', data={
+            'email': user_target.email,
+            'invite_project_ids': [str(project_shared.id)],
+            'role': invited_role
+        })
+
+    assert invite_response.status_code == 200
+    invite_json = invite_response.get_json()
+    assert invite_json['status'] == 'success'
+    assert 'Access granted/updated for existing user' in invite_json['message']
+
+    with app.app_context():
+        # Verify ProjectAccess for user_target
+        access = ProjectAccess.query.filter_by(user_id=user_target.id, project_id=project_shared.id).first()
+        assert access is not None
+        assert access.role == invited_role
+
+    # 3. Action Part 2 (Verify in manage_access)
+    manage_access_response = client.get('/manage_access')
+    assert manage_access_response.status_code == 200
+
+    response_data_html = manage_access_response.data.decode('utf-8')
+
+    # Check if user_target is in the dropdown
+    assert f'<option value="{user_target.id}">{user_target.username}</option>' in response_data_html
+
+    # Check if user_target's access is listed in the table
+    # This requires more specific HTML parsing or string checking.
+    # We look for a row containing user's username, project name, and role.
+    # A more robust check might involve BeautifulSoup or similar, but string contains is often sufficient for tests.
+    assert user_target.username in response_data_html
+    assert user_target.name in response_data_html # Assuming name is displayed
+    assert user_target.company in response_data_html # Assuming company is displayed
+    assert project_shared.name in response_data_html
+    assert invited_role in response_data_html
+
+    # A slightly more specific check for the table row structure:
+    # This is still a bit brittle if exact HTML structure changes, but better than just individual strings.
+    # Example: looking for parts of the row, like <td>user_target.username</td> ... <td>project_shared.name</td> ... <td>invited_role</td>
+    # For simplicity, the individual checks above are often a good start.
+    # Let's try to find a pattern for the row.
+    # Example: Looking for a substring that represents the row for user_target and project_shared
+    # This is highly dependent on the exact HTML structure in manage_access.html's table.
+    # We'll assume the individual checks are sufficient for now.
+    # A more advanced test could parse the HTML table.
+    # For instance, checking for a row containing these pieces of information:
+    expected_row_part_user = f'<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user_target.username}</td>'
+    expected_row_part_name = f'<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user_target.name}</td>'
+    expected_row_part_company = f'<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user_target.company}</td>'
+    expected_row_part_project_shared = f'<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{project_shared.name}</td>'
+    expected_row_part_role = f'<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{invited_role}</td>'
+
+    # Assert that the shared project is listed
+    assert expected_row_part_user in response_data_html
+    assert expected_row_part_name in response_data_html
+    assert expected_row_part_company in response_data_html
+    assert expected_row_part_project_shared in response_data_html
+    assert expected_row_part_role in response_data_html
+
+    # Assert that the target_only_project is NOT listed for this user in this view
+    # (because admin_main does not manage project_target_only)
+    # We check that the specific combination of user details + project_target_only.name + role is not present.
+    # A simple check is that the project_target_only.name is not in any row associated with user_target.
+    # The template logic should filter this out.
+    expected_row_part_project_target_only = f'<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{project_target_only.name}</td>'
+
+    # Construct a string representing the full row for the non-shared project, if it were to be displayed
+    # This is a bit brittle, as it relies on the order of cells.
+    # A more robust test would parse HTML, but this is a common approach for direct string checking.
+    # We are checking if the combination of user_target's info AND project_target_only appears.
+    # Since user_target.username should appear for project_shared, we want to make sure project_target_only
+    # is NOT on a row that also contains user_target.username.
+
+    # Simpler: just check if the cell for project_target_only.name is present at all in rows that could belong to user_target.
+    # If the table structure is consistent for all rows:
+    # <tr><td>USERNAME</td><td>NAME</td><td>COMPANY</td><td>PROJECT_NAME</td><td>ROLE</td><td>ACTIONS</td></tr>
+    # We are checking that PROJECT_NAME is not project_target_only.name for user_target.
+    # The current assertions for expected_row_part_project_shared confirm the structure for a displayed project.
+    # So, if project_target_only.name were to appear for user_target, it would be in a similar cell.
+    # The most straightforward way without parsing HTML is to ensure that the specific cell content for the unmanaged project is not there.
+    # This test is primarily ensuring that the *admin's scope* filters the projects shown in the table for *other users*.
+
+    # Check that project_target_only.name is not present in a context where it would be listed for user_target
+    # This means if we find a row with user_target.username, it should not also contain project_target_only.name
+    # A direct negative assertion is simpler:
+    assert expected_row_part_project_target_only not in response_data_html
+
+    # More specific check (optional, can be complex with string matching):
+    # Find all rows for user_target.
+    # user_target_rows = [] # This would require regex or HTML parsing to populate correctly.
+    # for row_html in user_target_rows:
+    #     assert project_target_only.name not in row_html
+    # For now, the direct `not in` for the specific cell content of the unmanaged project is the primary check.
