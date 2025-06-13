@@ -59,16 +59,36 @@
             Welcome to Defect Tracker!
         </div>
         <div class="content">
-            <p>Hello,</p>
-            <p>You have been invited to join the Defect Tracker application.</p>
-            <p>To complete your registration and activate your account, please click the link below:</p>
-            <p style="text-align: center;">
-                <a href="{{ invite_link }}" class="button">Accept Invitation & Register</a>
-            </p>
-            <p>If you are unable to click the button, please copy and paste the following URL into your web browser:</p>
-            <p><a href="{{ invite_link }}">{{ invite_link }}</a></p>
-            <p>This link is valid for 24 hours.</p>
-            <p>If you were not expecting this invitation, please ignore this email.</p>
+            {% if existing_user_invite %}
+                <p>Hello {{ user_name or 'User' }},</p>
+                <p>Your access to projects on the Defect Tracker application has been updated by an administrator.</p>
+                {% if projects_granted %}
+                    <p>You have been granted access to the following project(s):</p>
+                    <ul>
+                        {% for project_name in projects_granted %}
+                            <li>{{ project_name }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>Your roles or access permissions for certain projects may have been modified.</p>
+                {% endif %}
+                <p>You can view these projects by logging into your existing account:</p>
+                <p style="text-align: center;">
+                    <a href="{{ url_for('login', _external=True) }}" class="button">Login to Defect Tracker</a>
+                </p>
+                <p>If you have any questions, please contact your administrator.</p>
+            {% else %}
+                <p>Hello,</p>
+                <p>You have been invited to join the Defect Tracker application.</p>
+                <p>To complete your registration and activate your account, please click the link below:</p>
+                <p style="text-align: center;">
+                    <a href="{{ invite_link }}" class="button">Accept Invitation & Register</a>
+                </p>
+                <p>If you are unable to click the button, please copy and paste the following URL into your web browser:</p>
+                <p><a href="{{ invite_link }}">{{ invite_link }}</a></p>
+                <p>This link is valid for 24 hours.</p>
+                <p>If you were not expecting this invitation, please ignore this email.</p>
+            {% endif %}
         </div>
         <div class="footer">
             <p>&copy; {{ current_year }} Defect Tracker. All rights reserved.</p>

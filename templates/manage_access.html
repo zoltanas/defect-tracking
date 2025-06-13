@@ -125,8 +125,10 @@
                 <tbody class="bg-white divide-y divide-gray-200">
                     {% if users %}
                         {% for user in users %}
-                            {% if user.projects %}
-                                {% for project_access in user.projects %}
+                            {# Iterate through all projects of user #}
+                            {% for project_access in user.projects %}
+                                {# Only display the project row if the project_id is in admin_project_ids #}
+                                {% if project_access.project_id in admin_project_ids %}
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ user.username }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.name }}</td>
@@ -140,19 +142,12 @@
                                             </form>
                                         </td>
                                     </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ user.username }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.name }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.company }}</td>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No projects assigned</td>
-                                </tr>
-                            {% endif %}
+                                {% endif %}
+                            {% endfor %}
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No users found.</td>
+                            <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No users to display.</td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -188,36 +183,42 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(data => {
                 const inviteStatusMessage = document.getElementById('inviteStatusMessage');
+                const inviteLinkInput = document.getElementById('inviteLink'); // Ensure this is defined if used below
+                const copyBtn = inviteLinkContainer.querySelector('button'); // Assuming this button is for copying the link
 
-                if (data.status === 'success' && data.invite_link) {
-                    inviteLinkContainer.style.display = 'block'; // Show the container
+                inviteLinkContainer.style.display = 'block'; // Show the container for all responses for now
 
-                    if (data.email_info && data.email_info.sent) {
-                        inviteStatusMessage.textContent = 'Invitation email sent successfully to ' + plainFormData.email + '. ' + (data.message || ''); // plainFormData.email should be available from the form data capture
-                        inviteStatusMessage.className = 'text-sm mb-2 text-green-700';
-                        inviteLinkInput.style.display = 'none'; // Hide the link input
-                        // Optionally hide the copy button too, or change its text/disable it
-                        const copyBtn = inviteLinkContainer.querySelector('button');
-                        if(copyBtn) copyBtn.style.display = 'none';
-
+                if (data.status === 'success') {
+                    if (data.invite_link) {
+                        // Case 1: Success, new user invited (invite_link is present)
+                        if (data.email_info && data.email_info.sent) {
+                            inviteStatusMessage.textContent = 'Invitation email sent successfully to ' + plainFormData.email + '. ' + (data.message || '');
+                            inviteStatusMessage.className = 'text-sm mb-2 text-green-700';
+                            inviteLinkInput.style.display = 'none';
+                            if(copyBtn) copyBtn.style.display = 'none';
+                        } else {
+                            inviteStatusMessage.textContent = 'Invitation link generated. ' + (data.message || '') + (data.email_info && data.email_info.error ? ' Email sending failed: ' + data.email_info.error + ' Please copy the link manually.' : ' Please copy the link manually.');
+                            inviteStatusMessage.className = 'text-sm mb-2 text-yellow-600'; // Use a warning color for generated link if email failed
+                            inviteLinkInput.value = data.invite_link;
+                            inviteLinkInput.style.display = 'block';
+                            if(copyBtn) copyBtn.style.display = 'inline-block';
+                        }
                     } else {
-                        inviteStatusMessage.textContent = 'Invitation link generated. ' + (data.message || '') + (data.email_info && data.email_info.error ? ' Email sending failed: ' + data.email_info.error + ' Please copy the link manually.' : ' Please copy the link manually.');
-                        inviteStatusMessage.className = 'text-sm mb-2 text-red-700';
-                        inviteLinkInput.value = data.invite_link;
-                        inviteLinkInput.style.display = 'block'; // Ensure link input is visible
-                        const copyBtn = inviteLinkContainer.querySelector('button');
-                        if(copyBtn) copyBtn.style.display = 'inline-block'; // Ensure copy button is visible
+                        // Case 2: Success, existing user access granted/updated (no invite_link)
+                        inviteStatusMessage.textContent = data.message || 'Access successfully updated for the existing user.'; // Display the success message from server
+                        inviteStatusMessage.className = 'text-sm mb-2 text-green-700'; // Success styling
+                        inviteLinkInput.style.display = 'none'; // No link to show/copy
+                        if(copyBtn) copyBtn.style.display = 'none';
+                        location.reload(); // <--- ADD THIS LINE HERE
                     }
-                    // inviteForm.reset(); // Optionally reset form
                 } else {
-                    // Handle cases where data.status is not 'success' (e.g., validation errors from backend)
-                    inviteLinkContainer.style.display = 'block'; // Show container to display the error
-                    inviteStatusMessage.textContent = 'Error: ' + (data.message || 'Unknown error generating invitation.');
-                    inviteStatusMessage.className = 'text-sm mb-2 text-red-700';
+                    // Case 3: Actual error (data.status !== 'success')
+                    inviteStatusMessage.textContent = 'Error: ' + (data.message || 'An unknown error occurred.');
+                    inviteStatusMessage.className = 'text-sm mb-2 text-red-700'; // Error styling
                     inviteLinkInput.style.display = 'none';
-                    const copyBtn = inviteLinkContainer.querySelector('button');
                     if(copyBtn) copyBtn.style.display = 'none';
                 }
+                // inviteForm.reset(); // Optionally reset form - keep it commented out or decide if it's desired
             })
             .catch(error => {
                 console.error('Error:', error);

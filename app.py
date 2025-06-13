@@ -535,7 +535,6 @@ def invite():
         return redirect(url_for('index'))
 
     if request.method == 'POST':
-        # ... (the start of your invite function remains the same) ...
         admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
         admin_accessible_project_ids = {pa.project_id for pa in admin_project_accesses}
 
@@ -549,80 +548,200 @@ def invite():
         if not submitted_project_ids_str:
             return jsonify({'status': 'error', 'message': 'No projects selected.'}), 400
 
-        # ... (keep all your project validation logic) ...
-        # After you have validated projects and created the user...
-        # ... the logic continues ...
-        valid_project_ids_for_invite = [1, 2] # Example, your code already does this part
-        skipped_project_names = [] # Example
-        # Find the place where you create the temporary user
-        temp_username = f"temp_{os.urandom(8).hex()}"
-        temp_password = os.urandom(16).hex()
-        hashed_password = bcrypt.generate_password_hash(temp_password).decode('utf-8')
-        user = User(username=temp_username, email=recipient_email, password=hashed_password, role=role)
-        db.session.add(user)
-        db.session.flush()
+        # Validate submitted project IDs
+        valid_project_ids_for_invite = []
+        skipped_project_names = []
+        processed_project_names = [] # For successful grants/updates
 
-        for project_id_for_invite in valid_project_ids_for_invite:
-            access = ProjectAccess(user_id=user.id, project_id=project_id_for_invite, role=role)
-            db.session.add(access)
+        for project_id_str in submitted_project_ids_str:
+            try:
+                project_id_int = int(project_id_str)
+                if project_id_int not in admin_accessible_project_ids:
+                    # Try to get project name for skipped message if it exists, even if admin can't access
+                    project_obj_skipped = db.session.get(Project, project_id_int)
+                    skipped_project_names.append(project_obj_skipped.name if project_obj_skipped else f"ID {project_id_int} (Unauthorized)")
+                    logger.warning(f"Admin {current_user.username} attempted to invite to unauthorized project ID: {project_id_int}")
+                    continue
 
-        s = URLSafeTimedSerializer(app.config['SERIALIZER_SECRET_KEY'])
-        token = s.dumps({'user_id': user.id})
-        invite_link = url_for('accept_invite', token=token, _external=True)
+                project_obj = db.session.get(Project, project_id_int)
+                if not project_obj:
+                    skipped_project_names.append(f"ID {project_id_int} (Not Found)")
+                    logger.warning(f"Project ID {project_id_int} not found during invite, though admin had access rights.")
+                    continue
+                valid_project_ids_for_invite.append(project_id_int)
+                # processed_project_names list will be populated later based on successful operations
+            except ValueError:
+                skipped_project_names.append(f"ID '{project_id_str}' (Invalid Format)")
+                logger.warning(f"Invalid project ID format received in invite: {project_id_str}")
+                continue
+
+        if not valid_project_ids_for_invite:
+            message = "No valid or accessible projects were selected."
+            if skipped_project_names:
+                message += f" Skipped: {', '.join(skipped_project_names)}."
+            return jsonify({'status': 'error', 'message': message}), 400
+
+        existing_user = User.query.filter_by(email=recipient_email, status='active').first()
         email_status = {}
 
-        try:
-            db.session.commit()
-            logger.info(f"Temporary user {user.username} (ID: {user.id}) and access to {len(valid_project_ids_for_invite)} projects committed.")
+        if existing_user:
+            # Handle existing active user
+            updated_count = 0
+            newly_granted_count = 0
+            for project_id in valid_project_ids_for_invite:
+                project = db.session.get(Project, project_id) # Already validated that project exists
+                if not project: continue # Should not happen
+
+                project_access = ProjectAccess.query.filter_by(user_id=existing_user.id, project_id=project.id).first()
+                if project_access:
+                    if project_access.role != role:
+                        project_access.role = role
+                        logger.info(f"Updated role to '{role}' for existing user {existing_user.email} on project '{project.name}'.")
+                        updated_count += 1
+                        processed_project_names.append(project.name)
+                else:
+                    new_access = ProjectAccess(user_id=existing_user.id, project_id=project.id, role=role)
+                    db.session.add(new_access)
+                    logger.info(f"Granted new access to project '{project.name}' with role '{role}' for existing user {existing_user.email}.")
+                    newly_granted_count += 1
+                    processed_project_names.append(project.name)
 
             try:
-                # --- DEBUG: Using a with block for more detailed sending info ---
-                with mail.connect() as conn:
-                    current_year = datetime.now().year # Note: .utcnow() is deprecated
-                    html_body = render_template('email/invitation_email.html', invite_link=invite_link, current_year=current_year)
+                db.session.commit()
+                projects_affected_msg = ""
+                if processed_project_names:
+                    projects_affected_msg = f" for project(s): {', '.join(list(set(processed_project_names)))}." # Use set to avoid duplicates if a project was listed twice
 
-                    sender_name = app.config.get('MAIL_SENDER_NAME', 'Defect Tracker')
-                    sender_email = app.config.get('MAIL_DEFAULT_SENDER_EMAIL', 'noreply@defect-tracker.com')
-                    email_sender = (sender_name, sender_email)
+                response_message = f"Access granted/updated for existing user {existing_user.email}{projects_affected_msg}"
+                if updated_count == 0 and newly_granted_count == 0 and not skipped_project_names:
+                     response_message = f"No changes made. User {existing_user.email} already has the specified role(s) for the selected project(s)."
 
-                    msg = Message(subject="You're invited to Defect Tracker",
-                                  sender=email_sender,
-                                  recipients=[recipient_email],
-                                  html=html_body)
-                    
-                    logger.info("Attempting to send email...")
-                    conn.send(msg)
-                    logger.info("conn.send(msg) completed without error.")
+                if skipped_project_names:
+                    response_message += f" Some projects/IDs were skipped: {', '.join(skipped_project_names)}."
 
-                email_status = {'sent': True, 'error': None}
-                logger.info(f"Invitation email sent to {recipient_email} for user ID {user.id}.")
+                # Send notification email to existing user
+                try:
+                    with mail.connect() as conn:
+                        current_year = datetime.now().year
+                        html_body = render_template('email/invitation_email.html',
+                                                    current_year=current_year,
+                                                    existing_user_invite=True,
+                                                    user_name=existing_user.name or existing_user.username,
+                                                    projects_granted=[db.session.get(Project, pid).name for pid in valid_project_ids_for_invite if db.session.get(Project, pid)]) # Pass project names
 
-            except Exception as e_mail:
-                # --- DEBUG: Enhanced error logging ---
-                logger.error(f"Failed to send invitation email to {recipient_email} for user ID {user.id}. Exception type: {type(e_mail).__name__}", exc_info=True)
-                email_status = {'sent': False, 'error': str(e_mail)}
+                        sender_name = app.config.get('MAIL_SENDER_NAME', 'Defect Tracker')
+                        sender_email = app.config.get('MAIL_DEFAULT_SENDER_EMAIL', 'noreply@defect-tracker.com')
+                        email_sender = (sender_name, sender_email)
 
-            response_message = f"Invitation link generated for {len(valid_project_ids_for_invite)} project(s)."
-            if skipped_project_names:
-                response_message += f" Some projects/IDs were skipped: {', '.join(skipped_project_names)}."
-            if not email_status.get('sent'):
-                 response_message += " Email sending failed."
+                        msg = Message(subject="Project Access Update - Defect Tracker",
+                                      sender=email_sender,
+                                      recipients=[recipient_email],
+                                      html=html_body)
+                        conn.send(msg)
+                    email_status = {'sent': True, 'error': None}
+                    logger.info(f"Notification email sent to existing user {recipient_email}.")
+                except Exception as e_mail:
+                    logger.error(f"Failed to send notification email to existing user {recipient_email}: {str(e_mail)}", exc_info=True)
+                    email_status = {'sent': False, 'error': str(e_mail)}
+                    response_message += " Email notification failed."
 
-            return jsonify({
-                'status': 'success',
-                'invite_link': invite_link,
-                'message': response_message,
-                'email_info': email_status
-            })
+                return jsonify({
+                    'status': 'success',
+                    'message': response_message,
+                    'email_info': email_status,
+                    'invite_link': None # No invite link for existing users
+                })
+            except Exception as e_db:
+                db.session.rollback()
+                logger.error(f"Error updating access for existing user {recipient_email}: {str(e_db)}", exc_info=True)
+                return jsonify({'status': 'error', 'message': 'Could not update access due to a server error.'}), 500
+        else:
+            # Handle new user (original logic)
+            temp_username = f"temp_{os.urandom(8).hex()}"
+            temp_password = os.urandom(16).hex() # This password is temporary and will be changed by user
+            hashed_password = bcrypt.generate_password_hash(temp_password).decode('utf-8')
 
-        except Exception as e_db:
-            db.session.rollback()
-            logger.error(f"Error during invite DB operations (user/access creation): {str(e_db)}")
-            return jsonify({'status': 'error', 'message': 'Could not process invitation due to a server error.'}), 500
+            # Check if a user (active or not) already exists with this email to avoid duplicate email errors
+            # This is slightly different from the existing_user check which was for status='active'
+            user_with_email_exists = User.query.filter_by(email=recipient_email).first()
+            if user_with_email_exists:
+                # If user exists but not active, or some other state, admin might need to manage that user directly.
+                # For now, prevent creating a new temp user with the same email.
+                return jsonify({'status': 'error', 'message': f"A user with email {recipient_email} already exists. If they are not active, please manage their account or ask them to complete activation."}), 409 # 409 Conflict
+
+            user = User(username=temp_username, email=recipient_email, password=hashed_password, role=role, status='pending_activation') # Ensure status is pending
+            db.session.add(user)
+            db.session.flush() # Get user.id
+
+            for project_id in valid_project_ids_for_invite:
+                project = db.session.get(Project, project_id) # Already validated
+                if project: # Should always be true here
+                    access = ProjectAccess(user_id=user.id, project_id=project.id, role=role)
+                    db.session.add(access)
+                    processed_project_names.append(project.name)
+
+
+            s = URLSafeTimedSerializer(app.config['SERIALIZER_SECRET_KEY'])
+            token = s.dumps({'user_id': user.id}) # Token now contains temporary user_id
+            invite_link = url_for('accept_invite', token=token, _external=True)
+
+            try:
+                db.session.commit()
+                projects_granted_msg = ""
+                if processed_project_names:
+                    projects_granted_msg = f" for project(s): {', '.join(list(set(processed_project_names)))}"
+
+                logger.info(f"Temporary user {user.username} (ID: {user.id}) and access to {len(valid_project_ids_for_invite)} projects committed.")
+
+                try:
+                    with mail.connect() as conn:
+                        current_year = datetime.now().year
+                        html_body = render_template('email/invitation_email.html',
+                                                    invite_link=invite_link,
+                                                    current_year=current_year,
+                                                    existing_user_invite=False) # Explicitly false for new user
+
+                        sender_name = app.config.get('MAIL_SENDER_NAME', 'Defect Tracker')
+                        sender_email = app.config.get('MAIL_DEFAULT_SENDER_EMAIL', 'noreply@defect-tracker.com')
+                        email_sender = (sender_name, sender_email)
+
+                        msg = Message(subject="You're invited to Defect Tracker",
+                                      sender=email_sender,
+                                      recipients=[recipient_email],
+                                      html=html_body)
+                        conn.send(msg)
+                    email_status = {'sent': True, 'error': None}
+                    logger.info(f"Invitation email sent to {recipient_email} for new user ID {user.id}.")
+                except Exception as e_mail:
+                    logger.error(f"Failed to send invitation email to {recipient_email} for new user ID {user.id}: {str(e_mail)}", exc_info=True)
+                    email_status = {'sent': False, 'error': str(e_mail)}
+
+                response_message = f"Invitation link generated for {recipient_email}{projects_granted_msg}."
+                if skipped_project_names:
+                    response_message += f" Some projects/IDs were skipped: {', '.join(skipped_project_names)}."
+                if not email_status.get('sent'):
+                     response_message += " Email sending failed."
+
+                return jsonify({
+                    'status': 'success',
+                    'invite_link': invite_link,
+                    'message': response_message,
+                    'email_info': email_status
+                })
+            except Exception as e_db:
+                db.session.rollback()
+                logger.error(f"Error during new user invite DB operations: {str(e_db)}", exc_info=True)
+                return jsonify({'status': 'error', 'message': 'Could not process invitation due to a server error.'}), 500
 
     # GET request
-    projects = Project.query.all()
-    return render_template('invite.html', projects=projects)
+    # Fetch projects manageable by the current admin to populate the form
+    admin_project_accesses_get = ProjectAccess.query.filter_by(user_id=current_user.id).all()
+    admin_project_ids_get = [pa.project_id for pa in admin_project_accesses_get]
+    if admin_project_ids_get:
+        manageable_projects_for_form = Project.query.filter(Project.id.in_(admin_project_ids_get)).order_by(Project.name).all()
+    else:
+        manageable_projects_for_form = []
+    return render_template('invite.html', projects=manageable_projects_for_form)
 
 
 @app.route('/manage_access', methods=['GET', 'POST'])
@@ -712,17 +831,36 @@ def manage_access():
             return redirect(url_for('manage_access'))
 
     # GET request or if POST action is not 'grant_access'
-    all_users = User.query.filter_by(status='active').all() # Renamed to avoid conflict with projects variable name
-    
-    # Fetch projects manageable by the current admin
     admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
     admin_project_ids = [pa.project_id for pa in admin_project_accesses]
-    if admin_project_ids: # Only query if the admin has access to any projects
+
+    manageable_projects = []
+    relevant_users = [] # Ensure this is initialized
+
+    if admin_project_ids:
         manageable_projects = Project.query.filter(Project.id.in_(admin_project_ids)).order_by(Project.name).all()
-    else:
-        manageable_projects = []
         
-    return render_template('manage_access.html', users=all_users, projects=manageable_projects)
+        # Fetch all ProjectAccess entries for projects managed by the admin
+        shared_project_access_entries = ProjectAccess.query.filter(
+            ProjectAccess.project_id.in_(admin_project_ids)
+        ).all()
+
+        if shared_project_access_entries:
+            user_ids_on_shared_projects = {pa.user_id for pa in shared_project_access_entries}
+
+            if user_ids_on_shared_projects:
+                relevant_users = User.query.filter(
+                    User.id.in_(user_ids_on_shared_projects),
+                    User.id != current_user.id,
+                    User.status == 'active'
+                ).all()
+
+    # The logger lines for debugging should remain commented out or removed for production code.
+    # logger.debug(f"Admin Project IDs: {admin_project_ids}")
+    # logger.debug(f"User IDs on Shared Projects: {[uid for uid in user_ids_on_shared_projects if user_ids_on_shared_projects else []]}")
+    # logger.debug(f"Relevant users found: {[u.id for u in relevant_users]}")
+
+    return render_template('manage_access.html', users=relevant_users, projects=manageable_projects, admin_project_ids=admin_project_ids)
 
 
 @app.route('/revoke_access/<int:project_access_id>', methods=['POST'])
