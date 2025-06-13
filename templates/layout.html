@@ -83,6 +83,7 @@
                     {% if current_user.role == 'admin' %}
                         <a href="{{ url_for('manage_access') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Manage User Access</a>
                     {% endif %}
+                    <a href="{{ url_for('edit_profile') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Edit Profile</a>
                     <a href="{{ url_for('logout') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Logout</a>
                 {% else %}
                     <a href="{{ url_for('login') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Login</a>
@@ -111,6 +112,7 @@
                     {% if current_user.role == 'admin' %}
                         <a href="{{ url_for('manage_access') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Manage User Access</a>
                     {% endif %}
+                    <a href="{{ url_for('edit_profile') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Edit Profile</a>
                     <a href="{{ url_for('logout') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Logout</a>
                 {% else %}
                     <a href="{{ url_for('login') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Login</a>

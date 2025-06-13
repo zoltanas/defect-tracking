@@ -119,8 +119,12 @@ class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(255), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=True)
     password = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default='pending_activation')
+    name = db.Column(db.String(255), nullable=False, server_default="N/A")
+    company = db.Column(db.String(255), nullable=False, server_default="N/A")
     projects = db.relationship('ProjectAccess', back_populates='user', cascade='all, delete-orphan')
 
 class ProjectAccess(db.Model):
@@ -396,18 +400,29 @@ def register():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username']
+        name = request.form['name'].strip()
+        company = request.form['company'].strip()
+        username = request.form['username'].strip()
         password = request.form['password']
         confirm_password = request.form['confirm_password']
         role = 'admin'
+
+        if not name or not company:
+            flash('Name and Company are required.', 'error')
+            return render_template('register.html')
+
         if password != confirm_password:
             flash('Passwords do not match', 'danger')
             return render_template('register.html')
         if User.query.filter_by(username=username).first():
-            flash('Username already taken.', 'error')
-            return redirect(url_for('register'))
+            flash('Username already taken. Please choose another.', 'error') # Changed redirect to render_template
+            return render_template('register.html')
+        if User.query.filter_by(email=username).first(): # Check if email (which is username) is taken
+            flash('This email is already registered. Please log in or use a different email.', 'error')
+            return render_template('register.html')
+
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        user = User(username=username, password=hashed_password, role=role)
+        user = User(username=username, email=username, password=hashed_password, role=role, status='active', name=name, company=company)
         db.session.add(user)
         db.session.commit()
         flash('Registration successful! Please log in.', 'success')
@@ -468,7 +483,7 @@ def invite():
         temp_username = f"temp_{os.urandom(8).hex()}"
         temp_password = os.urandom(16).hex()
         hashed_password = bcrypt.generate_password_hash(temp_password).decode('utf-8')
-        user = User(username=temp_username, password=hashed_password, role=role)
+        user = User(username=temp_username, email=recipient_email, password=hashed_password, role=role)
         db.session.add(user)
         db.session.flush()
 
@@ -622,7 +637,7 @@ def manage_access():
             return redirect(url_for('manage_access'))
 
     # GET request or if POST action is not 'grant_access'
-    all_users = User.query.all() # Renamed to avoid conflict with projects variable name
+    all_users = User.query.filter_by(status='active').all() # Renamed to avoid conflict with projects variable name
     
     # Fetch projects manageable by the current admin
     admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
@@ -672,25 +687,87 @@ def accept_invite(token):
             flash('Invalid or expired invitation.', 'error')
             return redirect(url_for('login'))
         if request.method == 'POST':
-            username = request.form['username'].strip()
+            name = request.form['name'].strip()
+            company = request.form['company'].strip()
             password = request.form['password']
             confirm_password = request.form['confirm_password']
+
+            if not name or not company:
+                flash('Name and Company are required.', 'error')
+                # Pass email back to template as it's needed for display
+                return redirect(url_for('accept_invite', token=token, email=user.email))
+
             if password != confirm_password:
                 flash('Passwords do not match.', 'error')
-                return redirect(url_for('accept_invite', token=token))
-            if User.query.filter_by(username=username).first():
-                flash('Username already taken.', 'error')
-                return redirect(url_for('accept_invite', token=token))
-            user.username = username
+                return redirect(url_for('accept_invite', token=token, email=user.email))
+
+            user.name = name
+            user.company = company
+            user.username = user.email
+            user.status = 'active'
             user.password = bcrypt.generate_password_hash(password).decode('utf-8')
             db.session.commit()
             login_user(user)
             flash('Invitation accepted! You are now logged in.', 'success')
             return redirect(url_for('index'))
-        return render_template('accept_invite.html', token=token)
+        return render_template('accept_invite.html', token=token, email=user.email)
     except Exception as e:
         flash('Invalid or expired invitation.', 'error')
         return redirect(url_for('login'))
+
+@app.route('/edit_profile', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        company = request.form['company'].strip()
+        new_password = request.form['new_password']
+        confirm_password = request.form['confirm_new_password']
+
+        if not name or not company:
+            flash('Name and Company are required fields.', 'error')
+            # Re-render with current data to avoid losing other valid inputs or context
+            return render_template('edit_profile.html',
+                                   user=current_user,
+                                   name=name if name else current_user.name,  # Use entered value or original
+                                   company=company if company else current_user.company,
+                                   project_accesses=current_user.projects)
+
+        current_user.name = name
+        current_user.company = company
+
+        password_changed = False
+        if new_password:
+            if new_password != confirm_password:
+                flash('New passwords do not match.', 'error')
+                return render_template('edit_profile.html',
+                                       user=current_user,
+                                       name=current_user.name,
+                                       company=current_user.company,
+                                       project_accesses=current_user.projects)
+            current_user.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+            password_changed = True
+
+        try:
+            db.session.commit()
+            flash('Profile updated successfully.', 'success')
+            if password_changed:
+                flash('Password updated successfully.', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error updating profile: {str(e)}', 'error')
+            logger.error(f"Error updating profile for user {current_user.username}: {str(e)}")
+
+        return redirect(url_for('edit_profile'))
+
+    # For GET request
+    # The current_user object is already loaded by Flask-Login and is available.
+    # current_user.projects should provide ProjectAccess objects.
+    return render_template('edit_profile.html',
+                           user=current_user,
+                           name=current_user.name,
+                           company=current_user.company,
+                           project_accesses=current_user.projects)
 
 # Application Routes
 @app.route('/')
@@ -3140,6 +3217,98 @@ if __name__ == '__main__':
     app.run(debug=True)
 
 # --------------- End Temporary Test Route --------------- # This line (and everything above it including the __main__ guard) should be the end of the file.
+
+@app.cli.command("ensure-user-schema")
+def ensure_user_schema_command():
+    """Checks and ensures the 'email' and 'status' columns exist in the 'users' table."""
+    with app.app_context():
+        inspector = inspect(db.engine)
+
+        if 'users' not in inspector.get_table_names():
+            print("Error: 'users' table does not exist. Please run init_db or ensure migrations are applied first.")
+            return
+
+        columns = [col['name'] for col in inspector.get_columns('users')]
+
+        with db.engine.connect() as connection:
+            if 'email' not in columns:
+                try:
+                    connection.execute(db.text('ALTER TABLE users ADD COLUMN email VARCHAR(255)'))
+                    # Add UNIQUE constraint separately as SQLite syntax for ADD COLUMN with UNIQUE can be tricky
+                    # For other databases, 'ALTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE' might work directly
+                    connection.execute(db.text('CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)'))
+                    connection.commit()
+                    print("Added 'email' column and unique index to 'users' table.")
+                except Exception as e:
+                    connection.rollback()
+                    print(f"Error adding 'email' column: {e}")
+            else:
+                print("'email' column already exists in 'users' table.")
+
+            if 'status' not in columns:
+                try:
+                    connection.execute(db.text("ALTER TABLE users ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending_activation'"))
+                    # Ensure existing rows get the default value if they were NULL (e.g. if column was added nullable first)
+                    # This is more robust across different DBs and SQLite versions
+                    connection.execute(db.text("UPDATE users SET status = 'pending_activation' WHERE status IS NULL"))
+                    connection.commit()
+                    print("Added 'status' column to 'users' table and updated NULLs if any.")
+                except Exception as e:
+                    connection.rollback()
+                    print(f"Error adding 'status' column: {e}")
+            else:
+                print("'status' column already exists in 'users' table.")
+
+            # Attempt to set existing, non-temporary users to 'active'
+            # This assumes users not starting with 'temp_' are considered active.
+            try:
+                connection.execute(db.text("UPDATE users SET status = 'active' WHERE username NOT LIKE 'temp_%' AND status = 'pending_activation'"))
+                connection.commit()
+                print("Attempted to update status to 'active' for existing non-temporary users.")
+            except Exception as e:
+                connection.rollback()
+                print(f"Error updating status for non-temporary users: {e}")
+
+            # Add 'name' column if it doesn't exist
+            if 'name' not in columns:
+                try:
+                    connection.execute(db.text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NOT NULL DEFAULT 'N/A'"))
+                    connection.execute(db.text("UPDATE users SET name = 'N/A' WHERE name IS NULL"))
+                    connection.commit()
+                    print("Added 'name' column to 'users' table and updated NULLs.")
+                except Exception as e:
+                    connection.rollback()
+                    print(f"Error adding 'name' column: {e}")
+            else:
+                print("'name' column already exists in 'users' table.")
+
+            # Add 'company' column if it doesn't exist
+            if 'company' not in columns:
+                try:
+                    connection.execute(db.text("ALTER TABLE users ADD COLUMN company VARCHAR(255) NOT NULL DEFAULT 'N/A'"))
+                    connection.execute(db.text("UPDATE users SET company = 'N/A' WHERE company IS NULL"))
+                    connection.commit()
+                    print("Added 'company' column to 'users' table and updated NULLs.")
+                except Exception as e:
+                    connection.rollback()
+                    print(f"Error adding 'company' column: {e}")
+            else:
+                print("'company' column already exists in 'users' table.")
+
+            # Verify UNIQUE constraint on email, as it might fail silently in some SQLite versions if added to existing data
+            # This is a check, not an add. A more robust solution uses migration frameworks.
+            try:
+                # Test insert to see if unique constraint is active
+                test_email_constraint = f"test_unique_{os.urandom(4).hex()}@example.com"
+                connection.execute(db.text("INSERT INTO users (username, email, password, role, status) VALUES (:u, :e, :p, :r, :s)"),
+                                   {"u": f"testuser_{os.urandom(4).hex()}", "e": test_email_constraint, "p":"test", "r":"test", "s":"pending_activation"})
+                connection.execute(db.text("DELETE FROM users WHERE email = :e"), {"e": test_email_constraint}) # Clean up
+                connection.commit()
+                print("UNIQUE constraint on 'email' seems to be active.")
+            except Exception as e:
+                print(f"Warning: Could not verify UNIQUE constraint on 'email' column proactively. This might indicate an issue or test limitation: {e}")
+                connection.rollback()
+
 
 @app.cli.command("ensure-schema")
 def ensure_schema_command():
