@@ -12,6 +12,24 @@ function openDefectInfoPopup(defect) {
     document.getElementById('popupDefectAuthor').textContent = defect.creator_name;
     document.getElementById('popupDefectDate').textContent = defect.creation_date_formatted;
 
+    const popupImage = document.getElementById('popupDefectImage');
+    const popupNoImage = document.getElementById('popupDefectNoImage');
+
+    if (defect.attachment_thumbnail_url) {
+        popupImage.src = defect.attachment_thumbnail_url;
+        popupImage.classList.remove('hidden');
+        // Ensure no image message is hidden
+        if (!popupNoImage.classList.contains('hidden')) {
+            popupNoImage.classList.add('hidden');
+        }
+    } else {
+        popupImage.src = '#'; // Clear src
+        if (!popupImage.classList.contains('hidden')) {
+            popupImage.classList.add('hidden');
+        }
+        popupNoImage.classList.remove('hidden');
+    }
+
     // Make the description clickable to redirect to defect detail page
     const descriptionElement = document.getElementById('popupDefectDescription');
     descriptionElement.style.cursor = 'pointer';

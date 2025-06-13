@@ -1304,9 +1304,10 @@ def view_drawing(project_id, drawing_id):
         flash('Drawing not found.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
 
-    # Updated query to eagerly load related defect and creator
+    # Updated query to eagerly load related defect, creator, and defect attachments
     markers_query = DefectMarker.query.options(
-        joinedload(DefectMarker.defect).joinedload(Defect.creator)
+        joinedload(DefectMarker.defect).joinedload(Defect.creator),
+        joinedload(DefectMarker.defect).joinedload(Defect.attachments)
     ).filter_by(drawing_id=drawing_id)
 
     markers = markers_query.all()
@@ -1332,6 +1333,18 @@ def view_drawing(project_id, drawing_id):
             creator_name = defect.creator.username if defect.creator else "N/A"
             creation_date_formatted = defect.creation_date.strftime('%Y-%m-%d %H:%M') if defect.creation_date else "N/A"
 
+            attachment_thumbnail_url = None
+            if defect.attachments:
+                for attachment in defect.attachments:
+                    if attachment.mime_type and attachment.mime_type.startswith('image/'):
+                        # Use thumbnail_path if available, otherwise use file_path
+                        image_file_path = attachment.thumbnail_path if attachment.thumbnail_path else attachment.file_path
+                        if image_file_path:
+                            # Construct URL using url_for. Assuming ATTACHMENT_PATH is not needed as paths are relative to static.
+                            # e.g. file_path might be 'uploads/attachments_img/image.jpg'
+                            attachment_thumbnail_url = url_for('static', filename=image_file_path)
+                        break  # Found the first image attachment
+
             markers_data.append({
                 'defect_id': marker.defect_id,
                 'x': marker.x,
@@ -1340,7 +1353,8 @@ def view_drawing(project_id, drawing_id):
                 'status': defect.status,
                 'creator_name': creator_name,
                 'creation_date_formatted': creation_date_formatted,
-                'page_num': getattr(marker, 'page_num', 1) # Use getattr for safety, default to 1
+                'page_num': getattr(marker, 'page_num', 1), # Use getattr for safety, default to 1
+                'attachment_thumbnail_url': attachment_thumbnail_url
             })
 
     return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=access.role)
