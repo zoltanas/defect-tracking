@@ -1,9 +1,0 @@
-pytest
-flask[testing]
-Flask-SQLAlchemy
-Flask-Login
-Flask-WTF
-Flask-Bcrypt
-Pillow
-WeasyPrint
-pdf2image
