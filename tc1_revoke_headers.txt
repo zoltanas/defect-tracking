@@ -1,0 +1,16 @@
+HTTP/1.1 302 FOUND
+Server: Werkzeug/3.1.3 Python/3.10.17
+Date: Fri, 13 Jun 2025 19:34:16 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 215
+Location: /manage_access
+Vary: Cookie
+Set-Cookie: session=.eJwlj8FqwzAQRH9l0TkUSStZtr-i9xLCarWy3Tp2kZyUEvLvVclpmXkDs_NQl7xSnaWq8eOh4GhH_VDZlm1SJ_Ve9k_hA4hZaoW8FyCY1j3SCpSuywa3KgWYtm0_IAoUue9fkiD-AjVrbvCVuy8Ex7xU-KZJ3tT5eT616iJ1VuNRbtLUktSosOtcR-T7HE3QLmoeTO4wWU9WCHOjBrHvnMPm9K4xjdbZQbRYQ5xQWxxY98GzjoLsgk7BEwpz0tEMeeBIDjFF61NGJA6SczKZuuCDtNGX_02vb4x6_gGznFoH.aEx9OA.h53hlpZptlwXj4rPjsxRY450k9w; HttpOnly; Path=/
+Connection: close
+
+HTTP/1.1 400 BAD REQUEST
+Server: Werkzeug/3.1.3 Python/3.10.17
+Date: Fri, 13 Jun 2025 19:34:16 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 117
+Connection: close

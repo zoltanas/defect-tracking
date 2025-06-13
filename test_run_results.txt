@@ -1,0 +1,30 @@
+--- Test Case Results ---
+\n--- Test Case 1: testadmin revoking testadmin2 (ID: 3) ---
+Logging in as testadmin...
+Login response (testadmin): {"message":"User testadmin logged in.","status":"success"}
+Attempting revoke...
+Revoke response code (testadmin vs testadmin2): 400
+Redirect URL (TC1): /manage_access
+Checking DB for ProjectAccess ID 3...
+DB state for PA_ID 3: 3|3|1|admin
+Flash message content (TC1 - from output HTML):
+\n--- Test Case 2: testadmin revoking testexpert (ID: 4) ---
+Logging in as testadmin...
+Login response (testadmin): {"message":"User testadmin logged in.","status":"success"}
+Attempting revoke...
+Revoke response code (testadmin vs testexpert): 400
+Redirect URL (TC2): /manage_access
+Checking DB for ProjectAccess ID 4...
+DB state for PA_ID 4:
+Flash message content (TC2 - from output HTML):
+\n--- Test Case 3: testexpert revoking testadmin2 (ID: 3) ---
+Logging in as testexpert...
+Login response (testexpert): {"message":"User testexpert logged in.","status":"success"}
+Attempting revoke...
+Revoke response code (testexpert vs testadmin2): 400
+Redirect URL (TC3): /manage_access
+Checking DB for ProjectAccess ID 3...
+DB state for PA_ID 3: 3|3|1|admin
+Flash message content (TC3 - from output HTML):
+\n--- Stopping Flask server (PID: 2599) ---
+Flask server should be stopped.
