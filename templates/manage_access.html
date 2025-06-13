@@ -6,10 +6,11 @@
 <div class="container mx-auto mt-10 p-6 bg-white shadow-md rounded-lg">
     <h1 class="text-3xl font-bold mb-8 text-center text-gray-700">User Access Management</h1>
 
+    {% if is_admin_view %}
     <!-- Section 1: Grant Access to Existing User -->
     <section class="mb-10 p-6 border border-gray-200 rounded-lg shadow-sm">
         <h2 class="text-2xl font-semibold mb-6 text-gray-600">Grant Access to Existing User</h2>
-        <form id="grantAccessForm" method="POST" action="{{ url_for('manage_access') }}"> {# Assuming the same route handles POST for now #}
+        <form id="grantAccessForm" method="POST" action="{{ url_for('manage_access') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="grant_access">
 
@@ -30,23 +31,13 @@
             <div class="mb-4">
                 <label for="project_ids" class="block text-sm font-medium text-gray-700 mb-1">Select Projects (Ctrl/Cmd to select multiple):</label>
                 <select name="project_ids" id="project_ids" multiple required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm h-32">
-                    {% if projects %}
-                        {% for project in projects %}
+                    {% if projects_for_forms %}
+                        {% for project in projects_for_forms %}
                             <option value="{{ project.id }}">{{ project.name }}</option>
                         {% endfor %}
                     {% else %}
-                        <option value="" disabled>No projects available</option>
+                        <option value="" disabled>No projects available for forms</option>
                     {% endif %}
-                </select>
-            </div>
-
-            <div class="mb-6">
-                <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Select Role:</label>
-                <select name="role" id="role" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                    <option value="admin">Admin</option>
-                    <option value="expert">Expert</option>
-                    <option value="contractor">Contractor</option>
-                    <option value="Technical supervisor">Technical supervisor</option>
                 </select>
             </div>
 
@@ -55,11 +46,13 @@
             </button>
         </form>
     </section>
+    {% endif %}
 
+    {% if is_admin_view %}
     <!-- Section 2: Invite New User -->
     <section class="mb-10 p-6 border border-gray-200 rounded-lg shadow-sm">
         <h2 class="text-2xl font-semibold mb-6 text-gray-600">Invite New User</h2>
-        <form id="inviteNewUserForm" method="POST" action="{{ url_for('invite') }}"> {# Assuming this points to the existing invite route #}
+        <form id="inviteNewUserForm" method="POST" action="{{ url_for('invite') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {# The invite route might need an action field if it handles multiple things, or this form action should be a new route #}
             {# For now, assuming the existing /invite route is sufficient for this form's purpose if parameters match #}
@@ -72,14 +65,12 @@
             <div class="mb-4">
                 <label for="invite_project_ids" class="block text-sm font-medium text-gray-700 mb-1">Select Projects:</label>
                 <select name="invite_project_ids" id="invite_project_ids" required multiple class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm h-32">
-                    {# Note: The existing /invite route might need an update to handle multiple project_ids. #}
-                    {# This form now submits multiple project_ids. #}
-                    {% if projects %}
-                        {% for project in projects %}
+                    {% if projects_for_forms %}
+                        {% for project in projects_for_forms %}
                             <option value="{{ project.id }}">{{ project.name }}</option>
                         {% endfor %}
                     {% else %}
-                        <option value="" disabled>No projects available</option>
+                        <option value="" disabled>No projects available for forms</option>
                     {% endif %}
                 </select>
                 <p class="text-xs text-gray-500 mt-1">Hold Ctrl (or Cmd on Mac) to select multiple projects.</p>
@@ -88,7 +79,6 @@
             <div class="mb-6">
                 <label for="invite_role" class="block text-sm font-medium text-gray-700 mb-1">Select Role:</label>
                 <select name="role" id="invite_role" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                    <option value="admin">Admin</option>
                     <option value="expert">Expert</option>
                     <option value="contractor">Contractor</option>
                     <option value="Technical supervisor">Technical supervisor</option>
@@ -106,6 +96,7 @@
             <button onclick="copyInviteLink()" class="mt-2 text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-1 px-2 rounded-md">Copy Link</button>
         </div>
     </section>
+    {% endif %}
 
     <!-- Section 3: View/Manage Current Access -->
     <section class="p-6 border border-gray-200 rounded-lg shadow-sm">
@@ -127,8 +118,8 @@
                         {% for user in users %}
                             {# Iterate through all projects of user #}
                             {% for project_access in user.projects %}
-                                {# Only display the project row if the project_id is in admin_project_ids #}
-                                {% if project_access.project_id in admin_project_ids %}
+                                {# Only display the project row if the project_id is in project_ids_for_filter #}
+                                {% if project_access.project_id in project_ids_for_filter %}
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ user.username }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.name }}</td>
@@ -136,12 +127,14 @@
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ project_access.project.name }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ project_access.role }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            {% if not (project_access.user.role == 'admin' and project_access.role == 'admin' and project_access.user.id != current_user.id) %}
-                                            <form method="POST" action="{{ url_for('revoke_access', project_access_id=project_access.id) }}" class="inline">
-                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                                <button type="submit" class="text-red-600 hover:text-red-800" onclick="return confirm('Are you sure you want to revoke this access?');">Revoke</button>
-                                            </form>
-                                            {% endif %}
+                                            {% if is_admin_view %} {# or current_user.role == 'admin' #}
+                                                {% if not (project_access.user.role == 'admin' and project_access.role == 'admin' and project_access.user.id != current_user.id) %}
+                                                    <form method="POST" action="{{ url_for('revoke_access', project_access_id=project_access.id) }}" class="inline">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                        <button type="submit" class="text-red-600 hover:text-red-800" onclick="return confirm('Are you sure you want to revoke this access?');">Revoke</button>
+                                                    </form>
+                                                {% endif %}
+                                            {% endif %} {# End of is_admin_view check for revoke button #}
                                         </td>
                                     </tr>
                                 {% endif %}

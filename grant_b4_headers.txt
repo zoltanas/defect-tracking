@@ -1,0 +1,18 @@
+HTTP/1.1 302 FOUND
+Server: Werkzeug/3.1.3 Python/3.10.17
+Date: Fri, 13 Jun 2025 20:50:15 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 215
+Location: /manage_access
+Vary: Cookie
+Set-Cookie: session=.eJw1kFFqwzAQRK-y6KuFUCStbNk-RC9QQlitVrGLYxXJaQkhd6_a0q_ZmfczO3d1SivVWaqa3u4K9iZq2VJWB_WagWfazlLhQlFgz3CtUoCYpVZ4-jUXugGtRSjeYKZP-adfyz7DPstS4LzmQCuUvArkDaqswrtE-Cj5vV31-UUdH8dDa1Kkzmray1WaW6KaFPa964m6IQXjtQuaR5N6jLYjK4SpUYM49M5hSwbXmEbr7CharCGOqC2OrAffsQ6C7LyOviMU5qiDGdPIgRxiDLaLCZHYS0rRJOp956XNcPr586-NUY9vrHBfSg.aEyPBw.FzCQFHk8NtdsiXCl_5b41OsPj_4; HttpOnly; Path=/
+Connection: close
+
+HTTP/1.1 200 OK
+Server: Werkzeug/3.1.3 Python/3.10.17
+Date: Fri, 13 Jun 2025 20:50:15 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 51479
+Vary: Cookie
+Set-Cookie: session=.eJwljkuKAzEMRO_idRayZFl2LtPI-jBDYAa6k1XI3ccwq6LqUfDe5cgzrq9yf56vuJXj28u9UO-tq_LIVQXaAps1OzmyYijlppVo9NZoL6NtBoQNZ0BgVXMCpGkwhA1WkDUBF1YKM4dVZ05b2oh8IXsSqUlkek3twhJli7yuOP9t6q52nXk8fx_xs4feaQkT7ktDjxSYLMhDJiOEh0j6zlo-f3NHPw4.aEyPBw.a0MEUClIb-np9nfCyjtlmiQ2iw8; HttpOnly; Path=/
+Connection: close

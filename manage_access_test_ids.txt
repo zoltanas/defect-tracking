@@ -1,0 +1,114 @@
+--- MAIL CONFIGURATION ---
+MAIL_SERVER: smtp.example.com
+MAIL_PORT: 587
+MAIL_USE_TLS: True
+MAIL_USERNAME: your-email@example.com
+MAIL_PASSWORD loaded: Yes
+--------------------------
+--- Starting Test Data Setup for Manage Access Page ---
+Project ProjectAlpha_MA exists.
+Project ProjectBeta_MA exists.
+Project ProjectGamma_MA exists.
+User testadmin exists. Ensured role is admin and status is active.
+testadmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 7).
+testadmin already has access to ProjectBeta_MA. Ensured role is 'admin' (PA_ID: 8).
+testadmin already has access to ProjectGamma_MA. Ensured role is 'admin' (PA_ID: 9).
+User testexpert exists. Ensured role is expert and status is active.
+testexpert already has access to ProjectAlpha_MA. Ensured role is 'expert' (PA_ID: 10).
+testexpert already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 11).
+User testcontractor exists. Ensured role is contractor and status is active.
+testcontractor already has access to ProjectBeta_MA. Ensured role is 'contractor' (PA_ID: 12).
+User testsupervisor exists. Ensured role is supervisor and status is active.
+testsupervisor already has access to ProjectGamma_MA. Ensured role is 'supervisor' (PA_ID: 13).
+User testuser1 exists. Ensured role is contractor and status is active.
+testuser1 already has access to ProjectAlpha_MA. Ensured role is 'contractor' (PA_ID: 14).
+User testuser2 exists. Ensured role is expert and status is active.
+testuser2 already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 15).
+User testuser3 exists. Ensured role is contractor and status is active.
+testuser3 already has access to ProjectGamma_MA. Ensured role is 'contractor' (PA_ID: 16).
+User otheradmin exists. Ensured role is admin and status is active.
+otheradmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 17).
+
+--- User IDs ---
+USER_ID_TESTADMIN:1
+USER_ID_TESTEXPERT:4
+USER_ID_TESTCONTRACTOR:2
+USER_ID_TESTSUPERVISOR:7
+USER_ID_TESTUSER1:8
+USER_ID_TESTUSER2:9
+USER_ID_TESTUSER3:10
+USER_ID_OTHERADMIN:11
+
+--- Project IDs ---
+PROJECT_ID_PROJECTALPHA_MA:2
+PROJECT_ID_PROJECTBETA_MA:3
+PROJECT_ID_PROJECTGAMMA_MA:4
+
+--- Project Access IDs (for analysis) ---
+PA_ID_OTHERADMIN_PROJECTALPHA:17
+PA_ID_TESTEXPERT_PROJECTALPHA:10
+PA_ID_TESTEXPERT_PROJECTBETA:11
+PA_ID_TESTCONTRACTOR_PROJECTBETA:12
+PA_ID_TESTSUPERVISOR_PROJECTGAMMA:13
+PA_ID_TESTUSER1_PROJECTALPHA:14
+PA_ID_TESTUSER2_PROJECTBETA:15
+PA_ID_TESTUSER3_PROJECTGAMMA:16
+
+--- Setup Complete ---
+--- MAIL CONFIGURATION ---
+MAIL_SERVER: smtp.example.com
+MAIL_PORT: 587
+MAIL_USE_TLS: True
+MAIL_USERNAME: your-email@example.com
+MAIL_PASSWORD loaded: Yes
+--------------------------
+--- Starting Test Data Setup for Manage Access Page ---
+Project ProjectAlpha_MA exists.
+Project ProjectBeta_MA exists.
+Project ProjectGamma_MA exists.
+User testadmin exists. Ensured role is admin and status is active.
+testadmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 7).
+testadmin already has access to ProjectBeta_MA. Ensured role is 'admin' (PA_ID: 8).
+testadmin already has access to ProjectGamma_MA. Ensured role is 'admin' (PA_ID: 9).
+User testexpert exists. Ensured role is expert and status is active.
+testexpert already has access to ProjectAlpha_MA. Ensured role is 'expert' (PA_ID: 10).
+testexpert already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 11).
+User testcontractor exists. Ensured role is contractor and status is active.
+testcontractor already has access to ProjectBeta_MA. Ensured role is 'contractor' (PA_ID: 12).
+User testsupervisor exists. Ensured role is supervisor and status is active.
+testsupervisor already has access to ProjectGamma_MA. Ensured role is 'supervisor' (PA_ID: 13).
+User testuser1 exists. Ensured role is contractor and status is active.
+testuser1 already has access to ProjectAlpha_MA. Ensured role is 'contractor' (PA_ID: 14).
+User testuser2 exists. Ensured role is expert and status is active.
+testuser2 already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 15).
+User testuser3 exists. Ensured role is contractor and status is active.
+testuser3 already has access to ProjectGamma_MA. Ensured role is 'contractor' (PA_ID: 16).
+User otheradmin exists. Ensured role is admin and status is active.
+otheradmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 17).
+
+--- User IDs ---
+USER_ID_TESTADMIN:1
+USER_ID_TESTEXPERT:4
+USER_ID_TESTCONTRACTOR:2
+USER_ID_TESTSUPERVISOR:7
+USER_ID_TESTUSER1:8
+USER_ID_TESTUSER2:9
+USER_ID_TESTUSER3:10
+USER_ID_OTHERADMIN:11
+
+--- Project IDs ---
+PROJECT_ID_PROJECTALPHA_MA:2
+PROJECT_ID_PROJECTBETA_MA:3
+PROJECT_ID_PROJECTGAMMA_MA:4
+
+--- Project Access IDs (for analysis) ---
+PA_ID_OTHERADMIN_PROJECTALPHA:17
+PA_ID_TESTEXPERT_PROJECTALPHA:10
+PA_ID_TESTEXPERT_PROJECTBETA:11
+PA_ID_TESTCONTRACTOR_PROJECTBETA:12
+PA_ID_TESTSUPERVISOR_PROJECTGAMMA:13
+PA_ID_TESTUSER1_PROJECTALPHA:14
+PA_ID_TESTUSER2_PROJECTBETA:15
+PA_ID_TESTUSER3_PROJECTGAMMA:16
+
+--- Setup Complete ---
