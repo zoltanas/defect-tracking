@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invitation to Defect Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            width: 80%;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border: 1px solid #dddddd;
+            border-radius: 5px;
+        }
+        .header {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #0284c7; /* Primary color from the app */
+        }
+        .content p {
+            margin-bottom: 15px;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin-top: 15px;
+            background-color: #0284c7; /* Primary color */
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #0369a1; /* Primary hover color */
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            text-align: center;
+            color: #777777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            Welcome to Defect Tracker!
+        </div>
+        <div class="content">
+            <p>Hello,</p>
+            <p>You have been invited to join the Defect Tracker application.</p>
+            <p>To complete your registration and activate your account, please click the link below:</p>
+            <p style="text-align: center;">
+                <a href="{{ invite_link }}" class="button">Accept Invitation & Register</a>
+            </p>
+            <p>If you are unable to click the button, please copy and paste the following URL into your web browser:</p>
+            <p><a href="{{ invite_link }}">{{ invite_link }}</a></p>
+            <p>This link is valid for 24 hours.</p>
+            <p>If you were not expecting this invitation, please ignore this email.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{ current_year }} Defect Tracker. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

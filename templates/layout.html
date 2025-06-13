@@ -81,7 +81,7 @@
             <div class="hidden md:flex space-x-4 items-center">
                 {% if current_user.is_authenticated %}
                     {% if current_user.role == 'admin' %}
-                        <a href="{{ url_for('invite') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Invite User</a>
+                        <a href="{{ url_for('manage_access') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Manage User Access</a>
                     {% endif %}
                     <a href="{{ url_for('logout') }}" class="hover:bg-primary-hover px-3 py-2 rounded-md text-sm font-medium">Logout</a>
                 {% else %}
@@ -109,7 +109,7 @@
             <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                 {% if current_user.is_authenticated %}
                     {% if current_user.role == 'admin' %}
-                        <a href="{{ url_for('invite') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Invite User</a>
+                        <a href="{{ url_for('manage_access') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Manage User Access</a>
                     {% endif %}
                     <a href="{{ url_for('logout') }}" class="text-gray-200 hover:bg-primary-hover hover:text-white block px-3 py-2 rounded-md text-base font-medium">Logout</a>
                 {% else %}
