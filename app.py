@@ -747,23 +747,30 @@ def invite():
 @app.route('/manage_access', methods=['GET', 'POST'])
 @login_required
 def manage_access():
-    if current_user.role != 'admin':
-        flash('Only admins can manage access.', 'error')
+    allowed_roles_to_view = ['admin', 'expert', 'contractor', 'supervisor']
+    if current_user.role not in allowed_roles_to_view:
+        flash('You do not have permission to view this page.', 'error')
         return redirect(url_for('index'))
 
+    is_admin_view = (current_user.role == 'admin')
+
     if request.method == 'POST':
+        if not is_admin_view:
+            flash('You do not have permission to perform this action.', 'error')
+            return redirect(url_for('manage_access'))
+
         action = request.form.get('action')
         if action == 'grant_access':
             # First, get the set of project IDs the current admin can manage
-            admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
-            admin_accessible_project_ids = {pa.project_id for pa in admin_project_accesses}
+            admin_project_accesses_for_post_action = ProjectAccess.query.filter_by(user_id=current_user.id).all()
+            admin_accessible_project_ids = {pa.project_id for pa in admin_project_accesses_for_post_action}
 
             user_id_str = request.form.get('user_id')
             project_ids_from_form = request.form.getlist('project_ids')
-            role = request.form.get('role')
+            # role = request.form.get('role') # Removed
 
-            if not user_id_str or not project_ids_from_form or not role:
-                flash('User, project(s), and role are required.', 'error')
+            if not user_id_str or not project_ids_from_form: # 'or not role' Removed
+                flash('User and project(s) are required.', 'error') # Flash message updated
                 return redirect(url_for('manage_access'))
 
             try:
@@ -776,6 +783,8 @@ def manage_access():
             if not user:
                 flash('Selected user not found.', 'error')
                 return redirect(url_for('manage_access'))
+
+            role_to_assign = user.role # Assign role from user's global role
 
             successfully_processed_count = 0
             skipped_projects_count = 0
@@ -801,15 +810,15 @@ def manage_access():
 
                 project_access = ProjectAccess.query.filter_by(user_id=user.id, project_id=project.id).first()
                 if project_access:
-                    if project_access.role != role:
-                        project_access.role = role
-                        logger.info(f"Updated access for user {user.username} to project {project.name} with role {role}")
+                    if project_access.role != role_to_assign:
+                        project_access.role = role_to_assign
+                        logger.info(f"Updated access for user {user.username} to project {project.name} with role {role_to_assign} (based on global role)")
                         successfully_processed_count +=1 # Count as processed if role changed
                     # If role is the same, we don't count it as a new "successful update" for messaging
                 else:
-                    project_access = ProjectAccess(user_id=user.id, project_id=project.id, role=role)
+                    project_access = ProjectAccess(user_id=user.id, project_id=project.id, role=role_to_assign)
                     db.session.add(project_access)
-                    logger.info(f"Granted access for user {user.username} to project {project.name} with role {role}")
+                    logger.info(f"Granted access for user {user.username} to project {project.name} with role {role_to_assign} (based on global role)")
                     successfully_processed_count +=1
             
             if successfully_processed_count > 0:
@@ -827,40 +836,62 @@ def manage_access():
                 if skipped_projects_count > 0:
                     flash(f'No projects were updated. {skipped_projects_count} project(s) were skipped due to insufficient permissions or invalid ID.', 'warning')
                 else:
-                    flash('No changes made to user access (either no valid projects selected or roles were already assigned).', 'info')
+                    flash('No changes made to user access (user may already have access with their global role on selected projects).', 'info')
             return redirect(url_for('manage_access'))
 
-    # GET request or if POST action is not 'grant_access'
-    admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
-    admin_project_ids = [pa.project_id for pa in admin_project_accesses]
+    # Data for GET request
+    projects_for_forms = []
+    relevant_users_to_display = []
+    project_ids_to_filter_table_rows = []
 
-    manageable_projects = []
-    relevant_users = [] # Ensure this is initialized
+    if is_admin_view:
+        # Admin: Load projects they administer for forms, and users on those projects
+        admin_project_accesses_get = ProjectAccess.query.filter_by(user_id=current_user.id, role='admin').all()
+        project_ids_admin_administers = [pa.project_id for pa in admin_project_accesses_get]
+        project_ids_to_filter_table_rows = project_ids_admin_administers
 
-    if admin_project_ids:
-        manageable_projects = Project.query.filter(Project.id.in_(admin_project_ids)).order_by(Project.name).all()
-        
-        # Fetch all ProjectAccess entries for projects managed by the admin
-        shared_project_access_entries = ProjectAccess.query.filter(
-            ProjectAccess.project_id.in_(admin_project_ids)
-        ).all()
+        if project_ids_admin_administers:
+            projects_for_forms = Project.query.filter(Project.id.in_(project_ids_admin_administers)).order_by(Project.name).all()
 
-        if shared_project_access_entries:
-            user_ids_on_shared_projects = {pa.user_id for pa in shared_project_access_entries}
+            # Fetch all ProjectAccess entries for projects managed by this admin
+            shared_project_access_entries = ProjectAccess.query.filter(
+                ProjectAccess.project_id.in_(project_ids_admin_administers)
+            ).all()
 
-            if user_ids_on_shared_projects:
-                relevant_users = User.query.filter(
-                    User.id.in_(user_ids_on_shared_projects),
-                    User.id != current_user.id,
-                    User.status == 'active'
-                ).all()
+            if shared_project_access_entries:
+                user_ids_on_shared_projects = {pa.user_id for pa in shared_project_access_entries}
+                if user_ids_on_shared_projects:
+                    relevant_users_to_display = User.query.filter(
+                        User.id.in_(user_ids_on_shared_projects),
+                        User.id != current_user.id, # Exclude current admin from the list
+                        User.status == 'active'
+                    ).all()
+    else: # For 'expert', 'contractor', 'supervisor'
+        # Non-admin: Load projects they are part of, and users on those projects
+        current_user_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
+        project_ids_user_is_on = [pa.project_id for pa in current_user_project_accesses]
+        project_ids_to_filter_table_rows = project_ids_user_is_on
 
-    # The logger lines for debugging should remain commented out or removed for production code.
-    # logger.debug(f"Admin Project IDs: {admin_project_ids}")
-    # logger.debug(f"User IDs on Shared Projects: {[uid for uid in user_ids_on_shared_projects if user_ids_on_shared_projects else []]}")
-    # logger.debug(f"Relevant users found: {[u.id for u in relevant_users]}")
+        if project_ids_user_is_on:
+            # Fetch all ProjectAccess entries for projects the current user is part of
+            shared_project_access_entries = ProjectAccess.query.filter(
+                ProjectAccess.project_id.in_(project_ids_user_is_on)
+            ).all()
+            if shared_project_access_entries:
+                user_ids_on_shared_projects = {pa.user_id for pa in shared_project_access_entries}
+                if user_ids_on_shared_projects:
+                    relevant_users_to_display = User.query.filter(
+                        User.id.in_(user_ids_on_shared_projects),
+                        User.id != current_user.id, # Still exclude self from the list
+                        User.status == 'active'
+                    ).all()
+        # projects_for_forms remains empty as these forms will be hidden for non-admins
 
-    return render_template('manage_access.html', users=relevant_users, projects=manageable_projects, admin_project_ids=admin_project_ids)
+    return render_template('manage_access.html',
+                           users=relevant_users_to_display,
+                           projects_for_forms=projects_for_forms,
+                           project_ids_for_filter=project_ids_to_filter_table_rows,
+                           is_admin_view=is_admin_view)
 
 
 @app.route('/revoke_access/<int:project_access_id>', methods=['POST'])

@@ -1,0 +1,353 @@
+--- Starting Comprehensive UI Test for Manage Access Page (Attempt 3) ---
+\n--- Running Database Setup ---
+Output of setup_manage_access_test.py:
+--- MAIL CONFIGURATION ---
+MAIL_SERVER: smtp.example.com
+MAIL_PORT: 587
+MAIL_USE_TLS: True
+MAIL_USERNAME: your-email@example.com
+MAIL_PASSWORD loaded: Yes
+--------------------------
+--- Starting Test Data Setup for Manage Access Page ---
+Project ProjectAlpha_MA exists.
+Project ProjectBeta_MA exists.
+Project ProjectGamma_MA exists.
+User testadmin exists. Ensured role is admin and status is active.
+testadmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 7).
+testadmin already has access to ProjectBeta_MA. Ensured role is 'admin' (PA_ID: 8).
+testadmin already has access to ProjectGamma_MA. Ensured role is 'admin' (PA_ID: 9).
+User testexpert exists. Ensured role is expert and status is active.
+testexpert already has access to ProjectAlpha_MA. Ensured role is 'expert' (PA_ID: 10).
+testexpert already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 11).
+User testcontractor exists. Ensured role is contractor and status is active.
+testcontractor already has access to ProjectBeta_MA. Ensured role is 'contractor' (PA_ID: 12).
+User testsupervisor exists. Ensured role is supervisor and status is active.
+testsupervisor already has access to ProjectGamma_MA. Ensured role is 'supervisor' (PA_ID: 13).
+User testuser1 exists. Ensured role is contractor and status is active.
+testuser1 already has access to ProjectAlpha_MA. Ensured role is 'contractor' (PA_ID: 14).
+User testuser2 exists. Ensured role is expert and status is active.
+testuser2 already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 15).
+User testuser3 exists. Ensured role is contractor and status is active.
+testuser3 already has access to ProjectGamma_MA. Ensured role is 'contractor' (PA_ID: 16).
+User otheradmin exists. Ensured role is admin and status is active.
+otheradmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 17).
+
+--- User IDs ---
+USER_ID_TESTADMIN:1
+USER_ID_TESTEXPERT:4
+USER_ID_TESTCONTRACTOR:2
+USER_ID_TESTSUPERVISOR:7
+USER_ID_TESTUSER1:8
+USER_ID_TESTUSER2:9
+USER_ID_TESTUSER3:10
+USER_ID_OTHERADMIN:11
+
+--- Project IDs ---
+PROJECT_ID_PROJECTALPHA_MA:2
+PROJECT_ID_PROJECTBETA_MA:3
+PROJECT_ID_PROJECTGAMMA_MA:4
+
+--- Project Access IDs (for analysis) ---
+PA_ID_OTHERADMIN_PROJECTALPHA:17
+PA_ID_TESTEXPERT_PROJECTALPHA:10
+PA_ID_TESTEXPERT_PROJECTBETA:11
+PA_ID_TESTCONTRACTOR_PROJECTBETA:12
+PA_ID_TESTSUPERVISOR_PROJECTGAMMA:13
+PA_ID_TESTUSER1_PROJECTALPHA:14
+PA_ID_TESTUSER2_PROJECTBETA:15
+PA_ID_TESTUSER3_PROJECTGAMMA:16
+
+--- Setup Complete ---
+--- MAIL CONFIGURATION ---
+MAIL_SERVER: smtp.example.com
+MAIL_PORT: 587
+MAIL_USE_TLS: True
+MAIL_USERNAME: your-email@example.com
+MAIL_PASSWORD loaded: Yes
+--------------------------
+--- Starting Test Data Setup for Manage Access Page ---
+Project ProjectAlpha_MA exists.
+Project ProjectBeta_MA exists.
+Project ProjectGamma_MA exists.
+User testadmin exists. Ensured role is admin and status is active.
+testadmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 7).
+testadmin already has access to ProjectBeta_MA. Ensured role is 'admin' (PA_ID: 8).
+testadmin already has access to ProjectGamma_MA. Ensured role is 'admin' (PA_ID: 9).
+User testexpert exists. Ensured role is expert and status is active.
+testexpert already has access to ProjectAlpha_MA. Ensured role is 'expert' (PA_ID: 10).
+testexpert already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 11).
+User testcontractor exists. Ensured role is contractor and status is active.
+testcontractor already has access to ProjectBeta_MA. Ensured role is 'contractor' (PA_ID: 12).
+User testsupervisor exists. Ensured role is supervisor and status is active.
+testsupervisor already has access to ProjectGamma_MA. Ensured role is 'supervisor' (PA_ID: 13).
+User testuser1 exists. Ensured role is contractor and status is active.
+testuser1 already has access to ProjectAlpha_MA. Ensured role is 'contractor' (PA_ID: 14).
+User testuser2 exists. Ensured role is expert and status is active.
+testuser2 already has access to ProjectBeta_MA. Ensured role is 'expert' (PA_ID: 15).
+User testuser3 exists. Ensured role is contractor and status is active.
+testuser3 already has access to ProjectGamma_MA. Ensured role is 'contractor' (PA_ID: 16).
+User otheradmin exists. Ensured role is admin and status is active.
+otheradmin already has access to ProjectAlpha_MA. Ensured role is 'admin' (PA_ID: 17).
+
+--- User IDs ---
+USER_ID_TESTADMIN:1
+USER_ID_TESTEXPERT:4
+USER_ID_TESTCONTRACTOR:2
+USER_ID_TESTSUPERVISOR:7
+USER_ID_TESTUSER1:8
+USER_ID_TESTUSER2:9
+USER_ID_TESTUSER3:10
+USER_ID_OTHERADMIN:11
+
+--- Project IDs ---
+PROJECT_ID_PROJECTALPHA_MA:2
+PROJECT_ID_PROJECTBETA_MA:3
+PROJECT_ID_PROJECTGAMMA_MA:4
+
+--- Project Access IDs (for analysis) ---
+PA_ID_OTHERADMIN_PROJECTALPHA:17
+PA_ID_TESTEXPERT_PROJECTALPHA:10
+PA_ID_TESTEXPERT_PROJECTBETA:11
+PA_ID_TESTCONTRACTOR_PROJECTBETA:12
+PA_ID_TESTSUPERVISOR_PROJECTGAMMA:13
+PA_ID_TESTUSER1_PROJECTALPHA:14
+PA_ID_TESTUSER2_PROJECTBETA:15
+PA_ID_TESTUSER3_PROJECTGAMMA:16
+
+--- Setup Complete ---
+All necessary ProjectAccess IDs extracted successfully status: true
+PA_ID_OTHERADMIN_PA=17
+\n--- Starting Flask Server ---
+Flask PID: 6603
+\n=========== TESTING AS USER: testadmin ===========
+Logging in as testadmin...
+Login response: {"message":"User testadmin logged in.","status":"success"}
+Fetching layout HTML (from /) for testadmin...
+Fetching /manage_access HTML for testadmin...
+Analyzing HTML for testadmin...
+
+--- Analysis for Logged-in User: testadmin ---
+
+  1. Navigation Link Text:
+    Nav link text found ('Manage User Access'): True, Expected: True
+    Result: PASS
+
+  2. Section Visibility in /manage_access:
+    - 'Grant Access' section visible: True, Expected: True
+      Result: PASS
+    - 'Invite New User' section visible: True, Expected: True
+      Result: PASS
+
+  3. 'Current User Access' Table:
+    - Table section visible: True, Expected: True
+      Result: PASS (Table heading found, content checks below)
+    Revoke Button Checks (as testadmin):
+    - User in row (for context): 'otheradmin', Revoke button for PA_ID 17:
+      Searching for revoke form: action="/revoke_access/17"
+      Form present: False, Expected: False
+      Result: PASS
+    - User in row (for context): 'testexpert', Revoke button for PA_ID 10:
+      Searching for revoke form: action="/revoke_access/10"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testexpert', Revoke button for PA_ID 11:
+      Searching for revoke form: action="/revoke_access/11"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testuser1', Revoke button for PA_ID 14:
+      Searching for revoke form: action="/revoke_access/14"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testcontractor', Revoke button for PA_ID 12:
+      Searching for revoke form: action="/revoke_access/12"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testuser2', Revoke button for PA_ID 15:
+      Searching for revoke form: action="/revoke_access/15"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testsupervisor', Revoke button for PA_ID 13:
+      Searching for revoke form: action="/revoke_access/13"
+      Form present: True, Expected: True
+      Result: PASS
+    - User in row (for context): 'testuser3', Revoke button for PA_ID 16:
+      Searching for revoke form: action="/revoke_access/16"
+      Form present: True, Expected: True
+      Result: PASS
+    User Presence Checks (as testadmin):
+    - User 'otheradmin' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testexpert' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testexpert' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser1' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testcontractor' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser2' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testsupervisor' on Project 'ProjectGamma_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser3' on Project 'ProjectGamma_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+\n=========== TESTING AS USER: testexpert ===========
+Logging in as testexpert...
+Login response: {"message":"User testexpert logged in.","status":"success"}
+Fetching layout HTML (from /) for testexpert...
+Fetching /manage_access HTML for testexpert...
+Analyzing HTML for testexpert...
+
+--- Analysis for Logged-in User: testexpert ---
+
+  1. Navigation Link Text:
+    Nav link text found ('Projects user list'): True, Expected: True
+    Result: PASS
+
+  2. Section Visibility in /manage_access:
+    - 'Grant Access' section visible: False, Expected: False
+      Result: PASS
+    - 'Invite New User' section visible: False, Expected: False
+      Result: PASS
+
+  3. 'Current User Access' Table:
+    - Table section visible: True, Expected: True
+      Result: PASS (Table heading found, content checks below)
+    Revoke Button Checks (as testexpert): All HIDDEN
+    - User in row (for context): 'otheradmin', Revoke button for PA_ID 17:
+      Searching for revoke form: action="/revoke_access/17"
+      Form present: False, Expected: False
+      Result: PASS
+    - User in row (for context): 'testuser1', Revoke button for PA_ID 14:
+      Searching for revoke form: action="/revoke_access/14"
+      Form present: False, Expected: False
+      Result: PASS
+    User Presence Checks (as testexpert, sees users on ProjectAlpha_MA & ProjectBeta_MA):
+    - User 'testadmin' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testadmin' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'otheradmin' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser1' on Project 'ProjectAlpha_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testcontractor' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser2' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testsupervisor' on Project 'ProjectGamma_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+    - User 'testuser3' on Project 'ProjectGamma_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+\n=========== TESTING AS USER: testcontractor ===========
+Logging in as testcontractor...
+Login response: {"message":"User testcontractor logged in.","status":"success"}
+Fetching layout HTML (from /) for testcontractor...
+Fetching /manage_access HTML for testcontractor...
+Analyzing HTML for testcontractor...
+
+--- Analysis for Logged-in User: testcontractor ---
+
+  1. Navigation Link Text:
+    Nav link text found ('Projects user list'): True, Expected: True
+    Result: PASS
+
+  2. Section Visibility in /manage_access:
+    - 'Grant Access' section visible: False, Expected: False
+      Result: PASS
+    - 'Invite New User' section visible: False, Expected: False
+      Result: PASS
+
+  3. 'Current User Access' Table:
+    - Table section visible: True, Expected: True
+      Result: PASS (Table heading found, content checks below)
+    Revoke Button Checks (as testcontractor): All HIDDEN
+    - User in row (for context): 'testexpert', Revoke button for PA_ID 11:
+      Searching for revoke form: action="/revoke_access/11"
+      Form present: False, Expected: False
+      Result: PASS
+    - User in row (for context): 'testuser2', Revoke button for PA_ID 15:
+      Searching for revoke form: action="/revoke_access/15"
+      Form present: False, Expected: False
+      Result: PASS
+    User Presence Checks (as testcontractor, sees users on ProjectBeta_MA):
+    - User 'testadmin' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testexpert' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser2' on Project 'ProjectBeta_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testadmin' on Project 'ProjectAlpha_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+    - User 'testuser1' on Project 'ProjectAlpha_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+    - User 'testsupervisor' on Project 'ProjectGamma_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+\n=========== TESTING AS USER: testsupervisor ===========
+Logging in as testsupervisor...
+Login response: {"message":"User testsupervisor logged in.","status":"success"}
+Fetching layout HTML (from /) for testsupervisor...
+Fetching /manage_access HTML for testsupervisor...
+Analyzing HTML for testsupervisor...
+
+--- Analysis for Logged-in User: testsupervisor ---
+
+  1. Navigation Link Text:
+    Nav link text found ('Projects user list'): True, Expected: True
+    Result: PASS
+
+  2. Section Visibility in /manage_access:
+    - 'Grant Access' section visible: False, Expected: False
+      Result: PASS
+    - 'Invite New User' section visible: False, Expected: False
+      Result: PASS
+
+  3. 'Current User Access' Table:
+    - Table section visible: True, Expected: True
+      Result: PASS (Table heading found, content checks below)
+    Revoke Button Checks (as testsupervisor): All HIDDEN
+    - User in row (for context): 'testadmin', Revoke button for PA_ID 16:
+      Searching for revoke form: action="/revoke_access/16"
+      Form present: False, Expected: False
+      Result: PASS
+    - User in row (for context): 'testuser3', Revoke button for PA_ID 16:
+      Searching for revoke form: action="/revoke_access/16"
+      Form present: False, Expected: False
+      Result: PASS
+    User Presence Checks (as testsupervisor, sees users on ProjectGamma_MA):
+    - User 'testadmin' on Project 'ProjectGamma_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testuser3' on Project 'ProjectGamma_MA':
+      Present in table: True, Expected: True
+      Result: PASS
+    - User 'testadmin' on Project 'ProjectAlpha_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+    - User 'testexpert' on Project 'ProjectBeta_MA':
+      Present in table: False, Expected: False
+      Result: PASS
+\n--- Stopping Flask Server ---
+Flask server should be stopped.
