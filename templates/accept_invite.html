@@ -16,12 +16,23 @@
         <form method="POST" class="mt-8 space-y-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="token" value="{{ token }}">
-            
+
             <div class="rounded-md shadow-sm -space-y-px">
                 <div>
-                    <label for="username" class="sr-only">Username</label>
-                    <input type="text" id="username" name="username" required placeholder="Choose a username"
-                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                    <label for="email" class="block text-sm font-medium text-gray-700 sr-only">Email (Username)</label>
+                    <input type="text" id="email" name="email" value="{{ email }}" readonly
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 bg-gray-100 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                    <p class="mt-1 text-xs text-gray-500 px-3 py-1">This will be your username.</p>
+                </div>
+                <div>
+                    <label for="name" class="sr-only">Name</label>
+                    <input type="text" id="name" name="name" required placeholder="Your Name"
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                </div>
+                <div>
+                    <label for="company" class="sr-only">Company</label>
+                    <input type="text" id="company" name="company" required placeholder="Your Company"
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
                 </div>
                 <div>
                     <label for="password" class="sr-only">Password</label>

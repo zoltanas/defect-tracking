@@ -12,14 +12,24 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="rounded-md shadow-sm -space-y-px">
                 <div>
-                    <label for="username" class="sr-only">Username</label>
-                    <input type="text" id="username" name="username" required placeholder="Username"
+                    <label for="name" class="sr-only">Name</label>
+                    <input type="text" id="name" name="name" required placeholder="Your Name"
                            class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                </div>
+                <div>
+                    <label for="company" class="sr-only">Company</label>
+                    <input type="text" id="company" name="company" required placeholder="Your Company"
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                </div>
+                <div>
+                    <label for="username" class="sr-only">Username (Email)</label>
+                    <input type="text" id="username" name="username" required placeholder="Username (Must be your email)"
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
                 </div>
                 <div>
                     <label for="password" class="sr-only">Password</label>
                     <input type="password" id="password" name="password" required placeholder="Password"
-                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                           class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
                 </div>
                 <div>
                     <label for="confirm_password" class="sr-only">Confirm Password</label>
