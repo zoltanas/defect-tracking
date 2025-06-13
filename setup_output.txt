@@ -1,0 +1,24 @@
+--- MAIL CONFIGURATION ---
+MAIL_SERVER: smtp.example.com
+MAIL_PORT: 587
+MAIL_USE_TLS: True
+MAIL_USERNAME: your-email@example.com
+MAIL_PASSWORD loaded: Yes
+--------------------------
+
+--- 1. Setting up Environment ---
+Calling /setup_test_data...
+/setup_test_data response: 200 - Test data setup complete!
+Creating additional users and granting access...
+Created user: testadmin2
+Created user: testexpert
+Committed new users.
+Identified Project: 'Comprehensive Test Project' (ID: 1)
+Granted admin access to project 'Comprehensive Test Project' for user 'testadmin2'
+Granted expert access to project 'Comprehensive Test Project' for user 'testexpert'
+Committed project access grants.
+PA_ID_ADMIN2: 3
+PA_ID_EXPERT: 4
+
+Environment setup script finished.
+To be used in tests: PA_ID_ADMIN2=3, PA_ID_EXPERT=4

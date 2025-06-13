@@ -873,6 +873,10 @@ def revoke_access(project_access_id):
     project_access_entry = db.session.get(ProjectAccess, project_access_id)
 
     if project_access_entry:
+        target_user = project_access_entry.user
+        if target_user and target_user.role == 'admin' and target_user.id != current_user.id:
+            flash('Project access for a global admin user cannot be revoked by another admin via this page.', 'warning')
+            return redirect(url_for('manage_access'))
         try:
             db.session.delete(project_access_entry)
             db.session.commit()
