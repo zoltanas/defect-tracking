@@ -1336,29 +1336,36 @@ def view_drawing(project_id, drawing_id):
             # Perform a direct query for attachments for this specific defect
             current_defect_attachments = Attachment.query.filter_by(defect_id=defect.id).all()
 
-            attachment_thumbnail_url = None
-            # Process the directly queried attachments
-            if current_defect_attachments:
-                for attachment in current_defect_attachments:
-                    is_image = False
-                    # ... (MIME type and extension check as implemented in the last iteration) ...
-                    if attachment.mime_type and attachment.mime_type.startswith('image/'):
-                        is_image = True
-                    elif attachment.file_path:  # If mime_type is missing or not 'image/', check file extension
-                        filename_lower = attachment.file_path.lower()
-                        if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-                            is_image = True
+            # Temporarily comment out or remove the existing logic for setting attachment_thumbnail_url
+            # attachment_thumbnail_url = None
+            # # Process the directly queried attachments
+            # if current_defect_attachments:
+            #     for attachment in current_defect_attachments:
+            #         is_image = False
+            #         # ... (MIME type and extension check as implemented in the last iteration) ...
+            #         if attachment.mime_type and attachment.mime_type.startswith('image/'):
+            #             is_image = True
+            #         elif attachment.file_path:  # If mime_type is missing or not 'image/', check file extension
+            #             filename_lower = attachment.file_path.lower()
+            #             if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            #                 is_image = True
 
-                    if is_image:
-                        image_file_path = None
-                        if attachment.thumbnail_path and attachment.thumbnail_path.strip():
-                            image_file_path = attachment.thumbnail_path.strip()
-                        elif attachment.file_path and attachment.file_path.strip():
-                            image_file_path = attachment.file_path.strip()
+            #         if is_image:
+            #             image_file_path = None
+            #             if attachment.thumbnail_path and attachment.thumbnail_path.strip():
+            #                 image_file_path = attachment.thumbnail_path.strip()
+            #             elif attachment.file_path and attachment.file_path.strip():
+            #                 image_file_path = attachment.file_path.strip()
 
-                        if image_file_path:
-                            attachment_thumbnail_url = url_for('static', filename=image_file_path)
-                        break  # Found the first image attachment
+            #             if image_file_path:
+            #                 attachment_thumbnail_url = url_for('static', filename=image_file_path)
+            #             break  # Found the first image attachment
+
+            # Add the following debugging logic:
+            if current_defect_attachments: # Check if the list is not empty
+                attachment_thumbnail_url = "DEBUG_STEP_1_ATTACHMENTS_FOUND"
+            else:
+                attachment_thumbnail_url = "DEBUG_STEP_1_NO_ATTACHMENTS_FOUND"
 
             markers_data.append({
                 'defect_id': marker.defect_id,
