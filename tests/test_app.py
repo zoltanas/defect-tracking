@@ -2,11 +2,14 @@ import os
 import sys
 import tempfile
 import pytest
+import json
+import re
+from datetime import datetime, timedelta
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app import app, db, User, Project, Defect, ProjectAccess, bcrypt
+from app import app, db, User, Project, Defect, ProjectAccess, bcrypt, Drawing, DefectMarker
 
 @pytest.fixture
 def client():
@@ -765,3 +768,311 @@ def test_manage_access_shows_newly_invited_existing_user(client, mail):
     # for row_html in user_target_rows:
     #     assert project_target_only.name not in row_html
     # For now, the direct `not in` for the specific cell content of the unmanaged project is the primary check.
+
+
+# --- Helper function for view_drawing tests ---
+def _create_test_data(user_details, project_name, drawing_name, defect_details_list):
+    """
+    Helper function to create users, project, drawing, defects, and markers.
+    user_details: list of dicts, each {'username': 'uname', 'password': 'pwd', 'role': 'role', 'name': 'FullName', 'company': 'Comp'}
+    project_name: str
+    drawing_name: str
+    defect_details_list: list of dicts, each:
+        {'description': 'desc', 'status': 'open'/'closed', 'creator_username': 'uname_of_creator',
+         'marker_x': 0.5, 'marker_y': 0.5, 'page_num': 1, 'creation_offset_days': 0}
+    Returns a dict of created objects: {'users': {username: user_obj}, 'project': project_obj, 'drawing': drawing_obj, 'defects': [defect_obj_with_marker]}
+    """
+    created_users = {}
+    for ud in user_details:
+        user = User(
+            username=ud['username'],
+            email=f"{ud['username']}@example.com",
+            password=bcrypt.generate_password_hash(ud['password']).decode('utf-8'),
+            role=ud['role'],
+            name=ud.get('name', ud['username'].capitalize()),
+            company=ud.get('company', 'Test Company'),
+            status='active'
+        )
+        db.session.add(user)
+        created_users[ud['username']] = user
+    db.session.commit()
+
+    project = Project(name=project_name)
+    db.session.add(project)
+    db.session.commit()
+
+    for user_obj in created_users.values():
+        # Grant access to the project based on their main role for simplicity in tests
+        project_access = ProjectAccess(user_id=user_obj.id, project_id=project.id, role=user_obj.role)
+        db.session.add(project_access)
+    db.session.commit()
+
+    drawing = Drawing(project_id=project.id, name=drawing_name, file_path=f'drawings/{drawing_name.replace(" ", "_")}.pdf')
+    db.session.add(drawing)
+    db.session.commit()
+
+    created_defects = []
+    for dd in defect_details_list:
+        creator = created_users[dd['creator_username']]
+        creation_date = datetime.utcnow() - timedelta(days=dd.get('creation_offset_days', 0))
+        defect = Defect(
+            project_id=project.id,
+            description=dd['description'],
+            status=dd['status'],
+            creator_id=creator.id,
+            creation_date=creation_date
+        )
+        if dd['status'] == 'closed':
+            defect.close_date = creation_date + timedelta(days=1) # Assume closed one day after creation for test
+        db.session.add(defect)
+        db.session.commit()
+
+        marker = DefectMarker(
+            defect_id=defect.id,
+            drawing_id=drawing.id,
+            x=dd['marker_x'],
+            y=dd['marker_y'],
+            page_num=dd.get('page_num', 1)
+        )
+        db.session.add(marker)
+        db.session.commit()
+        # Attach marker to defect for easy access if needed, though test usually re-queries
+        defect.marker = marker
+        created_defects.append(defect)
+
+    return {'users': created_users, 'project': project, 'drawing': drawing, 'defects': created_defects}
+
+
+def _login(client, username, password):
+    return client.post('/login', data={'username': username, 'password': password}, follow_redirects=True)
+
+def _get_markers_data_from_response(response):
+    assert response.status_code == 200
+    match = re.search(r"const markersData = (.*?);", response.data.decode(), re.S)
+    assert match is not None, "markersData not found in response. Check view_drawing.html template."
+    markers_data_json = match.group(1)
+    return json.loads(markers_data_json)
+
+# --- Tests for view_drawing route ---
+
+def test_view_drawing_admin_sees_all_open_defects(client):
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[
+                {'username': 'admin_viewer', 'password': 'password', 'role': 'admin'},
+                {'username': 'other_creator', 'password': 'password', 'role': 'expert'}
+            ],
+            project_name='Admin View Project',
+            drawing_name='Admin Drawing',
+            defect_details_list=[
+                {'description': 'Open by admin', 'status': 'open', 'creator_username': 'admin_viewer', 'marker_x': 0.1, 'marker_y': 0.1, 'page_num': 1},
+                {'description': 'Open by other', 'status': 'open', 'creator_username': 'other_creator', 'marker_x': 0.2, 'marker_y': 0.2, 'page_num': 1},
+                {'description': 'Closed by admin', 'status': 'closed', 'creator_username': 'admin_viewer', 'marker_x': 0.3, 'marker_y': 0.3, 'page_num': 1}
+            ]
+        )
+
+    _login(client, 'admin_viewer', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 2
+    open_defect_descriptions = [d['description'] for d in markers_data]
+    assert 'Open by admin' in open_defect_descriptions
+    assert 'Open by other' in open_defect_descriptions
+    assert 'Closed by admin' not in open_defect_descriptions
+
+    # Verify content of one marker
+    marker_to_check = next(m for m in markers_data if m['description'] == 'Open by admin')
+    original_defect = next(d for d in data['defects'] if d.description == 'Open by admin')
+
+    assert marker_to_check['defect_id'] == original_defect.id
+    assert marker_to_check['status'] == 'open'
+    assert marker_to_check['creator_name'] == data['users']['admin_viewer'].username
+    assert marker_to_check['page_num'] == 1
+    assert datetime.strptime(marker_to_check['creation_date_formatted'], '%Y-%m-%d %H:%M').date() == original_defect.creation_date.date()
+
+def test_view_drawing_expert_sees_own_open_defects(client):
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[
+                {'username': 'expert_viewer', 'password': 'password', 'role': 'expert', 'name': 'Expert Viewer'},
+                {'username': 'another_user', 'password': 'password', 'role': 'contractor', 'name': 'Another User'}
+            ],
+            project_name='Expert View Project',
+            drawing_name='Expert Drawing',
+            defect_details_list=[
+                {'description': 'Open by expert', 'status': 'open', 'creator_username': 'expert_viewer', 'marker_x': 0.1, 'marker_y': 0.1},
+                {'description': 'Open by another', 'status': 'open', 'creator_username': 'another_user', 'marker_x': 0.2, 'marker_y': 0.2},
+                {'description': 'Closed by expert', 'status': 'closed', 'creator_username': 'expert_viewer', 'marker_x': 0.3, 'marker_y': 0.3}
+            ]
+        )
+
+    _login(client, 'expert_viewer', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 1
+    assert markers_data[0]['description'] == 'Open by expert'
+    assert markers_data[0]['creator_name'] == data['users']['expert_viewer'].username # or .name if that's what's used
+    assert markers_data[0]['status'] == 'open'
+
+def test_view_drawing_contractor_sees_all_open_defects(client):
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[
+                {'username': 'contractor_viewer', 'password': 'password', 'role': 'contractor'},
+                {'username': 'admin_creator', 'password': 'password', 'role': 'admin'}
+            ],
+            project_name='Contractor View Project',
+            drawing_name='Contractor Drawing',
+            defect_details_list=[
+                {'description': 'Open by contractor', 'status': 'open', 'creator_username': 'contractor_viewer', 'marker_x': 0.1, 'marker_y': 0.1},
+                {'description': 'Open by admin', 'status': 'open', 'creator_username': 'admin_creator', 'marker_x': 0.2, 'marker_y': 0.2},
+                {'description': 'Closed by contractor', 'status': 'closed', 'creator_username': 'contractor_viewer', 'marker_x': 0.3, 'marker_y': 0.3}
+            ]
+        )
+
+    _login(client, 'contractor_viewer', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 2
+    descriptions = [m['description'] for m in markers_data]
+    assert 'Open by contractor' in descriptions
+    assert 'Open by admin' in descriptions
+
+def test_view_drawing_supervisor_sees_all_open_defects(client):
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[
+                {'username': 'supervisor_viewer', 'password': 'password', 'role': 'supervisor'},
+                {'username': 'expert_creator', 'password': 'password', 'role': 'expert'}
+            ],
+            project_name='Supervisor View Project',
+            drawing_name='Supervisor Drawing',
+            defect_details_list=[
+                {'description': 'Open by supervisor', 'status': 'open', 'creator_username': 'supervisor_viewer', 'marker_x': 0.1, 'marker_y': 0.1},
+                {'description': 'Open by expert', 'status': 'open', 'creator_username': 'expert_creator', 'marker_x': 0.2, 'marker_y': 0.2},
+                {'description': 'Closed by supervisor', 'status': 'closed', 'creator_username': 'supervisor_viewer', 'marker_x': 0.3, 'marker_y': 0.3}
+            ]
+        )
+
+    _login(client, 'supervisor_viewer', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 2
+    descriptions = [m['description'] for m in markers_data]
+    assert 'Open by supervisor' in descriptions
+    assert 'Open by expert' in descriptions
+
+def test_view_drawing_marker_data_content(client):
+    creation_time = datetime.utcnow() - timedelta(days=1)
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[{'username': 'content_tester', 'password': 'password', 'role': 'admin', 'name': 'Content Tester Name'}],
+            project_name='Marker Content Project',
+            drawing_name='Marker Content Drawing',
+            defect_details_list=[
+                {
+                    'description': 'Detailed Marker Test',
+                    'status': 'open',
+                    'creator_username': 'content_tester',
+                    'marker_x': 0.65,
+                    'marker_y': 0.35,
+                    'page_num': 2,
+                    'creation_offset_days': 1 # Matches creation_time above
+                }
+            ]
+        )
+
+    _login(client, 'content_tester', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 1
+    marker_info = markers_data[0]
+    defect_obj = data['defects'][0]
+
+    assert marker_info['defect_id'] == defect_obj.id
+    assert abs(marker_info['x'] - 0.65) < 0.001 # Floating point comparison
+    assert abs(marker_info['y'] - 0.35) < 0.001
+    assert marker_info['description'] == 'Detailed Marker Test'
+    assert marker_info['status'] == 'open'
+    assert marker_info['creator_name'] == data['users']['content_tester'].username # or .name if used
+    assert marker_info['page_num'] == 2
+
+    # Check date format and value (ignoring time for simplicity unless critical)
+    assert 'creation_date_formatted' in marker_info
+    parsed_date = datetime.strptime(marker_info['creation_date_formatted'], '%Y-%m-%d %H:%M')
+    assert parsed_date.year == creation_time.year
+    assert parsed_date.month == creation_time.month
+    assert parsed_date.day == creation_time.day
+    # Could also check hour and minute if exact time is important and consistent
+
+    # Ensure no unexpected fields or check all fields if schema is strict
+    expected_keys = {'defect_id', 'x', 'y', 'description', 'status', 'creator_name', 'creation_date_formatted', 'page_num'}
+    assert set(marker_info.keys()) == expected_keys
+
+def test_view_drawing_no_markers(client):
+    with app.app_context():
+        data = _create_test_data(
+            user_details=[{'username': 'no_marker_user', 'password': 'password', 'role': 'admin'}],
+            project_name='No Marker Project',
+            drawing_name='No Marker Drawing',
+            defect_details_list=[] # No defects, so no markers
+        )
+    _login(client, 'no_marker_user', 'password')
+    response = client.get(f'/project/{data["project"].id}/drawing/{data["drawing"].id}')
+    markers_data = _get_markers_data_from_response(response)
+    assert len(markers_data) == 0
+
+def test_view_drawing_defect_with_no_creator(client): # e.g. creator deleted or data issue
+    with app.app_context():
+        # Create a user who will be the admin viewer
+        admin_viewer = User(username='admin_defect_no_creator', password=bcrypt.generate_password_hash('password').decode('utf-8'), role='admin', status='active')
+        db.session.add(admin_viewer)
+        db.session.commit()
+
+        project = Project(name='Defect No Creator Project')
+        db.session.add(project)
+        db.session.commit()
+
+        ProjectAccess(user_id=admin_viewer.id, project_id=project.id, role='admin').save()
+        db.session.commit()
+
+        drawing = Drawing(project_id=project.id, name='Drawing For Defect No Creator', file_path='drawings/no_creator.pdf')
+        db.session.add(drawing)
+        db.session.commit()
+
+        # Create a defect with no creator_id or a non-existent one
+        defect_no_creator = Defect(
+            project_id=project.id,
+            description='Defect with no creator',
+            status='open',
+            creator_id=None, # Explicitly None, or an ID that doesn't exist like 9999
+            creation_date=datetime.utcnow()
+        )
+        db.session.add(defect_no_creator)
+        db.session.commit()
+
+        marker = DefectMarker(defect_id=defect_no_creator.id, drawing_id=drawing.id, x=0.5, y=0.5, page_num=1)
+        db.session.add(marker)
+        db.session.commit()
+
+    _login(client, 'admin_defect_no_creator', 'password')
+    response = client.get(f'/project/{project.id}/drawing/{drawing.id}')
+    markers_data = _get_markers_data_from_response(response)
+
+    assert len(markers_data) == 1
+    marker_info = markers_data[0]
+    assert marker_info['description'] == 'Defect with no creator'
+    assert marker_info['creator_name'] == "N/A" # As per app.py logic
+    assert marker_info['status'] == 'open'
+
+# Consider adding a test for a drawing with no defects/markers at all.
+# (Covered by test_view_drawing_no_markers)
+
+# Consider a test for a defect whose marker has page_num not matching current page (if multi-page PDF viewing is tested elsewhere)
+# The current logic in view_drawing.html's JS filters by page_num, so markersData would contain all valid markers,
+# and JS would handle the display per page. The Python side sends all valid markers.

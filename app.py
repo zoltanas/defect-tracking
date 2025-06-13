@@ -5,6 +5,7 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_bcrypt import Bcrypt
 from flask_mail import Mail, Message
 import click # For Flask CLI
+from sqlalchemy.orm import joinedload # Import joinedload
 from threading import Lock
 from itsdangerous import URLSafeTimedSerializer
 from datetime import datetime
@@ -1302,16 +1303,46 @@ def view_drawing(project_id, drawing_id):
     if not drawing or drawing.project_id != project_id:
         flash('Drawing not found.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
-    markers = DefectMarker.query.filter_by(drawing_id=drawing_id).all()
-    # Serialize markers
-    markers_data = [
-        {
-            'defect_id': marker.defect_id,
-            'x': marker.x,
-            'y': marker.y,
-            'description': marker.defect.description
-        } for marker in markers
-    ]
+
+    # Updated query to eagerly load related defect and creator
+    markers_query = DefectMarker.query.options(
+        joinedload(DefectMarker.defect).joinedload(Defect.creator)
+    ).filter_by(drawing_id=drawing_id)
+
+    markers = markers_query.all()
+
+    markers_data = []
+    user_role = current_user.role # Use global current_user.role for filtering logic
+
+    for marker in markers:
+        if not marker.defect: # Skip if marker is orphaned (should not happen with good data integrity)
+            continue
+
+        defect = marker.defect
+        include_marker = False
+
+        if user_role in ['admin', 'contractor', 'supervisor']:
+            if defect.status == 'open':
+                include_marker = True
+        elif user_role == 'expert':
+            if defect.status == 'open' and defect.creator_id == current_user.id:
+                include_marker = True
+
+        if include_marker:
+            creator_name = defect.creator.username if defect.creator else "N/A"
+            creation_date_formatted = defect.creation_date.strftime('%Y-%m-%d %H:%M') if defect.creation_date else "N/A"
+
+            markers_data.append({
+                'defect_id': marker.defect_id,
+                'x': marker.x,
+                'y': marker.y,
+                'description': defect.description,
+                'status': defect.status,
+                'creator_name': creator_name,
+                'creation_date_formatted': creation_date_formatted,
+                'page_num': getattr(marker, 'page_num', 1) # Use getattr for safety, default to 1
+            })
+
     return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=access.role)
 
 @app.route('/project/<int:project_id>/add_defect', methods=['GET', 'POST'])

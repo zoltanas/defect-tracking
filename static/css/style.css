@@ -72,3 +72,9 @@
     margin-right: auto !important;
     border-radius: 0.375rem !important; /* Optional: consistent rounding */
 }
+
+/* Defect Info Popup specific styles */
+#popupDefectDescription:hover {
+    color: #2563eb; /* Tailwind's blue-600 for hover effect */
+    /* text-decoration: underline; is already applied via JS, this primarily changes color */
+}
