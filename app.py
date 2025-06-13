@@ -1333,15 +1333,30 @@ def view_drawing(project_id, drawing_id):
             creator_name = defect.creator.username if defect.creator else "N/A"
             creation_date_formatted = defect.creation_date.strftime('%Y-%m-%d %H:%M') if defect.creation_date else "N/A"
 
+            # Perform a direct query for attachments for this specific defect
+            current_defect_attachments = Attachment.query.filter_by(defect_id=defect.id).all()
+
             attachment_thumbnail_url = None
-            if defect.attachments:
-                for attachment in defect.attachments:
+            # Process the directly queried attachments
+            if current_defect_attachments:
+                for attachment in current_defect_attachments:
+                    is_image = False
+                    # ... (MIME type and extension check as implemented in the last iteration) ...
                     if attachment.mime_type and attachment.mime_type.startswith('image/'):
-                        # Use thumbnail_path if available, otherwise use file_path
-                        image_file_path = attachment.thumbnail_path if attachment.thumbnail_path else attachment.file_path
+                        is_image = True
+                    elif attachment.file_path:  # If mime_type is missing or not 'image/', check file extension
+                        filename_lower = attachment.file_path.lower()
+                        if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                            is_image = True
+
+                    if is_image:
+                        image_file_path = None
+                        if attachment.thumbnail_path and attachment.thumbnail_path.strip():
+                            image_file_path = attachment.thumbnail_path.strip()
+                        elif attachment.file_path and attachment.file_path.strip():
+                            image_file_path = attachment.file_path.strip()
+
                         if image_file_path:
-                            # Construct URL using url_for. Assuming ATTACHMENT_PATH is not needed as paths are relative to static.
-                            # e.g. file_path might be 'uploads/attachments_img/image.jpg'
                             attachment_thumbnail_url = url_for('static', filename=image_file_path)
                         break  # Found the first image attachment
 
