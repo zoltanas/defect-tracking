@@ -22,9 +22,10 @@
                            class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
                 </div>
                 <div>
-                    <label for="username" class="sr-only">Username (Email)</label>
-                    <input type="text" id="username" name="username" required placeholder="Username (Must be your email)"
+                    <label for="email" class="sr-only">Email</label>
+                    <input type="email" id="email" name="email" required placeholder="Your Email"
                            class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm">
+                    <p id="email-error" class="text-red-500 text-xs mt-1 hidden">Invalid email format.</p>
                 </div>
                 <div>
                     <label for="password" class="sr-only">Password</label>
@@ -39,12 +40,43 @@
             </div>
 
             <div>
-                <button type="submit"
+                <button type="submit" id="submit-button"
                         class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                     Register
                 </button>
             </div>
         </form>
+        <script>
+            const emailInput = document.getElementById('email');
+            const emailError = document.getElementById('email-error');
+            const submitButton = document.getElementById('submit-button');
+
+            emailInput.addEventListener('input', function () {
+                if (emailInput.validity.typeMismatch || !emailInput.value.trim()) {
+                    emailError.classList.remove('hidden');
+                    emailInput.classList.add('border-red-500');
+                    submitButton.disabled = true;
+                    submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+                } else if (!isValidEmailFormat(emailInput.value.trim())) {
+                    emailError.classList.remove('hidden');
+                    emailInput.classList.add('border-red-500');
+                    submitButton.disabled = true;
+                    submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+                else {
+                    emailError.classList.add('hidden');
+                    emailInput.classList.remove('border-red-500');
+                    submitButton.disabled = false;
+                    submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+
+            function isValidEmailFormat(email) {
+                // Basic regex for email validation
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                return emailRegex.test(email);
+            }
+        </script>
         <p class="mt-6 text-center text-sm text-gray-600">
             Already have an account?
             <a href="{{ url_for('login') }}" class="font-medium text-primary hover:text-primary-hover">

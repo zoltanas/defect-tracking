@@ -402,7 +402,7 @@ def register():
     if request.method == 'POST':
         name = request.form['name'].strip()
         company = request.form['company'].strip()
-        username = request.form['username'].strip()
+        email = request.form['email'].strip() # Changed username to email
         password = request.form['password']
         confirm_password = request.form['confirm_password']
         role = 'admin'
@@ -414,33 +414,108 @@ def register():
         if password != confirm_password:
             flash('Passwords do not match', 'danger')
             return render_template('register.html')
-        if User.query.filter_by(username=username).first():
-            flash('Username already taken. Please choose another.', 'error') # Changed redirect to render_template
+
+        # Server-side email validation (basic regex)
+        import re
+        if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+            flash('Invalid email format.', 'error')
             return render_template('register.html')
-        if User.query.filter_by(email=username).first(): # Check if email (which is username) is taken
+
+        if User.query.filter_by(email=email).first(): # Check if email is taken
             flash('This email is already registered. Please log in or use a different email.', 'error')
             return render_template('register.html')
 
+        # For now, username will be the same as email.
+        # Ensure username is unique if it's different from email in the future.
+        if User.query.filter_by(username=email).first():
+            flash('This username (derived from email) is already taken. This should not happen if email is unique.', 'error')
+            return render_template('register.html')
+
+
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        user = User(username=username, email=username, password=hashed_password, role=role, status='active', name=name, company=company)
+        # User status defaults to 'pending_activation' as per model, so no need to set it explicitly.
+        user = User(username=email, email=email, password=hashed_password, role=role, name=name, company=company)
         db.session.add(user)
         db.session.commit()
-        flash('Registration successful! Please log in.', 'success')
+
+        # Generate confirmation token
+        s = URLSafeTimedSerializer(app.config['SERIALIZER_SECRET_KEY'])
+        token = s.dumps(user.email, salt='email-confirm-salt') # Using email and a salt
+
+        # Send confirmation email
+        confirmation_link = url_for('confirm_email', token=token, _external=True)
+        current_year = datetime.now().year
+        html_body = render_template('email/confirmation_email.html',
+                                    confirmation_link=confirmation_link,
+                                    current_year=current_year)
+        sender_name = app.config.get('MAIL_SENDER_NAME', 'Defect Tracker')
+        sender_email = app.config.get('MAIL_DEFAULT_SENDER_EMAIL', 'noreply@defect-tracker.com')
+        email_sender = (sender_name, sender_email)
+
+        msg = Message(subject="Confirm Your Email - Defect Tracker",
+                      sender=email_sender,
+                      recipients=[user.email],
+                      html=html_body)
+        try:
+            mail.send(msg)
+            flash('Registration successful! A confirmation email has been sent to your email address. Please verify your email to activate your account.', 'info')
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email to {user.email}: {str(e)}", exc_info=True)
+            # Rollback user creation if email fails? For now, we'll let the user exist but unverified.
+            # db.session.rollback()
+            flash('Registration successful, but failed to send confirmation email. Please contact support.', 'warning')
+
         return redirect(url_for('login'))
     return render_template('register.html')
+
+@app.route('/confirm_email/<token>')
+def confirm_email(token):
+    s = URLSafeTimedSerializer(app.config['SERIALIZER_SECRET_KEY'])
+    try:
+        email = s.loads(token, salt='email-confirm-salt', max_age=3600) # 1 hour expiration
+    except Exception as e: # Catches SignatureExpired, BadTimeSignature, BadSignature, etc.
+        logger.warning(f"Email confirmation token validation failed. Token: {token}, Error: {str(e)}")
+        flash('The confirmation link is invalid or has expired.', 'danger')
+        return redirect(url_for('login'))
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        flash('User not found for this confirmation link.', 'danger')
+        return redirect(url_for('login'))
+
+    if user.status == 'active':
+        flash('Your account is already active. Please log in.', 'info')
+        return redirect(url_for('login'))
+
+    user.status = 'active'
+    db.session.commit()
+    login_user(user) # Log the user in directly
+    flash('Email confirmed! Your account is now active and you have been logged in.', 'success')
+    return redirect(url_for('index'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username']
+        email = request.form['username'] # Login form still uses 'username' field for email
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = User.query.filter_by(username=email).first()
+
         if user and bcrypt.check_password_hash(user.password, password):
-            login_user(user)
-            flash('Logged in successfully!', 'success')
-            return redirect(url_for('index'))
+            if user.status == 'pending_activation': # Check status before login
+                flash('Please verify your email address before logging in. A confirmation email was sent to you upon registration.', 'warning')
+                return redirect(url_for('login'))
+            elif user.status == 'active':
+                login_user(user)
+                flash('Logged in successfully!', 'success')
+                return redirect(url_for('index'))
+            else: # Other statuses like 'suspended', 'deactivated' etc.
+                flash('Your account is not active. Please contact support.', 'error')
+                return redirect(url_for('login'))
+
         flash('Invalid username or password.', 'error')
     return render_template('login.html')
 
