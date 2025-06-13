@@ -991,101 +991,104 @@ def defect_detail(defect_id):
             elif action == 'edit_defect': # Corresponds to the main "Save Changes" form
                 can_edit = False
                 if current_user.role == 'admin':
-                    can_edit = True
-                elif current_user.role == 'expert' and defect.creator_id == current_user.id:
-                    can_edit = True
-                elif current_user.role == 'Technical supervisor' and defect.creator_id == current_user.id:
-                    can_edit = True
+                    if defect.creator_id == current_user.id:
+                        can_edit = True
+                elif current_user.role == 'expert':
+                    if defect.creator_id == current_user.id:
+                        can_edit = True
+                elif current_user.role == 'Technical supervisor':
+                    if defect.creator_id == current_user.id:
+                        can_edit = True
+                # No else needed, can_edit remains False by default
 
-                if not can_edit:
-                    # Log the attempt before flashing and redirecting
+                if can_edit:
+                    error_occurred = False
+
+                    # --- Update Defect Properties ---
+                    new_description = request.form.get('description', '').strip()
+                    new_status = request.form.get('status', defect.status).lower()
+
+                    if not new_description:
+                        flash('Description cannot be empty.', 'error')
+                        error_occurred = True
+                    else:
+                        defect.description = new_description
+
+                    if not error_occurred: # Only proceed if description was okay
+                        if new_status in ['open', 'closed']:
+                            if defect.status != new_status:
+                                if new_status == 'closed':
+                                    # Apply ownership check for closing for ALL roles, including admin
+                                    if defect.creator_id != current_user.id:
+                                        # If we want to allow admins to close any defect, this check needs to be:
+                                        # if defect.creator_id != current_user.id and current_user.role != 'admin':
+                                        # For now, strictly apply creator or specific role for closing
+                                        flash('Only the defect creator can close this defect.', 'error') # Simplified message
+                                        error_occurred = True
+                                    else:
+                                        defect.status = new_status
+                                        defect.close_date = datetime.now()
+                                else: # new_status == 'open'
+                                    defect.status = new_status
+                                    defect.close_date = None
+                        else:
+                            flash('Invalid status value.', 'error')
+                            error_occurred = True
+                   
+                    # --- Handle Marker Data (only if no prior errors) ---
+                    if not error_occurred:
+                        drawing_id_str = request.form.get('drawing_id')
+                        marker_x_str = request.form.get('marker_x')
+                        marker_y_str = request.form.get('marker_y')
+
+                        if drawing_id_str and marker_x_str and marker_y_str:
+                            try:
+                                drawing_id_val = int(drawing_id_str)
+                                marker_x_val = float(marker_x_str)
+                                marker_y_val = float(marker_y_str)
+
+                                if not (0 <= marker_x_val <= 1 and 0 <= marker_y_val <= 1):
+                                    flash('Marker coordinates must be between 0 and 1.', 'error')
+                                    error_occurred = True
+                                else:
+                                    valid_drawing = Drawing.query.filter_by(id=drawing_id_val, project_id=defect.project_id).first()
+                                    if not valid_drawing:
+                                        flash('Invalid drawing selected for marker.', 'error')
+                                        error_occurred = True
+                                    else:
+                                        existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
+                                        if existing_marker:
+                                            existing_marker.drawing_id = drawing_id_val
+                                            existing_marker.x = marker_x_val
+                                            existing_marker.y = marker_y_val
+                                            logger.info(f"Updated marker for defect {defect_id}")
+                                        else:
+                                            new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val)
+                                            db.session.add(new_marker)
+                                            logger.info(f"Created new marker for defect {defect_id}")
+                            except ValueError:
+                                flash('Invalid marker data format (e.g., non-numeric values).', 'error')
+                                error_occurred = True
+                                logger.warning(f"ValueError for marker data, defect {defect_id}: drawing_id='{drawing_id_str}', x='{marker_x_str}', y='{marker_y_str}'")
+
+                        elif not drawing_id_str:
+                            existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
+                            if existing_marker:
+                                db.session.delete(existing_marker)
+                                logger.info(f"Deleted marker for defect {defect_id} as no drawing was selected.")
+
+                    if error_occurred:
+                        db.session.rollback()
+                    else:
+                        db.session.commit()
+                        flash('Defect updated successfully!', 'success')
+                
+                else: # if not can_edit
                     logger.warning(f"User {current_user.id} (Role: {current_user.role}) attempted to edit defect {defect_id} (Creator ID: {defect.creator_id}) without permission.")
                     flash('You do not have permission to edit this defect.', 'error')
-                    return redirect(url_for('defect_detail', defect_id=defect_id))
-
-                error_occurred = False
-                
-                # --- Update Defect Properties ---
-                new_description = request.form.get('description', '').strip()
-                new_status = request.form.get('status', defect.status).lower()
-
-                if not new_description:
-                    flash('Description cannot be empty.', 'error')
-                    error_occurred = True
-                else:
-                    defect.description = new_description
-                
-                if not error_occurred: # Only proceed if description was okay
-                    if new_status in ['open', 'closed']:
-                        if defect.status != new_status:
-                            if new_status == 'closed':
-                                if defect.creator_id != current_user.id and access.role != 'admin':
-                                    flash('Only the defect creator or an admin can close this defect.', 'error')
-                                    error_occurred = True
-                                else:
-                                    defect.status = new_status
-                                    defect.close_date = datetime.now()
-                            else: # new_status == 'open'
-                                defect.status = new_status
-                                defect.close_date = None
-                    else:
-                        flash('Invalid status value.', 'error')
-                        error_occurred = True
-               
-                # --- Handle Marker Data (only if no prior errors) ---
-                if not error_occurred:
-                    drawing_id_str = request.form.get('drawing_id')
-                    marker_x_str = request.form.get('marker_x')
-                    marker_y_str = request.form.get('marker_y')
-                    # page_num_str = request.form.get('page_num') # If page numbers are implemented
-
-                    if drawing_id_str and marker_x_str and marker_y_str:
-                        try:
-                            drawing_id_val = int(drawing_id_str)
-                            marker_x_val = float(marker_x_str)
-                            marker_y_val = float(marker_y_str)
-                            # page_num = int(page_num_str) if page_num_str and page_num_str.isdigit() else 1
-
-                            if not (0 <= marker_x_val <= 1 and 0 <= marker_y_val <= 1):
-                                flash('Marker coordinates must be between 0 and 1.', 'error')
-                                error_occurred = True
-                            else:
-                                # Validate drawing_id_val - ensure it's a valid drawing for the project
-                                valid_drawing = Drawing.query.filter_by(id=drawing_id_val, project_id=defect.project_id).first()
-                                if not valid_drawing:
-                                    flash('Invalid drawing selected for marker.', 'error')
-                                    error_occurred = True
-                                else:
-                                    existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-                                    if existing_marker:
-                                        existing_marker.drawing_id = drawing_id_val
-                                        existing_marker.x = marker_x_val
-                                        existing_marker.y = marker_y_val
-                                        # page_num is not part of DefectMarker model
-                                        logger.info(f"Updated marker for defect {defect_id}")
-                                    else:
-                                        new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val)
-                                        db.session.add(new_marker)
-                                        logger.info(f"Created new marker for defect {defect_id}")
-                        except ValueError:
-                            flash('Invalid marker data format (e.g., non-numeric values).', 'error')
-                            error_occurred = True
-                            logger.warning(f"ValueError for marker data, defect {defect_id}: drawing_id='{drawing_id_str}', x='{marker_x_str}', y='{marker_y_str}'")
-                   
-                    elif not drawing_id_str: # If drawing_id is empty, remove existing marker
-                        existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-                        if existing_marker:
-                            db.session.delete(existing_marker)
-                            logger.info(f"Deleted marker for defect {defect_id} as no drawing was selected.")
-                
-                if error_occurred:
-                    db.session.rollback()
-                else:
-                    db.session.commit()
-                    flash('Defect updated successfully!', 'success')
                 
                 return redirect(url_for('defect_detail', defect_id=defect_id))
-            
+
             else:
                 # Handle cases where no specific action matched or 'action' was not 'delete_defect' or 'add_comment'
                 # This also covers the old 'description' in request.form check if it's not part of 'edit_defect' action explicitly
@@ -1853,10 +1856,23 @@ def delete_checklist_attachment(checklist_id, attachment_id):
 def update_defect_description(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
-    # Permission check: Creator, Admin, or Expert
-    # Ensure current_user is available and has role attribute
-    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
-        return jsonify(success=False, error="Permission denied."), 403
+    can_perform_action = False
+    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
+        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
+        if current_user.role in allowed_editing_roles:
+            if current_user.id == defect.creator_id:
+                can_perform_action = True
+        # Add other general rules if any user, regardless of role, can edit their own defect
+        # For example, if a 'contractor' who is a creator should also be able to edit:
+        # elif current_user.id == defect.creator_id:
+        #    can_perform_action = True
+        # However, the issue is about admin, expert, TS, so we focus on them.
+        # The most restrictive interpretation for "can only edit their own" is applied per role.
+
+    if not can_perform_action:
+        # It's good to log this attempt
+        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
+        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
 
     data = request.get_json()
     if not data or 'description' not in data:
@@ -1887,9 +1903,23 @@ def update_defect_description(defect_id):
 def update_defect_status(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
-    # Permission check: Creator, Admin, or Expert
-    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
-        return jsonify(success=False, error="Permission denied."), 403
+    can_perform_action = False
+    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
+        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
+        if current_user.role in allowed_editing_roles:
+            if current_user.id == defect.creator_id:
+                can_perform_action = True
+        # Add other general rules if any user, regardless of role, can edit their own defect
+        # For example, if a 'contractor' who is a creator should also be able to edit:
+        # elif current_user.id == defect.creator_id:
+        #    can_perform_action = True
+        # However, the issue is about admin, expert, TS, so we focus on them.
+        # The most restrictive interpretation for "can only edit their own" is applied per role.
+
+    if not can_perform_action:
+        # It's good to log this attempt
+        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
+        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
 
     data = request.get_json()
     if not data or 'status' not in data:
@@ -1926,8 +1956,23 @@ def update_defect_location(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     # project = Project.query.get_or_404(defect.project_id) # Project query not strictly needed if drawing check is done correctly
 
-    if not (current_user.id == defect.creator_id or (hasattr(current_user, 'role') and current_user.role in ['admin', 'expert'])):
-        return jsonify(success=False, error="Permission denied."), 403
+    can_perform_action = False
+    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
+        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
+        if current_user.role in allowed_editing_roles:
+            if current_user.id == defect.creator_id:
+                can_perform_action = True
+        # Add other general rules if any user, regardless of role, can edit their own defect
+        # For example, if a 'contractor' who is a creator should also be able to edit:
+        # elif current_user.id == defect.creator_id:
+        #    can_perform_action = True
+        # However, the issue is about admin, expert, TS, so we focus on them.
+        # The most restrictive interpretation for "can only edit their own" is applied per role.
+
+    if not can_perform_action:
+        # It's good to log this attempt
+        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
+        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
 
     data = request.get_json()
     drawing_id_str = data.get('drawing_id')
