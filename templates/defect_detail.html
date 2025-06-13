@@ -159,6 +159,7 @@
             {% endif %}
 
             <!-- Defect Location (Drawing) Card -->
+{% if marker or (current_user.id == defect.creator_id or current_user.role in ['admin', 'expert']) %}
             <div class="bg-white shadow-lg rounded-lg p-6 order-2 lg:order-none">
                 <h2 class="text-lg font-normal text-gray-500 mb-4">Defect Location on Drawing</h2>
         
@@ -218,6 +219,7 @@
                     {% endif %}
                 {% endif %}
             </div>
+{% endif %}
         </div>
 
         <!-- Right Column: Actions, Comments -->
@@ -315,6 +317,7 @@
     </div>
 
     {% if marker %}
+    <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
     <script>
         // Script for STATIC PDF/Marker Display (for non-authorized users or when not editing)
         // This script is active if a marker exists and the user is not authorized to edit,
@@ -528,14 +531,24 @@
     </script>
     {% endif %}
 
-{% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
+{% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert', 'Technical supervisor'] %}
+    {% if not marker %}
     <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
+    {% endif %}
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+        // Ensure pdfjsLib is defined before trying to set GlobalWorkerOptions
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+        } else {
+            console.error("JULES: pdfjsLib not defined for editor context when trying to set workerSrc. This might happen if a user who can edit loads a defect page without an existing marker, and pdf.min.js was not loaded by the 'not marker' condition, which would be unexpected.");
+        }
     </script>
 {% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // The check for pdfjsLib below is important.
+    // It ensures that if pdfjsLib is still not defined (e.g. due to an unexpected issue with the above logic),
+    // the script doesn't crash when trying to use it.
     if (typeof pdfjsLib === 'undefined') {
         console.error("pdfjsLib is not defined. PDF functionality will not work for editing markers.");
         return;
