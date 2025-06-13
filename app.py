@@ -838,11 +838,15 @@ def edit_profile():
     # For GET request
     # The current_user object is already loaded by Flask-Login and is available.
     # current_user.projects should provide ProjectAccess objects.
+    project_accesses = [
+        pa for pa in current_user.projects
+        if pa.project and pa.project.name
+    ]
     return render_template('edit_profile.html',
                            user=current_user,
                            name=current_user.name,
                            company=current_user.company,
-                           project_accesses=current_user.projects)
+                           project_accesses=project_accesses)
 
 # Application Routes
 @app.route('/')
