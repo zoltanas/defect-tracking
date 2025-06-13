@@ -321,8 +321,7 @@
         // or if there's a general need to display a static marker.
         // It targets: staticPdfContainer, staticPdfStatus, staticPdfCanvas, staticMarkerCanvas
         const staticPdfContainer = document.getElementById('staticPdfContainer');
-
-        function initializeStaticPdfViewer() {
+        if (staticPdfContainer) {
             console.log("DEFECT_DETAIL_STATIC_PDF: Script execution started for static PDF preview.");
             try {
                 const pdfStatusEl = document.getElementById('staticPdfStatus');
@@ -418,8 +417,8 @@
 
                 function calculateScaleAndRender(pdfPage) {
                     console.log("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - Starting for page", pdfPage ? pdfPage.pageNumber : 'N/A');
-                    if (!staticPdfContainer) { // This check is inside initializeStaticPdfViewer, but staticPdfContainer is defined outside.
-                        console.error("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - staticPdfContainer is null. This should have been caught earlier.");
+                    if (!staticPdfContainer) {
+                        console.error("DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - staticPdfContainer is null.");
                         updateStatus("Error: PDF display container missing.");
                         return;
                     }
@@ -430,10 +429,10 @@
                     }
                     // Calculate scale to fit width, then set height dynamically
                     const pageWidth = pdfPage.getViewport({ scale: 1 }).width;
-                    currentScale = staticPdfContainer.clientWidth / pageWidth;
+                    currentScale = staticPdfContainer.clientWidth / pageWidth; // Changed pdfContainer to staticPdfContainer
 
                     const scaledViewport = pdfPage.getViewport({ scale: currentScale });
-                    staticPdfContainer.style.height = `${scaledViewport.height}px`;
+                    staticPdfContainer.style.height = `${scaledViewport.height}px`; // Changed pdfContainer to staticPdfContainer
 
                     console.log('DEFECT_DETAIL_STATIC_PDF: calculateScaleAndRender - Calculated scale:', currentScale, 'Container clientWidth:', staticPdfContainer.clientWidth);
                     renderPage(pdfPage);
@@ -459,6 +458,7 @@
                     if (rawFilePath.startsWith('/static/')) {
                         rawFilePath = rawFilePath.substring('/static/'.length);
                     }
+                    // This logic for drawings/ prefix might need adjustment based on actual file_path structure
                     if (!rawFilePath.startsWith('drawings/')) {
                         const parts = rawFilePath.split('/');
                         const fileName = parts.pop();
@@ -489,7 +489,7 @@
                         window.addEventListener('resize', () => {
                             clearTimeout(resizeTimeout);
                             resizeTimeout = setTimeout(() => {
-                                if (pdfDoc && pdfDoc.getPage) {
+                                if (pdfDoc && pdfDoc.getPage) { // Check if pdfDoc is still valid and has getPage
                                     pdfDoc.getPage(pageNum).then(calculateScaleAndRender).catch(pageError => {
                                         console.error("DEFECT_DETAIL_STATIC_PDF: Error getting page on resize:", pageError);
                                         updateStatus("Error processing PDF on resize: " + (pageError.message || String(pageError)));
@@ -510,46 +510,30 @@
                         updateStatus('Error loading PDF document: ' + errorMessage);
                     });
                 }
+
                 loadPDF();
+
             } catch (outerError) {
                 console.error("DEFECT_DETAIL_STATIC_PDF: General synchronous error in static PDF script setup:", outerError);
                 // Use updateStatus if available and elements are there, otherwise alert.
-                // Note: updateStatus is defined inside this try block. If it's not defined yet due to an early error, this might fail.
-                const localPdfStatusEl = document.getElementById('staticPdfStatus'); // Re-fetch for safety in catch
-                if (typeof updateStatus === 'function' && localPdfStatusEl) {
+                if (typeof updateStatus === 'function' && document.getElementById('staticPdfStatus')) {
                      updateStatus('Fatal error initializing PDF preview: ' + (outerError.message || String(outerError)));
-                } else if (localPdfStatusEl) { // Basic fallback if updateStatus failed to define
-                    localPdfStatusEl.textContent = 'Fatal error initializing PDF preview: ' + (outerError.message || String(outerError));
-                    localPdfStatusEl.style.color = 'red';
-                    localPdfStatusEl.style.display = 'flex';
                 } else {
                     alert('A critical error occurred setting up the PDF preview. Please refresh the page or contact support if the issue persists.');
                 }
             }
-        }
-
-        function attemptPdfInitialization() {
-            if (typeof pdfjsLib !== 'undefined') {
-                console.log("DEFECT_DETAIL_STATIC_PDF: pdfjsLib is defined, proceeding with initialization.");
-                initializeStaticPdfViewer();
-            } else {
-                console.warn("DEFECT_DETAIL_STATIC_PDF: pdfjsLib is not yet defined. Retrying in 100ms.");
-                setTimeout(attemptPdfInitialization, 100);
-            }
-        }
-
-        if (staticPdfContainer) {
-            attemptPdfInitialization();
         } else {
              console.warn("DEFECT_DETAIL_STATIC_PDF: staticPdfContainer element was not found in the DOM... PDF preview cannot be initialized.");
         }
     </script>
+    {% endif %}
+
+{% if current_user.id == defect.creator_id or current_user.role in ['admin', 'expert'] %}
     <script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
     </script>
-    {% endif %}
-
+{% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     if (typeof pdfjsLib === 'undefined') {
