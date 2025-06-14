@@ -1334,39 +1334,48 @@ def view_drawing(project_id, drawing_id):
             creation_date_formatted = defect.creation_date.strftime('%Y-%m-%d %H:%M') if defect.creation_date else "N/A"
 
             # Perform a direct query for attachments for this specific defect
+            app.logger.info(f"DEBUG_POPUP: Processing marker for defect ID: {defect.id}")
             current_defect_attachments = Attachment.query.filter_by(defect_id=defect.id).all()
+            attachment_thumbnail_url = None  # Initialize to None
 
-            # Temporarily comment out or remove the existing logic for setting attachment_thumbnail_url
-            # attachment_thumbnail_url = None
-            # # Process the directly queried attachments
-            # if current_defect_attachments:
-            #     for attachment in current_defect_attachments:
-            #         is_image = False
-            #         # ... (MIME type and extension check as implemented in the last iteration) ...
-            #         if attachment.mime_type and attachment.mime_type.startswith('image/'):
-            #             is_image = True
-            #         elif attachment.file_path:  # If mime_type is missing or not 'image/', check file extension
-            #             filename_lower = attachment.file_path.lower()
-            #             if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-            #                 is_image = True
+            if current_defect_attachments:
+                app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - Found {len(current_defect_attachments)} attachments.")
+                for attachment in current_defect_attachments:
+                    app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - Checking attachment ID: {attachment.id}, Path: '{attachment.file_path}', Thumb: '{attachment.thumbnail_path}', MIME: '{attachment.mime_type}'")
+                    is_image = False
+                    # Check MIME type first
+                    if attachment.mime_type and attachment.mime_type.startswith('image/'):
+                        is_image = True
+                    # Fallback to file extension if MIME type is missing or not explicitly image
+                    elif attachment.file_path:
+                        filename_lower = attachment.file_path.lower()
+                        if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                            is_image = True
 
-            #         if is_image:
-            #             image_file_path = None
-            #             if attachment.thumbnail_path and attachment.thumbnail_path.strip():
-            #                 image_file_path = attachment.thumbnail_path.strip()
-            #             elif attachment.file_path and attachment.file_path.strip():
-            #                 image_file_path = attachment.file_path.strip()
+                    if is_image:
+                        # Prefer thumbnail_path, fallback to file_path if thumbnail is missing
+                        image_file_to_use = None
+                        if attachment.thumbnail_path and attachment.thumbnail_path.strip():
+                            image_file_to_use = attachment.thumbnail_path.strip()
+                        elif attachment.file_path and attachment.file_path.strip(): # Fallback to main image if no thumb
+                            image_file_to_use = attachment.file_path.strip()
 
-            #             if image_file_path:
-            #                 attachment_thumbnail_url = url_for('static', filename=image_file_path)
-            #             break  # Found the first image attachment
+                        if image_file_to_use:
+                            app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - Selected image_file_to_use: '{image_file_to_use}' for attachment ID: {attachment.id}")
+                            try:
+                                # Ensure url_for is called within an app context if this code
+                                # were ever moved outside a request handler.
+                                # Here, it's fine as it's in a route.
+                                attachment_thumbnail_url = url_for('static', filename=image_file_to_use)
+                                app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - Generated attachment_thumbnail_url: '{attachment_thumbnail_url}' for attachment ID: {attachment.id}")
+                                break  # Found the first suitable image attachment
+                            except Exception as e:
+                                # Log error if url_for fails for some reason
+                                app.logger.error(f"Error generating URL for attachment {attachment.id} in view_drawing: {e}")
+                                app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - url_for failed for attachment ID: {attachment.id}. URL set to None.")
+                                attachment_thumbnail_url = None # Reset on error
 
-            # Add the following debugging logic:
-            if current_defect_attachments: # Check if the list is not empty
-                attachment_thumbnail_url = "DEBUG_STEP_1_ATTACHMENTS_FOUND"
-            else:
-                attachment_thumbnail_url = "DEBUG_STEP_1_NO_ATTACHMENTS_FOUND"
-
+            app.logger.info(f"DEBUG_POPUP: Defect ID {defect.id} - Final attachment_thumbnail_url for markers_data: '{attachment_thumbnail_url}'")
             markers_data.append({
                 'defect_id': marker.defect_id,
                 'x': marker.x,
@@ -1376,7 +1385,7 @@ def view_drawing(project_id, drawing_id):
                 'creator_name': creator_name,
                 'creation_date_formatted': creation_date_formatted,
                 'page_num': getattr(marker, 'page_num', 1), # Use getattr for safety, default to 1
-                'attachment_thumbnail_url': attachment_thumbnail_url
+                'attachment_thumbnail_url': attachment_thumbnail_url # This will now be the correct URL or None
             })
 
     return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=access.role)
