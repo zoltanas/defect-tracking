@@ -1,5 +1,6 @@
 // static/js/drawing_defect_popup.js
 function openDefectInfoPopup(defect) {
+    console.log("DEBUG_POPUP_JS: openDefectInfoPopup called with defect object:", JSON.parse(JSON.stringify(defect)));
     // defect object should contain: description, creator_name, creation_date_formatted, defect_id
     const popup = document.getElementById('defectInfoPopup');
     if (!popup) {
@@ -15,14 +16,19 @@ function openDefectInfoPopup(defect) {
     const popupImage = document.getElementById('popupDefectImage');
     const popupNoImage = document.getElementById('popupDefectNoImage');
 
+    console.log("DEBUG_POPUP_JS: Defect ID " + defect.defect_id + " - attachment_thumbnail_url received:", defect.attachment_thumbnail_url);
     // Ensure elements are found before trying to use them
     if (popupImage && popupNoImage) {
         if (defect.attachment_thumbnail_url && defect.attachment_thumbnail_url.trim() !== '' && defect.attachment_thumbnail_url !== '#') {
+            console.log("DEBUG_POPUP_JS: Defect ID " + defect.defect_id + " - Showing image. Setting src to:", defect.attachment_thumbnail_url);
             popupImage.src = defect.attachment_thumbnail_url;
+            console.log("DEBUG_POPUP_JS: Defect ID " + defect.defect_id + " - popupImage.src is now:", popupImage.src);
             popupImage.classList.remove('hidden'); // Show image
             popupNoImage.classList.add('hidden');    // Hide no-image message
         } else {
+            console.log("DEBUG_POPUP_JS: Defect ID " + defect.defect_id + " - Showing 'no image' message. attachment_thumbnail_url was:", defect.attachment_thumbnail_url);
             popupImage.src = '#'; // Clear src
+            console.log("DEBUG_POPUP_JS: Defect ID " + defect.defect_id + " - popupImage.src is now:", popupImage.src);
             popupImage.classList.add('hidden');      // Hide image
             popupNoImage.classList.remove('hidden'); // Show no-image message
         }
