@@ -66,9 +66,9 @@
             </div>
         </div>
 
-        <!-- Defect Status, Creator, Dates -->
-        <div class="mt-4 grid grid-cols-3 gap-x-4 gap-y-2">
-            <div>
+        <!-- Defect Status, Creator, Dates (will be reorganized into 2 columns) -->
+        <div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2"> <!-- Main Grid -->
+            <div> <!-- Status -->
                 <dt class="text-sm font-medium text-gray-500">Status</dt>
                 <dd class="mt-1" id="statusContainer"> {# Re-using statusContainer ID for JS compatibility #}
                     {% if current_user.id == defect.creator_id %}
@@ -88,19 +88,21 @@
                     {% endif %}
                 </dd>
             </div>
-            <div>
+            <div> <!-- Created By -->
                 <dt class="text-sm font-medium text-gray-500">Created By</dt>
-                <dd class="mt-1 text-sm text-gray-900">{{ defect.creator.username }}</dd>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.creator.name }} ({{ defect.creator.company }})</dd>
             </div>
-            <div>
+            <div> <!-- Creation Date -->
                 <dt class="text-sm font-medium text-gray-500">Creation Date</dt>
-                <dd class="mt-1 text-sm text-gray-900">{{ defect.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.creation_date.strftime('%Y-%m-%d %H:%M') }}</dd>
             </div>
             {% if defect.close_date %}
-            <div>
+            <div> <!-- Close Date -->
                 <dt class="text-sm font-medium text-gray-500">Close Date</dt>
-                <dd class="mt-1 text-sm text-gray-900">{{ defect.close_date.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                <dd class="mt-1 text-sm text-gray-900">{{ defect.close_date.strftime('%Y-%m-%d %H:%M') }}</dd>
             </div>
+            {% else %}
+            <div></div> <!-- Empty div as a placeholder for grid alignment if no close date. -->
             {% endif %}
         </div>
     </div>
