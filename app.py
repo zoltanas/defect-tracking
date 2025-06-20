@@ -2513,7 +2513,7 @@ def export_all_projects():
             try:
                 shutil.rmtree(main_temp_dir)
                 logger.info(f"Cleaned up main temporary directory: {main_temp_dir}")
-            except Exception e_clean_main:
+            except Exception as e_clean_main:
                 logger.error(f"Error cleaning up main temporary directory {main_temp_dir}: {e_clean_main}", exc_info=True)
 
         if master_zip_file_path and os.path.exists(master_zip_file_path):
@@ -4229,7 +4229,9 @@ def setup_test_data():
             return f"Error setting up test data: {str(e)}"
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Ensure the server runs on 0.0.0.0 to be accessible from curl within the sandbox
+    # and set a specific port. debug=True is often set by FLASK_DEBUG env var.
+    app.run(host='0.0.0.0', port=5000)
 
 # --------------- End Temporary Test Route --------------- # This line (and everything above it including the __main__ guard) should be the end of the file.
 
