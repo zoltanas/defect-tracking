@@ -19,6 +19,8 @@ from pdf2image import convert_from_path # Ensure this is present
 import logging
 from sqlalchemy import inspect
 import tempfile
+import json
+import zipfile
 from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -2154,6 +2156,691 @@ def add_checklist(project_id):
         flash('Checklist added successfully!', 'success')
         return redirect(url_for('project_detail', project_id=project_id, _anchor='checklists'))
     return render_template('add_checklist.html', project=project, templates=templates)
+
+
+# Helper function to convert SQLAlchemy object to dict
+def _model_to_dict_for_export(obj, visited_children=None):
+    if visited_children is None:
+        visited_children = set()
+
+    obj_id = (obj.__class__, getattr(obj, 'id', None))
+    if obj_id in visited_children and obj_id[1] is not None: # Check if ID is not None
+        return {'id': obj_id[1], '__circular_ref__': True}
+    if obj_id[1] is not None: # Add to visited if it has an ID
+        visited_children.add(obj_id)
+
+    data = {}
+    for column in obj.__table__.columns:
+        value = getattr(obj, column.name)
+        if isinstance(value, datetime):
+            data[column.name] = value.isoformat()
+        else:
+            data[column.name] = value
+
+    if isinstance(obj, Defect):
+        if obj.creator:
+            data['creator_username'] = obj.creator.username
+    if isinstance(obj, Comment):
+        if obj.user:
+            data['user_username'] = obj.user.username
+    return data
+
+# Refactored helper function for single project export logic
+def _export_single_project_to_zip(project_id, base_output_dir):
+    """
+    Exports a single project to a ZIP file.
+    Returns the full path to the generated ZIP file or None if an error occurs.
+    """
+    project = db.session.get(Project, project_id)
+    if not project:
+        logger.error(f"Project ID {project_id} not found for export.")
+        return None
+
+    logger.info(f"Starting export for project: {project.name} (ID: {project_id})")
+
+    project_export_data = {
+        'project_id': project.id,
+        'project_name': project.name,
+        'exported_at': datetime.utcnow().isoformat(),
+        'defects': [],
+        'checklists': [],
+        'drawings': []
+    }
+
+    # Project-level Drawings
+    project_drawings_db = Drawing.query.filter_by(project_id=project.id).all()
+    for drawing in project_drawings_db:
+        project_export_data['drawings'].append(_model_to_dict_for_export(drawing))
+
+    # Defects
+    defects_db = Defect.query.options(
+        joinedload(Defect.creator),
+        joinedload(Defect.attachments),
+        joinedload(Defect.comments).joinedload(Comment.user),
+        joinedload(Defect.comments).joinedload(Comment.attachments),
+        joinedload(Defect.markers).joinedload(DefectMarker.drawing)
+    ).filter_by(project_id=project.id).all()
+
+    for defect_obj in defects_db:
+        defect_data = _model_to_dict_for_export(defect_obj)
+        defect_data['attachments'] = [_model_to_dict_for_export(att) for att in defect_obj.attachments]
+        defect_data['comments'] = []
+        for comment_obj in defect_obj.comments:
+            comment_data = _model_to_dict_for_export(comment_obj)
+            comment_data['attachments'] = [_model_to_dict_for_export(att) for att in comment_obj.attachments]
+            defect_data['comments'].append(comment_data)
+
+        defect_data['markers'] = []
+        for marker_obj in defect_obj.markers:
+            marker_data = marker_obj.to_dict()
+            if marker_obj.drawing:
+                 marker_data['drawing_file_path'] = marker_obj.drawing.file_path
+                 marker_data['drawing_name'] = marker_obj.drawing.name
+            defect_data['markers'].append(marker_data)
+        project_export_data['defects'].append(defect_data)
+
+    # Checklists
+    checklists_db = Checklist.query.options(
+        joinedload(Checklist.items).joinedload(ChecklistItem.attachments)
+    ).filter_by(project_id=project.id).all()
+
+    for checklist_obj in checklists_db:
+        checklist_data = _model_to_dict_for_export(checklist_obj)
+        checklist_data['items'] = []
+        for item_obj in checklist_obj.items:
+            item_data = _model_to_dict_for_export(item_obj)
+            item_data['attachments'] = [_model_to_dict_for_export(att) for att in item_obj.attachments]
+            checklist_data['items'].append(item_data)
+        project_export_data['checklists'].append(checklist_data)
+
+    # File Collection & Path Updates within a temporary directory for this project
+    single_project_staging_dir = None
+    try:
+        single_project_staging_dir = tempfile.mkdtemp(prefix=f"proj_{project_id}_")
+        logger.info(f"Created staging directory for project {project_id}: {single_project_staging_dir}")
+
+        zip_drawings_dir = 'drawings'
+        zip_attachments_img_dir = os.path.join('attachments', 'images')
+        zip_attachments_pdf_dir = os.path.join('attachments', 'pdfs')
+        zip_attachments_img_thumb_dir = os.path.join('attachments', 'thumbnails', 'images')
+        zip_attachments_pdf_thumb_dir = os.path.join('attachments', 'thumbnails', 'pdfs')
+
+        os.makedirs(os.path.join(single_project_staging_dir, zip_drawings_dir), exist_ok=True)
+        os.makedirs(os.path.join(single_project_staging_dir, zip_attachments_img_dir), exist_ok=True)
+        os.makedirs(os.path.join(single_project_staging_dir, zip_attachments_pdf_dir), exist_ok=True)
+        os.makedirs(os.path.join(single_project_staging_dir, zip_attachments_img_thumb_dir), exist_ok=True)
+        os.makedirs(os.path.join(single_project_staging_dir, zip_attachments_pdf_thumb_dir), exist_ok=True)
+
+        copied_drawings_map = {}
+
+        for drawing_data in project_export_data['drawings']:
+            original_db_path = drawing_data.get('file_path')
+            if not original_db_path: continue
+            disk_source_path = os.path.join(app.static_folder, original_db_path)
+            if os.path.exists(disk_source_path):
+                filename = os.path.basename(original_db_path)
+                zip_relative_path = os.path.join(zip_drawings_dir, filename)
+                shutil.copy2(disk_source_path, os.path.join(single_project_staging_dir, zip_relative_path))
+                drawing_data['file_path'] = zip_relative_path
+                copied_drawings_map[original_db_path] = zip_relative_path
+            else:
+                drawing_data['file_path'] = None
+                logger.warning(f"Drawing file {disk_source_path} not found for project {project_id}")
+
+        def stage_attachment_for_export(attachment_data, owner_log_info=""):
+            original_file_path = attachment_data.get('file_path')
+            original_thumb_path = attachment_data.get('thumbnail_path')
+            mime = attachment_data.get('mime_type', '')
+
+            if original_file_path:
+                src_path = os.path.join(app.static_folder, original_file_path)
+                if os.path.exists(src_path):
+                    fname = os.path.basename(original_file_path)
+                    if mime.startswith('image/'): dest_rel_path = os.path.join(zip_attachments_img_dir, fname)
+                    elif mime == 'application/pdf': dest_rel_path = os.path.join(zip_attachments_pdf_dir, fname)
+                    else: dest_rel_path = os.path.join('attachments', fname)
+                    shutil.copy2(src_path, os.path.join(single_project_staging_dir, dest_rel_path))
+                    attachment_data['file_path'] = dest_rel_path
+                else:
+                    attachment_data['file_path'] = None
+                    logger.warning(f"Attachment file {src_path} for {owner_log_info} not found.")
+
+            if original_thumb_path:
+                src_thumb_path = os.path.join(app.static_folder, original_thumb_path)
+                if os.path.exists(src_thumb_path):
+                    thumb_fname = os.path.basename(original_thumb_path)
+                    if mime.startswith('image/'): dest_thumb_rel_path = os.path.join(zip_attachments_img_thumb_dir, thumb_fname)
+                    elif mime == 'application/pdf': dest_thumb_rel_path = os.path.join(zip_attachments_pdf_thumb_dir, thumb_fname)
+                    else: dest_thumb_rel_path = os.path.join('attachments', 'thumbnails', thumb_fname)
+                    shutil.copy2(src_thumb_path, os.path.join(single_project_staging_dir, dest_thumb_rel_path))
+                    attachment_data['thumbnail_path'] = dest_thumb_rel_path
+                else:
+                    attachment_data['thumbnail_path'] = None
+                    logger.warning(f"Thumbnail file {src_thumb_path} for {owner_log_info} not found.")
+
+        for defect_data in project_export_data['defects']:
+            log_ctx = f"Defect {defect_data['id']}"
+            for att_data in defect_data.get('attachments', []): stage_attachment_for_export(att_data, log_ctx)
+            for comm_data in defect_data.get('comments', []):
+                log_ctx_comm = f"Comment {comm_data['id']} on {log_ctx}"
+                for att_data in comm_data.get('attachments', []): stage_attachment_for_export(att_data, log_ctx_comm)
+            for marker_data in defect_data.get('markers', []):
+                orig_marker_draw_path = marker_data.get('drawing_file_path')
+                if orig_marker_draw_path in copied_drawings_map:
+                    marker_data['drawing_file_path'] = copied_drawings_map[orig_marker_draw_path]
+                elif orig_marker_draw_path: # Drawing for marker not in project_drawings, try to copy
+                    m_disk_src_path = os.path.join(app.static_folder, orig_marker_draw_path)
+                    if os.path.exists(m_disk_src_path):
+                        m_draw_fname = os.path.basename(orig_marker_draw_path)
+                        m_zip_rel_path = os.path.join(zip_drawings_dir, m_draw_fname)
+                        if not os.path.exists(os.path.join(single_project_staging_dir, m_zip_rel_path)):
+                           shutil.copy2(m_disk_src_path, os.path.join(single_project_staging_dir, m_zip_rel_path))
+                        marker_data['drawing_file_path'] = m_zip_rel_path
+                        # No need to add to copied_drawings_map here as it's marker-specific handling
+                    else: marker_data['drawing_file_path'] = None
+                else: marker_data['drawing_file_path'] = None
+
+        for checklist_data in project_export_data['checklists']:
+            log_ctx_cl = f"Checklist {checklist_data['id']}"
+            for item_data in checklist_data.get('items', []):
+                log_ctx_cli = f"Item {item_data['id']} in {log_ctx_cl}"
+                for att_data in item_data.get('attachments', []): stage_attachment_for_export(att_data, log_ctx_cli)
+
+        json_file_path = os.path.join(single_project_staging_dir, 'project_data.json')
+        with open(json_file_path, 'w') as f:
+            json.dump(project_export_data, f, indent=4)
+
+        project_name_slug = secure_filename(project.name.replace(' ', '_').lower())
+        individual_zip_filename_base = f"project_{project_name_slug}_{project.id}" # No timestamp yet, will be on master
+
+        # Save individual project zip inside the base_output_dir
+        individual_zip_path = shutil.make_archive(os.path.join(base_output_dir, individual_zip_filename_base),
+                                                  'zip',
+                                                  single_project_staging_dir)
+        logger.info(f"Successfully created individual ZIP for project {project_id}: {individual_zip_path}")
+        return individual_zip_path
+
+    except Exception as e:
+        logger.error(f"Error during export of single project {project_id}: {str(e)}", exc_info=True)
+        return None # Indicate failure for this project
+    finally:
+        if single_project_staging_dir and os.path.exists(single_project_staging_dir):
+            try:
+                shutil.rmtree(single_project_staging_dir)
+                logger.info(f"Cleaned up staging directory: {single_project_staging_dir}")
+            except Exception as e_clean:
+                logger.error(f"Error cleaning up staging directory {single_project_staging_dir}: {str(e_clean)}", exc_info=True)
+
+
+@app.route('/project/<int:project_id>/export', methods=['GET'])
+@login_required
+def export_project(project_id):
+    project = db.session.get(Project, project_id)
+    if not project:
+        flash('Project not found.', 'error')
+        return redirect(url_for('index'))
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access or access.role != 'admin': # Ensure only admins can export single projects too
+        flash('You are not authorized to export this project.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id))
+
+    # Use a temporary directory to store the single project's ZIP before sending
+    # This directory will be cleaned up by the OS or could be explicitly managed.
+    # For _export_single_project_to_zip, base_output_dir is where the final individual zip is placed.
+    # For a single export, this can be the system's temp dir.
+
+    # Create a unique temporary directory to hold the zip file to be sent
+    send_file_temp_dir = tempfile.mkdtemp(prefix="send_zip_")
+
+    zip_file_path = _export_single_project_to_zip(project_id, send_file_temp_dir)
+
+    if zip_file_path and os.path.exists(zip_file_path):
+        # After this request, delete the zip file
+        # Note: This cleanup requires zip_file_path to be correctly scoped or passed if this becomes complex.
+        # For a direct send_file from a path, Flask doesn't auto-delete.
+        # A common pattern is to wrap send_file or use a try/finally with os.remove.
+        try:
+            return send_file(
+                zip_file_path,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=os.path.basename(zip_file_path)
+            )
+        finally:
+            # Cleanup the specific zip file and its containing temp directory
+            if os.path.exists(zip_file_path):
+                try:
+                    os.remove(zip_file_path)
+                    logger.info(f"Cleaned up sent ZIP file: {zip_file_path}")
+                except Exception as e_remove_zip:
+                    logger.error(f"Error removing sent ZIP file {zip_file_path}: {e_remove_zip}")
+            if os.path.exists(send_file_temp_dir): # Clean up the directory that held the zip
+                try:
+                    shutil.rmtree(send_file_temp_dir)
+                    logger.info(f"Cleaned up temp directory for send_file: {send_file_temp_dir}")
+                except Exception as e_remove_dir:
+                     logger.error(f"Error removing temp directory {send_file_temp_dir}: {e_remove_dir}")
+    else:
+        flash(f'An error occurred during project export for {project.name}.', 'error')
+        # Cleanup send_file_temp_dir even if zip creation failed within it
+        if os.path.exists(send_file_temp_dir):
+            try:
+                shutil.rmtree(send_file_temp_dir)
+                logger.info(f"Cleaned up temp directory for send_file (on failure): {send_file_temp_dir}")
+            except Exception as e_remove_dir_fail:
+                logger.error(f"Error removing temp directory {send_file_temp_dir} (on failure): {e_remove_dir_fail}")
+        return redirect(url_for('project_detail', project_id=project_id))
+
+
+@app.route('/admin/export_all_projects', methods=['GET'])
+@login_required
+def export_all_projects():
+    if current_user.role != 'admin':
+        flash('You are not authorized for this action.', 'error')
+        return redirect(url_for('index'))
+
+    admin_project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id, role='admin').all()
+    project_ids_to_export = [pa.project_id for pa in admin_project_accesses]
+
+    if not project_ids_to_export:
+        flash('No projects found for you to export as admin.', 'info')
+        return redirect(url_for('edit_profile')) # Or 'index'
+
+    main_temp_dir = None
+    master_zip_temp_dir = None # Directory to hold the final master zip
+    master_zip_file_path = None
+
+    try:
+        main_temp_dir = tempfile.mkdtemp(prefix="all_projects_export_")
+        logger.info(f"Created main temporary directory for all projects export: {main_temp_dir}")
+
+        successful_project_zips = []
+        failed_project_names = []
+
+        for project_id in project_ids_to_export:
+            project = db.session.get(Project, project_id) # Get project object for its name
+            if not project:
+                logger.error(f"Project with ID {project_id} not found during all projects export. Skipping.")
+                if project: failed_project_names.append(f"ID_{project_id}(UnknownName)")
+                else: failed_project_names.append(f"ID_{project_id}(DB_Error)")
+                continue
+
+            logger.info(f"Exporting project '{project.name}' (ID: {project_id}) as part of all projects export...")
+            # _export_single_project_to_zip will place the individual zip in main_temp_dir
+            individual_zip_path = _export_single_project_to_zip(project.id, main_temp_dir)
+
+            if individual_zip_path and os.path.exists(individual_zip_path):
+                successful_project_zips.append(individual_zip_path)
+                logger.info(f"Successfully created individual ZIP for project {project.name}: {individual_zip_path}")
+            else:
+                logger.error(f"Failed to create ZIP for project {project.name} (ID: {project_id}).")
+                failed_project_names.append(project.name)
+
+        if not successful_project_zips:
+            flash('No projects could be exported successfully.', 'error')
+            return redirect(url_for('edit_profile'))
+
+        # Create Master ZIP
+        master_zip_temp_dir = tempfile.mkdtemp(prefix="master_zip_temp_")
+        master_zip_filename_base = f"all_projects_export_{current_user.id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        # shutil.make_archive expects base_name (path without extension) and root_dir (what to zip)
+        # The individual zips are already in main_temp_dir. We want to zip the contents of main_temp_dir.
+        master_zip_file_path = shutil.make_archive(os.path.join(master_zip_temp_dir, master_zip_filename_base),
+                                                 'zip',
+                                                 main_temp_dir) # root_dir is main_temp_dir
+
+        logger.info(f"Master ZIP created: {master_zip_file_path}")
+
+        if failed_project_names:
+            flash(f"Export completed. Some projects failed: {', '.join(failed_project_names)}. Check logs.", 'warning')
+        else:
+            flash('All selected projects exported successfully.', 'success')
+
+        return send_file(
+            master_zip_file_path,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=os.path.basename(master_zip_file_path)
+        )
+
+    except Exception as e:
+        logger.error(f"Error during export of all projects: {str(e)}", exc_info=True)
+        flash('An error occurred during the export of all projects.', 'error')
+        return redirect(url_for('edit_profile'))
+    finally:
+        if main_temp_dir and os.path.exists(main_temp_dir):
+            try:
+                shutil.rmtree(main_temp_dir)
+                logger.info(f"Cleaned up main temporary directory: {main_temp_dir}")
+            except Exception e_clean_main:
+                logger.error(f"Error cleaning up main temporary directory {main_temp_dir}: {e_clean_main}", exc_info=True)
+
+        if master_zip_file_path and os.path.exists(master_zip_file_path):
+            try:
+                os.remove(master_zip_file_path)
+                logger.info(f"Cleaned up master ZIP file: {master_zip_file_path}")
+            except Exception as e_clean_master_zip:
+                 logger.error(f"Error cleaning up master ZIP file {master_zip_file_path}: {e_clean_master_zip}", exc_info=True)
+
+        if master_zip_temp_dir and os.path.exists(master_zip_temp_dir): # Clean up the dir that held the master zip
+            try:
+                shutil.rmtree(master_zip_temp_dir)
+                logger.info(f"Cleaned up master_zip_temp_dir: {master_zip_temp_dir}")
+            except Exception as e_clean_master_dir:
+                logger.error(f"Error cleaning up master_zip_temp_dir {master_zip_temp_dir}: {e_clean_master_dir}", exc_info=True)
+
+
+@app.route('/admin/import_project', methods=['POST'])
+@login_required
+def import_project():
+    if current_user.role != 'admin':
+        flash('You are not authorized for this action.', 'error')
+        return redirect(url_for('edit_profile')) # Or 'index'
+
+    if 'project_zip' not in request.files:
+        flash('No project ZIP file part in the request.', 'error')
+        return redirect(request.url)
+
+    file = request.files['project_zip']
+    if file.filename == '':
+        flash('No selected project ZIP file.', 'error')
+        return redirect(request.url)
+
+    if not file.filename.lower().endswith('.zip'):
+        flash('Invalid file type. Please upload a .ZIP file.', 'error')
+        return redirect(request.url)
+
+    extraction_temp_dir = None
+    try:
+        extraction_temp_dir = tempfile.mkdtemp(prefix="project_import_")
+        logger.info(f"Created temporary directory for ZIP extraction: {extraction_temp_dir}")
+
+        uploaded_zip_path = os.path.join(extraction_temp_dir, secure_filename(file.filename))
+        file.save(uploaded_zip_path)
+        logger.info(f"Uploaded ZIP saved to: {uploaded_zip_path}")
+
+        with zipfile.ZipFile(uploaded_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extraction_temp_dir)
+        logger.info(f"ZIP extracted to: {extraction_temp_dir}")
+
+        json_data_path = os.path.join(extraction_temp_dir, 'project_data.json')
+        if not os.path.exists(json_data_path):
+            flash('Invalid project ZIP: project_data.json not found.', 'error')
+            # Cleanup already handled in finally
+            return redirect(url_for('edit_profile'))
+
+        with open(json_data_path, 'r') as f:
+            imported_data = json.load(f)
+
+        # --- Start Database Restoration ---
+        # ID Mapping Dictionaries
+        old_to_new_project_id = {}
+        old_to_new_drawing_ids = {}
+        old_to_new_defect_ids = {}
+        old_to_new_comment_ids = {} # Keyed by old defect_id then old comment_id
+        old_to_new_checklist_ids = {}
+        # old_to_new_checklist_item_ids = {} # Keyed by old cl_id then old cli_id
+
+        # 1. Import Project entity
+        original_project_name = imported_data.get('project_name', 'Imported Project')
+        # Ensure unique project name (simple approach)
+        new_project_name = original_project_name
+        name_counter = 1
+        while Project.query.filter_by(name=new_project_name).first():
+            new_project_name = f"{original_project_name} (Imported {name_counter})"
+            name_counter += 1
+
+        new_project = Project(name=new_project_name)
+        db.session.add(new_project)
+        db.session.flush() # Get new_project.id
+        old_project_id = imported_data.get('project_id')
+        if old_project_id is not None: # Should always exist
+             old_to_new_project_id[old_project_id] = new_project.id
+
+        # Grant access to importing admin
+        admin_access = ProjectAccess(user_id=current_user.id, project_id=new_project.id, role='admin')
+        db.session.add(admin_access)
+        logger.info(f"Created new project '{new_project.name}' (ID: {new_project.id}) from import. Old ID: {old_project_id}")
+
+        # 2. Import Drawings
+        for old_drawing_data in imported_data.get('drawings', []):
+            old_drawing_id = old_drawing_data.get('id')
+            original_drawing_zip_path = old_drawing_data.get('file_path') # Path relative to zip root, e.g., "drawings/file.pdf"
+
+            if not original_drawing_zip_path:
+                logger.warning(f"Drawing (Old ID: {old_drawing_id}) has no file_path in JSON. Skipping.")
+                continue
+
+            src_drawing_on_disk = os.path.join(extraction_temp_dir, original_drawing_zip_path)
+            if not os.path.exists(src_drawing_on_disk):
+                logger.warning(f"Drawing file {original_drawing_zip_path} not found in extracted ZIP for Old ID {old_drawing_id}. Skipping.")
+                continue
+
+            drawing_filename = secure_filename(os.path.basename(original_drawing_zip_path))
+            # Ensure unique filename in static/drawings
+            unique_drawing_server_filename = f"drawing_{new_project.id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{drawing_filename}"
+            dest_drawing_disk_path = os.path.join(app.config['DRAWING_FOLDER'], unique_drawing_server_filename)
+
+            shutil.copy2(src_drawing_on_disk, dest_drawing_disk_path)
+            os.chmod(dest_drawing_disk_path, 0o644) # Set permissions
+
+            new_drawing_db_path = os.path.join('drawings', unique_drawing_server_filename) # Relative to static/ for DB
+
+            new_drawing = Drawing(
+                project_id=new_project.id,
+                name=old_drawing_data.get('name', 'Imported Drawing'),
+                file_path=new_drawing_db_path,
+                created_at=datetime.fromisoformat(old_drawing_data.get('created_at')) if old_drawing_data.get('created_at') else datetime.utcnow()
+            )
+            db.session.add(new_drawing)
+            db.session.flush()
+            if old_drawing_id is not None:
+                old_to_new_drawing_ids[old_drawing_id] = new_drawing.id
+            logger.info(f"Imported Drawing: '{new_drawing.name}' (New ID: {new_drawing.id}, Old ID: {old_drawing_id}) -> {new_drawing_db_path}")
+
+        # --- Attachment Import Helper ---
+        def _import_attachment_file(att_data, parent_type_str, new_parent_id, extracted_zip_dir_path):
+            original_att_zip_path = att_data.get('file_path') # e.g., "attachments/images/file.jpg"
+            original_thumb_zip_path = att_data.get('thumbnail_path')
+            mime_type = att_data.get('mime_type')
+            new_att_db_path = None
+            new_thumb_db_path = None
+
+            # Process original attachment file
+            if original_att_zip_path:
+                src_att_on_disk = os.path.join(extracted_zip_dir_path, original_att_zip_path)
+                if os.path.exists(src_att_on_disk):
+                    att_filename = secure_filename(os.path.basename(original_att_zip_path))
+                    # Determine save subfolder based on MIME type
+                    save_subfolder_name = 'attachments_other' # Default
+                    if mime_type:
+                        if mime_type.startswith('image/'): save_subfolder_name = 'attachments_img'
+                        elif mime_type == 'application/pdf': save_subfolder_name = 'attachments_pdf'
+
+                    # Ensure unique filename on server for attachment
+                    unique_att_server_filename = f"{parent_type_str}_{new_parent_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{att_filename}"
+
+                    # Get actual disk path for saving (e.g., static/uploads/attachments_img/)
+                    att_save_dir_disk, _ = ensure_attachment_paths(save_subfolder_name)
+                    dest_att_disk_path = os.path.join(att_save_dir_disk, unique_att_server_filename)
+
+                    shutil.copy2(src_att_on_disk, dest_att_disk_path)
+                    os.chmod(dest_att_disk_path, 0o644)
+                    new_att_db_path = os.path.join('uploads', save_subfolder_name, unique_att_server_filename) # Relative to static/
+                else:
+                    logger.warning(f"Attachment file {original_att_zip_path} not found in ZIP. Skipping.")
+
+            # Process thumbnail file (if exists)
+            if original_thumb_zip_path and new_att_db_path: # Only process thumb if original was processed
+                src_thumb_on_disk = os.path.join(extracted_zip_dir_path, original_thumb_zip_path)
+                if os.path.exists(src_thumb_on_disk):
+                    thumb_filename = secure_filename(os.path.basename(original_thumb_zip_path))
+                     # Determine thumbnail save subfolder (mirrors original logic)
+                    thumb_save_subfolder_name = 'attachments_other/thumbnails' # Default
+                    if mime_type:
+                        if mime_type.startswith('image/'): thumb_save_subfolder_name = 'attachments_img/thumbnails'
+                        elif mime_type == 'application/pdf': thumb_save_subfolder_name = 'attachments_pdf_thumbs' # As per ensure_attachment_paths for PDF thumbs
+
+                    # Ensure unique filename for thumbnail
+                    unique_thumb_server_filename = f"thumb_{parent_type_str}_{new_parent_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{thumb_filename}"
+
+                    # Get actual disk path for saving thumbnail
+                    # ensure_attachment_paths logic for thumbs:
+                    # for images: static/uploads/attachments_img/thumbnails/
+                    # for pdfs: static/uploads/attachments_pdf_thumbs/
+                    thumb_save_dir_disk_base = os.path.join(app.static_folder, 'uploads')
+                    if mime_type.startswith('image/'):
+                        thumb_save_dir_disk = os.path.join(thumb_save_dir_disk_base, 'attachments_img', 'thumbnails')
+                    elif mime_type == 'application/pdf':
+                        thumb_save_dir_disk = os.path.join(thumb_save_dir_disk_base, 'attachments_pdf_thumbs')
+                    else: # Fallback, may need adjustment based on ensure_attachment_paths
+                        thumb_save_dir_disk = os.path.join(thumb_save_dir_disk_base, 'attachments_other', 'thumbnails')
+
+                    os.makedirs(thumb_save_dir_disk, exist_ok=True)
+                    dest_thumb_disk_path = os.path.join(thumb_save_dir_disk, unique_thumb_server_filename)
+
+                    shutil.copy2(src_thumb_on_disk, dest_thumb_disk_path)
+                    os.chmod(dest_thumb_disk_path, 0o644)
+                    # Path for DB: e.g. uploads/attachments_img/thumbnails/thumb_...
+                    new_thumb_db_path = os.path.join('uploads', thumb_save_subfolder_name, unique_thumb_server_filename)
+                else:
+                    logger.warning(f"Thumbnail file {original_thumb_zip_path} not found in ZIP. Skipping.")
+
+            if new_att_db_path: # Only create Attachment record if original file was processed
+                new_attachment = Attachment(
+                    file_path=new_att_db_path,
+                    thumbnail_path=new_thumb_db_path,
+                    mime_type=mime_type
+                )
+                # Link to parent (defect_id, comment_id, checklist_item_id) will be done by caller
+                return new_attachment
+            return None
+
+        # 3. Import Defects (and their markers, comments, attachments)
+        for old_defect_data in imported_data.get('defects', []):
+            old_defect_id = old_defect_data.get('id')
+            new_defect = Defect(
+                project_id=new_project.id,
+                description=old_defect_data.get('description', 'Imported Defect'),
+                status=old_defect_data.get('status', 'open'),
+                creation_date=datetime.fromisoformat(old_defect_data.get('creation_date')) if old_defect_data.get('creation_date') else datetime.utcnow(),
+                close_date=datetime.fromisoformat(old_defect_data.get('close_date')) if old_defect_data.get('close_date') else None,
+                creator_id=current_user.id # Assign to current admin for now
+            )
+            db.session.add(new_defect)
+            db.session.flush()
+            if old_defect_id is not None:
+                old_to_new_defect_ids[old_defect_id] = new_defect.id
+
+            # Import Defect Attachments
+            for old_att_data in old_defect_data.get('attachments', []):
+                new_att_obj = _import_attachment_file(old_att_data, "defect", new_defect.id, extraction_temp_dir)
+                if new_att_obj:
+                    new_att_obj.defect_id = new_defect.id
+                    db.session.add(new_att_obj)
+
+            # Import Defect Markers
+            for old_marker_data in old_defect_data.get('markers', []):
+                old_drawing_id_for_marker = old_marker_data.get('drawing_id')
+                new_drawing_id_for_marker = old_to_new_drawing_ids.get(old_drawing_id_for_marker)
+                if new_drawing_id_for_marker:
+                    new_marker = DefectMarker(
+                        defect_id=new_defect.id,
+                        drawing_id=new_drawing_id_for_marker,
+                        x=old_marker_data.get('x'),
+                        y=old_marker_data.get('y'),
+                        page_num=old_marker_data.get('page_num', 1)
+                    )
+                    db.session.add(new_marker)
+                else:
+                    logger.warning(f"Could not map old drawing ID {old_drawing_id_for_marker} for marker on defect (Old ID: {old_defect_id}). Skipping marker.")
+
+            # Import Comments (and their attachments)
+            if old_defect_id not in old_to_new_comment_ids: old_to_new_comment_ids[old_defect_id] = {}
+            for old_comment_data in old_defect_data.get('comments', []):
+                old_comment_id = old_comment_data.get('id')
+                new_comment = Comment(
+                    defect_id=new_defect.id,
+                    user_id=current_user.id, # Assign to current admin for now
+                    content=old_comment_data.get('content', ''),
+                    created_at=datetime.fromisoformat(old_comment_data.get('created_at')) if old_comment_data.get('created_at') else datetime.utcnow(),
+                    edited=old_comment_data.get('edited', False),
+                    updated_at=datetime.fromisoformat(old_comment_data.get('updated_at')) if old_comment_data.get('updated_at') else datetime.utcnow()
+                )
+                db.session.add(new_comment)
+                db.session.flush()
+                if old_comment_id is not None:
+                    old_to_new_comment_ids[old_defect_id][old_comment_id] = new_comment.id
+
+                for old_comm_att_data in old_comment_data.get('attachments', []):
+                    new_comm_att_obj = _import_attachment_file(old_comm_att_data, "comment", new_comment.id, extraction_temp_dir)
+                    if new_comm_att_obj:
+                        new_comm_att_obj.comment_id = new_comment.id
+                        db.session.add(new_comm_att_obj)
+            logger.info(f"Imported Defect (Old ID: {old_defect_id}, New ID: {new_defect.id}) with its markers, comments, attachments.")
+
+        # 4. Import Checklists (and their items, attachments)
+        for old_cl_data in imported_data.get('checklists', []):
+            old_cl_id = old_cl_data.get('id')
+            # Template ID mapping is skipped for now; checklists are imported without template linkage
+            new_cl = Checklist(
+                project_id=new_project.id,
+                name=old_cl_data.get('name', 'Imported Checklist'),
+                creation_date=datetime.fromisoformat(old_cl_data.get('creation_date')) if old_cl_data.get('creation_date') else datetime.utcnow(),
+                # template_id=None # Or map if implemented
+            )
+            db.session.add(new_cl)
+            db.session.flush()
+            if old_cl_id is not None:
+                old_to_new_checklist_ids[old_cl_id] = new_cl.id
+
+            # if old_cl_id not in old_to_new_checklist_item_ids: old_to_new_checklist_item_ids[old_cl_id] = {}
+            for old_cli_data in old_cl_data.get('items', []):
+                # old_cli_id = old_cli_data.get('id')
+                new_cli = ChecklistItem(
+                    checklist_id=new_cl.id,
+                    item_text=old_cli_data.get('item_text', ''),
+                    is_checked=old_cli_data.get('is_checked', False),
+                    comments=old_cli_data.get('comments', '')
+                )
+                db.session.add(new_cli)
+                db.session.flush()
+                # if old_cli_id is not None:
+                #    old_to_new_checklist_item_ids[old_cl_id][old_cli_id] = new_cli.id
+
+                for old_cli_att_data in old_cli_data.get('attachments', []):
+                    new_cli_att_obj = _import_attachment_file(old_cli_att_data, "checklistItem", new_cli.id, extraction_temp_dir)
+                    if new_cli_att_obj:
+                        new_cli_att_obj.checklist_item_id = new_cli.id
+                        db.session.add(new_cli_att_obj)
+            logger.info(f"Imported Checklist (Old ID: {old_cl_id}, New ID: {new_cl.id}) with its items & attachments.")
+
+        db.session.commit()
+        flash(f"Project '{new_project.name}' imported successfully!", "success")
+        return redirect(url_for('project_detail', project_id=new_project.id))
+
+    except zipfile.BadZipFile:
+        logger.error("Uploaded file is not a valid ZIP file or is corrupted.")
+        flash('The uploaded file is not a valid ZIP file or is corrupted.', 'error')
+        return redirect(request.url)
+    except json.JSONDecodeError:
+        logger.error("Failed to decode project_data.json from the ZIP.")
+        flash('Invalid project data format in project_data.json.', 'error')
+        return redirect(url_for('edit_profile'))
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error during project import: {str(e)}", exc_info=True)
+        flash(f'An error occurred during project import: {str(e)}', 'error')
+        return redirect(url_for('edit_profile'))
+    finally:
+        if extraction_temp_dir and os.path.exists(extraction_temp_dir):
+            try:
+                shutil.rmtree(extraction_temp_dir)
+                logger.info(f"Cleaned up temporary extraction directory: {extraction_temp_dir}")
+            except Exception as e_clean:
+                logger.error(f"Error cleaning up temporary extraction directory {extraction_temp_dir}: {str(e_clean)}", exc_info=True)
+
 
 @app.route('/checklist/<int:checklist_id>', methods=['GET']) # Removed POST from methods
 @login_required
