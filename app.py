@@ -1127,28 +1127,28 @@ def import_project():
                     if current_inner_project_dir and os.path.exists(current_inner_project_dir):
                         shutil.rmtree(current_inner_project_dir)
 
+            # This block is now correctly indented to be part of the 'if inner_zip_files:'
             flash_messages_parts = []
-                if successful_imports_names:
-                    flash_messages_parts.append(f"Successfully imported: {', '.join(successful_imports_names)}.")
-                if failed_imports_details:
-                    failed_reasons_str = "; ".join([f"'{f['name']}' ({f['reason']})" for f in failed_imports_details])
-                    flash_messages_parts.append(f"Failed to import: {failed_reasons_str}.")
+            if successful_imports_names:
+                flash_messages_parts.append(f"Successfully imported: {', '.join(successful_imports_names)}.")
+            if failed_imports_details:
+                failed_reasons_str = "; ".join([f"'{f['name']}' ({f['reason']})" for f in failed_imports_details])
+                flash_messages_parts.append(f"Failed to import: {failed_reasons_str}.")
 
-                if flash_messages_parts:
-                    flash_message_summary = " ".join(flash_messages_parts)
-                    flash_category = 'info'
-                    if failed_imports_details and not successful_imports_names:
-                        flash_category = 'error'
-                    elif failed_imports_details and successful_imports_names:
-                        flash_category = 'warning'
-                    elif successful_imports_names and not failed_imports_details:
-                         flash_category = 'success'
-                    flash(flash_message_summary, flash_category)
-                else: # This case should ideally not be reached if the invalid format check above is correct.
-                    flash("No projects found or processed from the master ZIP, or an unexpected state occurred.", 'info')
-                return redirect(url_for('edit_profile'))
-        # The 'else' for 'if not inner_zip_files' was handled by the 'if not inner_zip_files:' block with an early return.
-        # The control flow for master zip processing (when inner_zip_files is True) is self-contained above.
+            if flash_messages_parts:
+                flash_message_summary = " ".join(flash_messages_parts)
+                flash_category = 'info'
+                if failed_imports_details and not successful_imports_names:
+                    flash_category = 'error'
+                elif failed_imports_details and successful_imports_names:
+                    flash_category = 'warning'
+                elif successful_imports_names and not failed_imports_details:
+                    flash_category = 'success'
+                flash(flash_message_summary, flash_category)
+            else: # This case implies inner_zip_files was not empty, but nothing was processed (e.g. all inner zips were faulty before _perform_single_project_import)
+                flash("No projects were successfully processed from the master ZIP. Some inner ZIPs might have been invalid or empty.", 'warning')
+            return redirect(url_for('edit_profile'))
+        # The 'else' for 'if not inner_zip_files' (invalid format) is handled above with an early return.
 
     except zipfile.BadZipFile:
         logger.error("Uploaded file is corrupted or not a valid ZIP file.")
