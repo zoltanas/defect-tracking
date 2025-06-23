@@ -1049,17 +1049,17 @@ def import_project():
 
     if 'project_zip' not in request.files:
         flash('No file part in the request.', 'error')
-        return redirect(request.referrer or url_for('edit_profile'))
+        return redirect(request.referrer or url_for('index'))
 
     file = request.files['project_zip']
     uploaded_master_zip_filename = file.filename # Store the master ZIP filename
     if file.filename == '':
         flash('No file selected for upload.', 'error')
-        return redirect(request.referrer or url_for('edit_profile'))
+        return redirect(request.referrer or url_for('index'))
 
     if not file.filename.lower().endswith('.zip'):
         flash('Invalid file type. Only .zip files are allowed.', 'error')
-        return redirect(request.referrer or url_for('edit_profile'))
+        return redirect(request.referrer or url_for('index'))
 
     extraction_temp_dir = None
     try:
@@ -1082,7 +1082,7 @@ def import_project():
                 return redirect(url_for('project_detail', project_id=new_project_id))
             # If single project import failed, ensure we redirect and exit.
             flash(f"Failed to import project: {message}", 'error')
-            return redirect(url_for('edit_profile'))
+            return redirect(url_for('index'))
         else: # project_data.json not found at root
             logger.info("project_data.json not found at root. Checking for inner ZIP files (master export).")
             inner_zip_files = glob.glob(os.path.join(extraction_temp_dir, '*.zip'))
@@ -1090,7 +1090,7 @@ def import_project():
             if not inner_zip_files: # Invalid format: No project_data.json at root AND no inner zips
                 logger.warning(f"No project_data.json at root and no inner ZIPs found in {extraction_temp_dir}. Treating as invalid format.")
                 flash("The uploaded ZIP file does not appear to be a valid single project (missing project_data.json at root) and does not contain any inner project .zip files. Please check the ZIP file structure.", "error")
-                return redirect(url_for('edit_profile'))
+                return redirect(url_for('index'))
 
             # Master ZIP detected (inner_zip_files is not empty)
             logger.info(f"Found potential inner project ZIPs: {inner_zip_files}")
@@ -1157,23 +1157,23 @@ def import_project():
                     # else: No explicit message if flash_messages_parts is empty, implying no processable inner zips.
                 else: # This means inner_zip_files was true, but the loop didn't populate success/failure (e.g. all inner zips were empty/corrupt before _perform_single_project_import)
                     flash("Master ZIP processed, but no valid project data was found in the inner ZIP files, or inner ZIPs were empty/corrupt.", "warning")
-                return redirect(url_for('edit_profile'))
+                return redirect(url_for('index'))
 
             else: # This 'else' corresponds to 'if not inner_zip_files' - Invalid Format Path
                   # This block should have already been executed and returned if no inner_zip_files were found.
                   # Re-affirming the logger and flash for clarity, though the previous structure should handle this.
                 logger.warning(f"No project_data.json at root and no inner ZIPs found in {extraction_temp_dir}. Treating as invalid format.")
                 flash("The uploaded ZIP file does not appear to be a valid single project (missing project_data.json at root) and does not contain any inner project .zip files. Please check the ZIP file structure.", "error")
-                return redirect(url_for('edit_profile'))
+                return redirect(url_for('index'))
 
     except zipfile.BadZipFile:
         logger.error("Uploaded file is corrupted or not a valid ZIP file.")
         flash('The uploaded file is corrupted or not a valid ZIP file.', 'error')
-        return redirect(request.referrer or url_for('edit_profile'))
+        return redirect(request.referrer or url_for('index'))
     except Exception as e:
         logger.error(f"An unexpected error occurred during project import: {str(e)}", exc_info=True)
         flash(f'An unexpected error occurred: {str(e)}', 'error')
-        return redirect(request.referrer or url_for('edit_profile'))
+        return redirect(request.referrer or url_for('index'))
     finally:
         if extraction_temp_dir and os.path.exists(extraction_temp_dir):
             shutil.rmtree(extraction_temp_dir)
