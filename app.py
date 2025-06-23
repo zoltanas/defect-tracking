@@ -1008,7 +1008,11 @@ def export_project(project_id):
     # Check if user has admin role for this specific project
     if not access or access.role != 'admin':
         flash('You do not have permission to export this project.', 'error')
-        return redirect(url_for('project_detail', project_id=project_id))
+        # Redirect to the new project data management page if accessed from there,
+        # or to index if referrer is not available/not that page.
+        if request.referrer and 'project_data_management' in request.referrer:
+            return redirect(url_for('project_data_management'))
+        return redirect(url_for('project_detail', project_id=project_id)) # Fallback, though less likely now
 
     export_temp_dir = None  # Initialize to None for finally block
     try:
@@ -1025,12 +1029,16 @@ def export_project(project_id):
         else:
             logger.error(f"Export failed for project {project_id}. Helper did not return a valid ZIP file path or file does not exist.")
             flash('Failed to export project. The export process did not generate a file. Please check server logs for details.', 'error')
-            return redirect(url_for('project_detail', project_id=project_id))
+            if request.referrer and 'project_data_management' in request.referrer:
+                return redirect(url_for('project_data_management'))
+            return redirect(url_for('project_detail', project_id=project_id)) # Fallback
 
     except Exception as e:
         logger.error(f"Exception during export_project for project_id {project_id}: {e}", exc_info=True)
         flash(f"An unexpected error occurred during project export: {str(e)}", 'error')
-        return redirect(url_for('project_detail', project_id=project_id))
+        if request.referrer and 'project_data_management' in request.referrer:
+            return redirect(url_for('project_data_management'))
+        return redirect(url_for('project_detail', project_id=project_id)) # Fallback
     finally:
         if export_temp_dir and os.path.exists(export_temp_dir):
             try:
@@ -1193,7 +1201,7 @@ def export_all_projects():
 
     if not projects_to_export:
         flash('No projects found for you to export.', 'info')
-        return redirect(url_for('edit_profile'))
+        return redirect(url_for('project_data_management'))
 
     main_temp_dir_for_individual_zips = None
     master_zip_temp_dir = None
@@ -1904,6 +1912,16 @@ def edit_profile():
                            name=current_user.name,
                            company=current_user.company,
                            project_accesses=project_accesses)
+
+@app.route('/project_data_management')
+@login_required
+def project_data_management():
+    if current_user.role != 'admin':
+        flash('You are not authorized to access this page.', 'error')
+        return redirect(url_for('index'))
+
+    projects = Project.query.order_by(Project.name).all()
+    return render_template('project_import_export.html', projects=projects)
 
 # Application Routes
 @app.route('/')

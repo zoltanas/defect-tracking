@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+{% block title %}Project Import/Export{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-10">Project Data Management</h1>
+
+    {# Section 1: Import Projects #}
+    <div class="mb-12 bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold text-gray-700 mb-6">Import Projects</h2>
+        <p class="text-sm text-gray-600 mb-4">
+            Upload a project export ZIP file. This can be a single project ZIP (containing a 'project_data.json' file at its root)
+            or a master ZIP file (containing multiple individual project ZIP files).
+        </p>
+        <!-- Import Project Form -->
+        <form method="POST" action="{{ url_for('import_project') }}" enctype="multipart/form-data" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div>
+                <label for="project_zip" class="block text-sm font-medium text-gray-700">
+                    Project ZIP File (.zip)
+                </label>
+                <input type="file" name="project_zip" id="project_zip" required
+                       class="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary file:mr-4 file:py-2 file:px-4 file:rounded-l-lg file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-hover">
+            </div>
+            <div>
+                <button type="submit"
+                        class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                    Import Project(s)
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {# Section 2: Single Project Export #}
+    <div class="mb-12 bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold text-gray-700 mb-6">Export Single Project</h2>
+        <p class="text-sm text-gray-600 mb-4">
+            Select a project from the dropdown menu to download its data as a ZIP file.
+        </p>
+        <!-- Single Project Export Form -->
+        <form id="singleProjectExportForm" method="GET" action="" class="space-y-4">
+            {# CSRF not strictly needed for GET, but good if it becomes POST #}
+            {# <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> #}
+            <div>
+                <label for="project_to_export" class="block text-sm font-medium text-gray-700">
+                    Select Project
+                </label>
+                <select name="project_to_export" id="project_to_export" required
+                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                    <option value="">-- Select a Project --</option>
+                    {% if projects %}
+                        {% for project in projects %}
+                            <option value="{{ project.id }}">{{ project.name }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="" disabled>No projects available</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div>
+                <button type="submit"
+                        class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        id="exportSelectedProjectButton">
+                    Export Selected Project
+                </button>
+            </div>
+        </form>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const form = document.getElementById('singleProjectExportForm');
+                const selectElement = document.getElementById('project_to_export');
+                const button = document.getElementById('exportSelectedProjectButton');
+
+                form.addEventListener('submit', function (event) {
+                    event.preventDefault(); // Prevent default form submission
+                    const selectedProjectId = selectElement.value;
+                    if (selectedProjectId) {
+                        // Construct the URL for the export_project route
+                        // Note: In Flask, url_for is typically used in templates.
+                        // For JS, we often construct paths manually or pass base URLs.
+                        // Assuming 'export_project' route is like '/project/<int:project_id>/export'
+                        const exportUrl = `/project/${selectedProjectId}/export`;
+                        window.location.href = exportUrl; // Navigate to the export URL
+                    } else {
+                        alert('Please select a project to export.');
+                    }
+                });
+            });
+        </script>
+    </div>
+
+    {# Section 3: Export All Projects #}
+    <div class="bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold text-gray-700 mb-6">Export All Projects</h2>
+        <p class="text-sm text-gray-600 mb-4">
+            Download a master ZIP file containing data for all projects you have administrative access to.
+            Each project will be an individual ZIP file within the master archive.
+        </p>
+        <!-- Export All Projects Button -->
+        <div>
+            <a href="{{ url_for('export_all_projects') }}"
+               class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                Export All Administered Projects
+            </a>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
