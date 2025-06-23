@@ -40,9 +40,11 @@ app = Flask(__name__)
 csrf = CSRFProtect(app)
 app.config['SECRET_KEY'] = 'your-secret-key'
 
-# Set SQLite database URI with absolute path
-default_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'myapp.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', f'sqlite:///{default_db_path}')
+# Set PostgreSQL database URI
+# The recommended way is to set the SQLALCHEMY_DATABASE_URI environment variable.
+# Example for PostgreSQL: postgresql://username:password@host:port/database_name
+default_pg_uri = 'postgresql://pguser:pgpassword@localhost:5432/myappdb'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', default_pg_uri)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/images'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'pdf'}
@@ -78,11 +80,6 @@ print("--------------------------")
 
 mail = Mail(app) # Initialize Flask-Mail
 
-# Create instance directory for SQLite database
-db_dir = os.path.dirname(default_db_path)
-os.makedirs(db_dir, exist_ok=True)
-logger.info(f"Ensured database directory exists: {db_dir}")
-
 # Create report directory
 os.makedirs(app.config['REPORT_FOLDER'], exist_ok=True)
 logger.info(f"Ensured report directory exists: {app.config['REPORT_FOLDER']}")
@@ -92,10 +89,6 @@ os.makedirs(app.config['DRAWING_FOLDER'], exist_ok=True)
 logger.info(f"Ensured drawing directory exists: {app.config['DRAWING_FOLDER']}")
 
 # Verify write permissions
-if not os.access(db_dir, os.W_OK):
-    logger.error(f"No write permissions for database directory: {db_dir}")
-    raise PermissionError(f"No write permissions for database directory: {db_dir}")
-
 if not os.access(app.config['REPORT_FOLDER'], os.W_OK):
     logger.error(f"No write permissions for report directory: {app.config['REPORT_FOLDER']}")
     raise PermissionError(f"No write permissions for report directory: {app.config['REPORT_FOLDER']}")
@@ -4458,103 +4451,100 @@ def ensure_user_schema_command():
             return
 
         columns = [col['name'] for col in inspector.get_columns('users')]
+        indexes = inspector.get_indexes('users')
+        index_names = [idx['name'] for idx in indexes]
 
         with db.engine.connect() as connection:
-            if 'email' not in columns:
-                try:
-                    connection.execute(db.text('ALTER TABLE users ADD COLUMN email VARCHAR(255)'))
-                    # Add UNIQUE constraint separately as SQLite syntax for ADD COLUMN with UNIQUE can be tricky
-                    # For other databases, 'ALTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE' might work directly
-                    connection.execute(db.text('CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)'))
-                    connection.commit()
-                    print("Added 'email' column and unique index to 'users' table.")
-                except Exception as e:
-                    connection.rollback()
-                    print(f"Error adding 'email' column: {e}")
-            else:
-                print("'email' column already exists in 'users' table.")
-
-            if 'status' not in columns:
-                try:
-                    connection.execute(db.text("ALTER TABLE users ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending_activation'"))
-                    # Ensure existing rows get the default value if they were NULL (e.g. if column was added nullable first)
-                    # This is more robust across different DBs and SQLite versions
-                    connection.execute(db.text("UPDATE users SET status = 'pending_activation' WHERE status IS NULL"))
-                    connection.commit()
-                    print("Added 'status' column to 'users' table and updated NULLs if any.")
-                except Exception as e:
-                    connection.rollback()
-                    print(f"Error adding 'status' column: {e}")
-            else:
-                print("'status' column already exists in 'users' table.")
-
-            # Attempt to set existing, non-temporary users to 'active'
-            # This assumes users not starting with 'temp_' are considered active.
+            transaction = connection.begin()
             try:
-                connection.execute(db.text("UPDATE users SET status = 'active' WHERE username NOT LIKE 'temp_%' AND status = 'pending_activation'"))
-                connection.commit()
-                print("Attempted to update status to 'active' for existing non-temporary users.")
-            except Exception as e:
-                connection.rollback()
-                print(f"Error updating status for non-temporary users: {e}")
+                if 'email' not in columns:
+                    print("Adding 'email' column to 'users' table.")
+                    connection.execute(db.text('ALTER TABLE users ADD COLUMN email VARCHAR(255)'))
+                    # For PostgreSQL, UNIQUE constraint can be added with the column or separately.
+                    # To ensure it's added if the column is new, and to handle existing data,
+                    # it's often added separately or checked.
+                    if 'ix_users_email' not in index_names: # Check if index already exists
+                        print("Adding UNIQUE index 'ix_users_email' for 'email' column.")
+                        connection.execute(db.text('CREATE UNIQUE INDEX ix_users_email ON users (email)'))
+                    print("Finished 'email' column and index setup.")
+                else:
+                    print("'email' column already exists in 'users' table.")
+                    if 'ix_users_email' not in index_names:
+                        try:
+                            print("Attempting to add UNIQUE index 'ix_users_email' to existing 'email' column.")
+                            connection.execute(db.text('CREATE UNIQUE INDEX ix_users_email ON users (email)'))
+                            print("UNIQUE index 'ix_users_email' added.")
+                        except Exception as e_index: # Catch if index creation fails (e.g., duplicate data)
+                            print(f"Could not create UNIQUE index 'ix_users_email'. It might already exist or there's duplicate data: {e_index}")
 
-            # Add 'name' column if it doesn't exist
-            if 'name' not in columns:
-                try:
+
+                if 'status' not in columns:
+                    print("Adding 'status' column to 'users' table.")
+                    connection.execute(db.text("ALTER TABLE users ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending_activation'"))
+                    connection.execute(db.text("UPDATE users SET status = 'pending_activation' WHERE status IS NULL"))
+                    print("'status' column added and NULLs updated.")
+                else:
+                    print("'status' column already exists in 'users' table.")
+
+                # Attempt to set existing, non-temporary users to 'active'
+                print("Attempting to update status to 'active' for existing non-temporary users.")
+                connection.execute(db.text("UPDATE users SET status = 'active' WHERE username NOT LIKE 'temp_%' AND status = 'pending_activation'"))
+
+                # Add 'name' column if it doesn't exist
+                if 'name' not in columns:
+                    print("Adding 'name' column to 'users' table.")
                     connection.execute(db.text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NOT NULL DEFAULT 'N/A'"))
                     connection.execute(db.text("UPDATE users SET name = 'N/A' WHERE name IS NULL"))
-                    connection.commit()
-                    print("Added 'name' column to 'users' table and updated NULLs.")
-                except Exception as e:
-                    connection.rollback()
-                    print(f"Error adding 'name' column: {e}")
-            else:
-                print("'name' column already exists in 'users' table.")
+                    print("'name' column added and NULLs updated.")
+                else:
+                    print("'name' column already exists in 'users' table.")
 
-            # Add 'company' column if it doesn't exist
-            if 'company' not in columns:
-                try:
+                # Add 'company' column if it doesn't exist
+                if 'company' not in columns:
+                    print("Adding 'company' column to 'users' table.")
                     connection.execute(db.text("ALTER TABLE users ADD COLUMN company VARCHAR(255) NOT NULL DEFAULT 'N/A'"))
                     connection.execute(db.text("UPDATE users SET company = 'N/A' WHERE company IS NULL"))
-                    connection.commit()
-                    print("Added 'company' column to 'users' table and updated NULLs.")
-                except Exception as e:
-                    connection.rollback()
-                    print(f"Error adding 'company' column: {e}")
-            else:
-                print("'company' column already exists in 'users' table.")
+                    print("'company' column added and NULLs updated.")
+                else:
+                    print("'company' column already exists in 'users' table.")
 
-            # Verify UNIQUE constraint on email, as it might fail silently in some SQLite versions if added to existing data
-            # This is a check, not an add. A more robust solution uses migration frameworks.
-            try:
-                # Test insert to see if unique constraint is active
-                test_email_constraint = f"test_unique_{os.urandom(4).hex()}@example.com"
-                connection.execute(db.text("INSERT INTO users (username, email, password, role, status) VALUES (:u, :e, :p, :r, :s)"),
-                                   {"u": f"testuser_{os.urandom(4).hex()}", "e": test_email_constraint, "p":"test", "r":"test", "s":"pending_activation"})
-                connection.execute(db.text("DELETE FROM users WHERE email = :e"), {"e": test_email_constraint}) # Clean up
-                connection.commit()
-                print("UNIQUE constraint on 'email' seems to be active.")
+                transaction.commit()
+                print("User schema changes committed successfully.")
+
             except Exception as e:
-                print(f"Warning: Could not verify UNIQUE constraint on 'email' column proactively. This might indicate an issue or test limitation: {e}")
-                connection.rollback()
+                transaction.rollback()
+                print(f"Error during user schema check/update: {e}")
+
+            # Verification of UNIQUE constraint on email (optional, as creation attempt was made)
+            # This part is more for diagnostics.
+            # Re-fetch indexes after potential changes
+            final_indexes = inspect(db.engine).get_indexes('users')
+            final_index_names = [idx['name'] for idx in final_indexes]
+            if 'ix_users_email' in final_index_names:
+                print("UNIQUE constraint 'ix_users_email' on 'email' is confirmed to exist.")
+            else:
+                print("Warning: UNIQUE constraint 'ix_users_email' on 'email' may not have been created or was not detected.")
 
 
 @app.cli.command("ensure-schema")
 def ensure_schema_command():
     """Checks and ensures the 'page_num' column exists in the 'defect_markers' table."""
     with app.app_context():
+        inspector = inspect(db.engine)
         with db.engine.connect() as connection:
             try:
                 print("Checking for 'page_num' column in 'defect_markers' table...")
-                result = connection.execute(db.text("PRAGMA table_info(defect_markers);"))
-                columns = [row[1] for row in result] # column name is at index 1
-
-                if 'defect_markers' not in inspect(db.engine).get_table_names():
+                if 'defect_markers' not in inspector.get_table_names():
                     print("Error: 'defect_markers' table does not exist. Please run init_db or ensure migrations are applied first.")
                     return
 
+                columns = [col['name'] for col in inspector.get_columns('defect_markers')]
+
                 if 'page_num' not in columns:
                     print("'page_num' column not found in 'defect_markers'. Adding column...")
+                    # For PostgreSQL, the ALTER TABLE syntax is similar for adding a column.
+                    # However, using SQLAlchemy Core for DDL is more portable if complex changes are needed.
+                    # For this simple case, direct SQL is often fine.
                     connection.execute(db.text("ALTER TABLE defect_markers ADD COLUMN page_num INTEGER NOT NULL DEFAULT 1;"))
                     connection.commit() # Important: commit DDL changes
                     print("'page_num' column added to 'defect_markers' table successfully.")
@@ -4562,3 +4552,4 @@ def ensure_schema_command():
                     print("'page_num' column already exists in 'defect_markers' table.")
             except Exception as e:
                 print(f"Error during schema check/update: {str(e)}")
+                connection.rollback() # Ensure rollback on error
