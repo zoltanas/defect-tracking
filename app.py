@@ -1052,6 +1052,7 @@ def import_project():
         return redirect(request.referrer or url_for('edit_profile'))
 
     file = request.files['project_zip']
+    uploaded_master_zip_filename = file.filename # Store the master ZIP filename
     if file.filename == '':
         flash('No file selected for upload.', 'error')
         return redirect(request.referrer or url_for('edit_profile'))
@@ -1096,59 +1097,74 @@ def import_project():
             successful_imports_names = []
             failed_imports_details = []
 
-            for inner_zip_path in inner_zip_files:
-                current_inner_project_dir = None
-                inner_zip_filename = os.path.basename(inner_zip_path)
-                try:
-                    current_inner_project_dir = tempfile.mkdtemp()
-                    with zipfile.ZipFile(inner_zip_path, 'r') as inner_zip_ref:
-                        inner_zip_ref.extractall(current_inner_project_dir)
-
-                    if not os.path.exists(os.path.join(current_inner_project_dir, 'project_data.json')):
-                        logger.warning(f"Inner ZIP '{inner_zip_filename}' does not contain project_data.json at its root.")
-                        failed_imports_details.append({'name': inner_zip_filename, 'reason': 'project_data.json not found'})
-                        if current_inner_project_dir and os.path.exists(current_inner_project_dir): # Cleanup inner dir
-                            shutil.rmtree(current_inner_project_dir)
+            # This 'if' block now correctly encompasses the master ZIP processing
+            if inner_zip_files:
+                for inner_zip_path in inner_zip_files:
+                    # *** ADDED BLOCK TO SKIP MASTER ZIP IF FOUND INSIDE ITSELF ***
+                    current_inner_zip_filename = os.path.basename(inner_zip_path)
+                    if current_inner_zip_filename == uploaded_master_zip_filename:
+                        logger.warning(f"Skipping processing of master ZIP file ('{current_inner_zip_filename}') found within its own extracted contents. This is a safeguard.")
                         continue
+                    # *** END OF ADDED BLOCK ***
+                    current_inner_project_dir = None
+                    inner_zip_filename = os.path.basename(inner_zip_path) # This line is now redundant due to the block above, but harmless
+                    try:
+                        current_inner_project_dir = tempfile.mkdtemp()
+                        with zipfile.ZipFile(inner_zip_path, 'r') as inner_zip_ref:
+                            inner_zip_ref.extractall(current_inner_project_dir)
 
-                    logger.info(f"Attempting import of inner project from: {current_inner_project_dir} (Original name: {inner_zip_filename})")
-                    success, message, new_project_id = _perform_single_project_import(current_inner_project_dir, current_user.id)
-                    if success:
-                        successful_imports_names.append(message)
-                    else:
-                        failed_imports_details.append({'name': inner_zip_filename, 'reason': message})
-                except zipfile.BadZipFile:
-                    logger.error(f"Inner ZIP file '{inner_zip_filename}' is corrupted or not a valid ZIP.")
-                    failed_imports_details.append({'name': inner_zip_filename, 'reason': 'Corrupted or invalid ZIP file'})
-                except Exception as e_inner:
-                    logger.error(f"Error processing inner ZIP '{inner_zip_filename}': {str(e_inner)}", exc_info=True)
-                    failed_imports_details.append({'name': inner_zip_filename, 'reason': f'Unexpected error: {str(e_inner)}'})
-                finally:
-                    if current_inner_project_dir and os.path.exists(current_inner_project_dir):
-                        shutil.rmtree(current_inner_project_dir)
+                        if not os.path.exists(os.path.join(current_inner_project_dir, 'project_data.json')):
+                            logger.warning(f"Inner ZIP '{inner_zip_filename}' does not contain project_data.json at its root.")
+                            failed_imports_details.append({'name': inner_zip_filename, 'reason': 'project_data.json not found'})
+                            if current_inner_project_dir and os.path.exists(current_inner_project_dir): # Cleanup inner dir
+                                shutil.rmtree(current_inner_project_dir)
+                            continue
 
-            # This block is now correctly indented to be part of the 'if inner_zip_files:'
-            flash_messages_parts = []
-            if successful_imports_names:
-                flash_messages_parts.append(f"Successfully imported: {', '.join(successful_imports_names)}.")
-            if failed_imports_details:
-                failed_reasons_str = "; ".join([f"'{f['name']}' ({f['reason']})" for f in failed_imports_details])
-                flash_messages_parts.append(f"Failed to import: {failed_reasons_str}.")
+                        logger.info(f"Attempting import of inner project from: {current_inner_project_dir} (Original name: {inner_zip_filename})")
+                        success, message, new_project_id = _perform_single_project_import(current_inner_project_dir, current_user.id)
+                        if success:
+                            successful_imports_names.append(message)
+                        else:
+                            failed_imports_details.append({'name': inner_zip_filename, 'reason': message})
+                    except zipfile.BadZipFile:
+                        logger.error(f"Inner ZIP file '{inner_zip_filename}' is corrupted or not a valid ZIP.")
+                        failed_imports_details.append({'name': inner_zip_filename, 'reason': 'Corrupted or invalid ZIP file'})
+                    except Exception as e_inner:
+                        logger.error(f"Error processing inner ZIP '{inner_zip_filename}': {str(e_inner)}", exc_info=True)
+                        failed_imports_details.append({'name': inner_zip_filename, 'reason': f'Unexpected error: {str(e_inner)}'})
+                    finally:
+                        if current_inner_project_dir and os.path.exists(current_inner_project_dir):
+                            shutil.rmtree(current_inner_project_dir)
 
-            if flash_messages_parts:
-                flash_message_summary = " ".join(flash_messages_parts)
-                flash_category = 'info'
-                if failed_imports_details and not successful_imports_names:
-                    flash_category = 'error'
-                elif failed_imports_details and successful_imports_names:
-                    flash_category = 'warning'
-                elif successful_imports_names and not failed_imports_details:
-                    flash_category = 'success'
-                flash(flash_message_summary, flash_category)
-            else: # This case implies inner_zip_files was not empty, but nothing was processed (e.g. all inner zips were faulty before _perform_single_project_import)
-                flash("No projects were successfully processed from the master ZIP. Some inner ZIPs might have been invalid or empty.", 'warning')
-            return redirect(url_for('edit_profile'))
-        # The 'else' for 'if not inner_zip_files' (invalid format) is handled above with an early return.
+                logger.debug(f"Before building master ZIP summary flash: successful_imports_names = {successful_imports_names}")
+                logger.debug(f"Before building master ZIP summary flash: failed_imports_details = {failed_imports_details}")
+                # Flash message logic for master ZIP processing outcomes
+                if successful_imports_names or failed_imports_details: # Only flash summary if attempts were made on inner zips
+                    flash_messages_parts = []
+                    if successful_imports_names:
+                        flash_messages_parts.append(f"Successfully imported: {', '.join(successful_imports_names)}.")
+                    if failed_imports_details:
+                        failed_strings = [f"'{item['name']}' ({item['reason']})" for item in failed_imports_details]
+                        flash_messages_parts.append(f"Failed to import: {'; '.join(failed_strings)}.")
+
+                    final_message = " ".join(flash_messages_parts)
+                    if not successful_imports_names and failed_imports_details:
+                        flash(final_message, "error")
+                    elif successful_imports_names and failed_imports_details:
+                        flash(final_message, "warning")
+                    elif successful_imports_names and not failed_imports_details:
+                        flash(final_message, "success")
+                    # else: No explicit message if flash_messages_parts is empty, implying no processable inner zips.
+                else: # This means inner_zip_files was true, but the loop didn't populate success/failure (e.g. all inner zips were empty/corrupt before _perform_single_project_import)
+                    flash("Master ZIP processed, but no valid project data was found in the inner ZIP files, or inner ZIPs were empty/corrupt.", "warning")
+                return redirect(url_for('edit_profile'))
+
+            else: # This 'else' corresponds to 'if not inner_zip_files' - Invalid Format Path
+                  # This block should have already been executed and returned if no inner_zip_files were found.
+                  # Re-affirming the logger and flash for clarity, though the previous structure should handle this.
+                logger.warning(f"No project_data.json at root and no inner ZIPs found in {extraction_temp_dir}. Treating as invalid format.")
+                flash("The uploaded ZIP file does not appear to be a valid single project (missing project_data.json at root) and does not contain any inner project .zip files. Please check the ZIP file structure.", "error")
+                return redirect(url_for('edit_profile'))
 
     except zipfile.BadZipFile:
         logger.error("Uploaded file is corrupted or not a valid ZIP file.")
@@ -1221,7 +1237,7 @@ def export_all_projects():
                 flash(f"Failed projects: {', '.join(failed_project_names)}", 'error')
             return redirect(url_for('edit_profile'))
 
-        master_zip_filename_base = f"all_projects_export_{current_user.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        master_zip_filename_base = f"MASTER_EXPORT_ALL_{current_user.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         # shutil.make_archive will create a zip file containing the contents of main_temp_dir_for_individual_zips
         # The third argument to make_archive is the root directory to be zipped.
