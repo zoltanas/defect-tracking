@@ -14,3 +14,4 @@ pdf2image
 gunicorn
 Flask-Mail==0.9.1
 python-dotenv
+psycopg2-binary
