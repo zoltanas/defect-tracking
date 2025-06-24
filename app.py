@@ -45,7 +45,15 @@ app.config['SECRET_KEY'] = 'your-secret-key'
 # Example for PostgreSQL: postgresql://username:password@host:port/database_name
 default_pg_uri = 'postgresql://pguser:pgpassword@localhost:5432/myappdb'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', default_pg_uri)
+# For PgBouncer, ensure SQLALCHEMY_DATABASE_URI points to the PgBouncer instance,
+# e.g., 'postgresql://user:pass@pgbouncer_host:pgbouncer_port/database_name'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': int(os.environ.get('SQLALCHEMY_POOL_SIZE', 10)),
+    'max_overflow': int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', 20)),
+    'pool_recycle': int(os.environ.get('SQLALCHEMY_POOL_RECYCLE', 300)),  # e.g., 300 seconds = 5 minutes
+    'pool_pre_ping': os.environ.get('SQLALCHEMY_POOL_PRE_PING', 'true').lower() == 'true'
+}
 app.config['UPLOAD_FOLDER'] = 'static/images'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'pdf'}
 app.config['DRAWING_FOLDER'] = 'static/drawings'
