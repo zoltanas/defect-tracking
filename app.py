@@ -287,7 +287,9 @@ except Exception as e:
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    # Eagerly load the 'projects' relationship to prevent DetachedInstanceError
+    # when accessing current_user.projects after the initial session might be closed.
+    return User.query.options(joinedload(User.projects)).get(int(user_id))
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
