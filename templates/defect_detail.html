@@ -234,7 +234,16 @@
                         {% for comment in comments %}
                             <div class="p-4 bg-gray-50 rounded-lg border border-gray-200" id="comment-{{ comment.id }}">
                                 <div class="flex justify-between items-center mb-1">
-                                    <p class="text-sm font-semibold text-primary">{{ comment.user.username }}</p>
+                                    <p class="text-sm font-semibold text-primary">
+                                        {% if comment.user.name and comment.user.name != "N/A" %}
+                                            {{ comment.user.name }}
+                                            {% if comment.user.company and comment.user.company != "N/A" %}
+                                                ({{ comment.user.company }})
+                                            {% endif %}
+                                        {% else %}
+                                            {{ comment.user.username }} {# Fallback to username if name is N/A or missing #}
+                                        {% endif %}
+                                    </p>
                                     <div class="flex items-center space-x-2">
                                         <p class="text-xs text-gray-500">
                                             {{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}
