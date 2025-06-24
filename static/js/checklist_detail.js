@@ -306,8 +306,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const commentResult = await commentResponse.json();
 
-            const commentsViewDiv = viewModeDiv.querySelector('.checklist-item-comments-display');
-            if (commentsViewDiv) commentsViewDiv.textContent = commentResult.new_comments || comments;
+            // Call the new function to update the comment view
+            updateCommentView(checklistItem, commentResult.new_comments || comments);
 
         } catch (error) {
             console.error('Error saving comments:', error.message);
@@ -394,6 +394,61 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (error) {
             console.error('Error deleting attachment:', error.message);
+        }
+    }
+
+    function updateCommentView(checklistItem, newCommentText) {
+        const viewModeDiv = checklistItem.querySelector('.item-view-mode');
+        if (!viewModeDiv) {
+            console.error('updateCommentView: Could not find viewModeDiv for item', checklistItem);
+            return;
+        }
+
+        // Find or create the main container for comments and attachments if it doesn't exist
+        const commentsAndAttachmentsAreaSelector = '.border-t.border-gray-200.mt-3.pt-3';
+        let commentsAndAttachmentsArea = viewModeDiv.querySelector(commentsAndAttachmentsAreaSelector);
+        if (!commentsAndAttachmentsArea) {
+            commentsAndAttachmentsArea = document.createElement('div');
+            commentsAndAttachmentsArea.className = 'border-t border-gray-200 mt-3 pt-3';
+            // Append it to viewModeDiv, perhaps before an existing attachments-only area if that's structured separately
+            // For simplicity, appending directly. Structure might need review based on HTML.
+            viewModeDiv.appendChild(commentsAndAttachmentsArea);
+        }
+
+        // Find or create the comments display div
+        const commentsDisplaySelector = '.checklist-item-comments-display';
+        let commentsViewDiv = commentsAndAttachmentsArea.querySelector(commentsDisplaySelector);
+
+        if (!commentsViewDiv) {
+            commentsViewDiv = document.createElement('div');
+            commentsViewDiv.className = 'text-sm text-gray-700 mb-2 checklist-item-comments-display'; // Added mb-2 for spacing
+            // Prepend comment to keep it above attachments, or append based on desired layout
+            // If attachments are in their own sub-container, this logic is simpler.
+            // Assuming comments should appear before attachments within commentsAndAttachmentsArea.
+            const firstChild = commentsAndAttachmentsArea.firstChild;
+            if (firstChild) {
+                commentsAndAttachmentsArea.insertBefore(commentsViewDiv, firstChild);
+            } else {
+                commentsAndAttachmentsArea.appendChild(commentsViewDiv);
+            }
+        }
+
+        // Update the comment text
+        commentsViewDiv.textContent = newCommentText;
+
+        // Ensure the comment area is visible if text is present
+        if (newCommentText && newCommentText.trim() !== '') {
+            commentsViewDiv.classList.remove('hidden');
+            commentsAndAttachmentsArea.classList.remove('hidden'); // Ensure parent area is also visible
+        } else {
+            // If comment text is empty, hide the specific comment div
+            // but don't necessarily hide commentsAndAttachmentsArea if attachments might still be there.
+            commentsViewDiv.classList.add('hidden');
+            // Optionally, if commentsAndAttachmentsArea should hide when BOTH comments and attachments are empty:
+            // const attachmentsExist = commentsAndAttachmentsArea.querySelector('.attachments-grid-view'); // Example selector
+            // if (!attachmentsExist || attachmentsExist.children.length === 0) {
+            // commentsAndAttachmentsArea.classList.add('hidden');
+            // }
         }
     }
 });
