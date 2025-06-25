@@ -40,20 +40,28 @@ app = Flask(__name__)
 csrf = CSRFProtect(app)
 app.config['SECRET_KEY'] = 'your-secret-key'
 
-# Set PostgreSQL database URI
-# The recommended way is to set the SQLALCHEMY_DATABASE_URI environment variable.
-# Example for PostgreSQL: postgresql://username:password@host:port/database_name
-default_pg_uri = 'postgresql://pguser:pgpassword@localhost:5432/myappdb'
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', default_pg_uri)
-# For PgBouncer, ensure SQLALCHEMY_DATABASE_URI points to the PgBouncer instance,
-# e.g., 'postgresql://user:pass@pgbouncer_host:pgbouncer_port/database_name'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': int(os.environ.get('SQLALCHEMY_POOL_SIZE', 10)),
-    'max_overflow': int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', 20)),
-    'pool_recycle': int(os.environ.get('SQLALCHEMY_POOL_RECYCLE', 300)),  # e.g., 300 seconds = 5 minutes
-    'pool_pre_ping': os.environ.get('SQLALCHEMY_POOL_PRE_PING', 'true').lower() == 'true'
-}
+# Determine which database to use
+USE_SQLITE = os.environ.get('USE_SQLITE', 'False').lower() == 'true'
+
+if USE_SQLITE:
+    # Configure for SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance/myapp.db')
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # SQLite does not require connection pooling options like PostgreSQL
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {}
+    print("Using SQLite database.")
+else:
+    # Configure for PostgreSQL
+    default_pg_uri = 'postgresql://pguser:pgpassword@localhost:5432/myappdb'
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', default_pg_uri)
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': int(os.environ.get('SQLALCHEMY_POOL_SIZE', 10)),
+        'max_overflow': int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', 20)),
+        'pool_recycle': int(os.environ.get('SQLALCHEMY_POOL_RECYCLE', 300)),
+        'pool_pre_ping': os.environ.get('SQLALCHEMY_POOL_PRE_PING', 'true').lower() == 'true'
+    }
+    print("Using PostgreSQL database.")
 app.config['UPLOAD_FOLDER'] = 'static/images'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'pdf'}
 app.config['DRAWING_FOLDER'] = 'static/drawings'
@@ -121,7 +129,7 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
 # Database Models
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, index=True) # Added index=True for user_id (PK)
     username = db.Column(db.String(255), unique=True, nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=True)
     password = db.Column(db.String(255), nullable=False)
@@ -139,15 +147,11 @@ class ProjectAccess(db.Model):
     role = db.Column(db.String(50), nullable=False)
     user = db.relationship('User', back_populates='projects')
     project = db.relationship('Project')
-    __table_args__ = (
-        db.Index('ix_project_access_user_id', 'user_id'),
-        db.Index('ix_project_access_project_id', 'project_id'),
-    )
 
 class Project(db.Model):
     __tablename__ = 'projects'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), index=True) # Added index for project name
+    name = db.Column(db.String(255))
     defects = db.relationship('Defect', back_populates='project', cascade='all, delete-orphan')
     checklists = db.relationship('Checklist', back_populates='project', cascade='all, delete-orphan')
     accesses = db.relationship('ProjectAccess', back_populates='project', cascade='all, delete-orphan')
@@ -156,7 +160,7 @@ class Project(db.Model):
 class Defect(db.Model):
     __tablename__ = 'defects'
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'))
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), index=True)
     description = db.Column(db.String(255))
     status = db.Column(db.String(50), default='open')
     creation_date = db.Column(db.DateTime)
@@ -167,12 +171,6 @@ class Defect(db.Model):
     comments = db.relationship('Comment', back_populates='defect', cascade='all, delete-orphan')
     creator = db.relationship('User')
     markers = db.relationship('DefectMarker', back_populates='defect', cascade='all, delete-orphan')
-    __table_args__ = (
-        db.Index('ix_defect_project_id', 'project_id'),
-        db.Index('ix_defect_status', 'status'),
-        db.Index('ix_defect_creator_id', 'creator_id'),
-        db.Index('ix_defect_creation_date', 'creation_date'),
-    )
 
 class Drawing(db.Model):
     __tablename__ = 'drawings'
@@ -183,14 +181,11 @@ class Drawing(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     project = db.relationship('Project', back_populates='drawings')
     markers = db.relationship('DefectMarker', back_populates='drawing', cascade='all, delete-orphan')
-    __table_args__ = (
-        db.Index('ix_drawing_project_id', 'project_id'),
-    )
 
 class DefectMarker(db.Model):
     __tablename__ = 'defect_markers'
     id = db.Column(db.Integer, primary_key=True)
-    defect_id = db.Column(db.Integer, db.ForeignKey('defects.id'), nullable=False)
+    defect_id = db.Column(db.Integer, db.ForeignKey('defects.id'), nullable=False, index=True)
     drawing_id = db.Column(db.Integer, db.ForeignKey('drawings.id'), nullable=False)
     x = db.Column(db.Float, nullable=False)  # Normalized x-coordinate (0 to 1)
     y = db.Column(db.Float, nullable=False)  # Normalized y-coordinate (0 to 1)
@@ -198,10 +193,6 @@ class DefectMarker(db.Model):
     page_num = db.Column(db.Integer, nullable=False, default=1) 
     defect = db.relationship('Defect', back_populates='markers')
     drawing = db.relationship('Drawing', back_populates='markers')
-    __table_args__ = (
-        db.Index('ix_defect_marker_defect_id', 'defect_id'),
-        db.Index('ix_defect_marker_drawing_id', 'drawing_id'),
-    )
 
     def to_dict(self):
         return {
@@ -227,16 +218,11 @@ class Comment(db.Model):
     defect = db.relationship('Defect', back_populates='comments')
     user = db.relationship('User')
     attachments = db.relationship('Attachment', back_populates='comment', cascade='all, delete-orphan')
-    __table_args__ = (
-        db.Index('ix_comment_defect_id', 'defect_id'),
-        db.Index('ix_comment_user_id', 'user_id'),
-        db.Index('ix_comment_created_at', 'created_at'),
-    )
 
 class Attachment(db.Model):
     __tablename__ = 'attachments'
     id = db.Column(db.Integer, primary_key=True)
-    defect_id = db.Column(db.Integer, db.ForeignKey('defects.id'))
+    defect_id = db.Column(db.Integer, db.ForeignKey('defects.id'), index=True)
     checklist_item_id = db.Column(db.Integer, db.ForeignKey('checklist_items.id'))
     comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'))
     file_path = db.Column(db.String(255))
@@ -245,16 +231,11 @@ class Attachment(db.Model):
     defect = db.relationship('Defect', back_populates='attachments')
     checklist_item = db.relationship('ChecklistItem', back_populates='attachments')
     comment = db.relationship('Comment', back_populates='attachments')
-    __table_args__ = (
-        db.Index('ix_attachment_defect_id', 'defect_id'),
-        db.Index('ix_attachment_checklist_item_id', 'checklist_item_id'),
-        db.Index('ix_attachment_comment_id', 'comment_id'),
-    )
 
 class Template(db.Model):
     __tablename__ = 'templates'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), index=True) # Added index for template name
+    name = db.Column(db.String(255))
     items = db.relationship('TemplateItem', back_populates='template', cascade='all, delete-orphan')
 
 class TemplateItem(db.Model):
@@ -263,23 +244,16 @@ class TemplateItem(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey('templates.id'))
     item_text = db.Column(db.String(255))
     template = db.relationship('Template', back_populates='items')
-    __table_args__ = (
-        db.Index('ix_template_item_template_id', 'template_id'),
-    )
 
 class Checklist(db.Model):
     __tablename__ = 'checklists'
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'))
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), index=True)
     template_id = db.Column(db.Integer, db.ForeignKey('templates.id'))
     name = db.Column(db.String(255), nullable=False)
     creation_date = db.Column(db.DateTime, default=datetime.now)
     project = db.relationship('Project', back_populates='checklists')
     items = db.relationship('ChecklistItem', back_populates='checklist', cascade='all, delete-orphan')
-    __table_args__ = (
-        db.Index('ix_checklist_project_id', 'project_id'),
-        db.Index('ix_checklist_template_id', 'template_id'),
-    )
 
 class ChecklistItem(db.Model):
     __tablename__ = 'checklist_items'
@@ -290,10 +264,6 @@ class ChecklistItem(db.Model):
     comments = db.Column(db.String(255), default='')
     checklist = db.relationship('Checklist', back_populates='items')
     attachments = db.relationship('Attachment', back_populates='checklist_item', cascade='all, delete-orphan')
-    __table_args__ = (
-        db.Index('ix_checklist_item_checklist_id', 'checklist_id'),
-        db.Index('ix_checklist_item_is_checked', 'is_checked'),
-    )
 
 # Database initialization
 db_init_lock = Lock()
