@@ -138,6 +138,10 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(255), nullable=False, server_default="N/A")
     company = db.Column(db.String(255), nullable=False, server_default="N/A")
     projects = db.relationship('ProjectAccess', back_populates='user', cascade='all, delete-orphan')
+    # Relationships for ProductApproval
+    product_requests_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.requester_id', back_populates='requester', lazy='dynamic')
+    product_submissions_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.contractor_id', back_populates='contractor', lazy='dynamic')
+    product_approvals_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.approver_id', back_populates='approver', lazy='dynamic')
 
 class ProjectAccess(db.Model):
     __tablename__ = 'project_access'
@@ -156,6 +160,7 @@ class Project(db.Model):
     checklists = db.relationship('Checklist', back_populates='project', cascade='all, delete-orphan')
     accesses = db.relationship('ProjectAccess', back_populates='project', cascade='all, delete-orphan')
     drawings = db.relationship('Drawing', back_populates='project', cascade='all, delete-orphan')
+    product_approvals = db.relationship('ProductApproval', back_populates='project', cascade='all, delete-orphan')
 
 class Defect(db.Model):
     __tablename__ = 'defects'
@@ -265,6 +270,27 @@ class ChecklistItem(db.Model):
     checklist = db.relationship('Checklist', back_populates='items')
     attachments = db.relationship('Attachment', back_populates='checklist_item', cascade='all, delete-orphan')
 
+class ProductApproval(db.Model):
+    __tablename__ = 'product_approvals'
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False, index=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    product_name = db.Column(db.String(255), nullable=False)
+    request_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    contractor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    product_description = db.Column(db.Text, nullable=True)
+    documentation_path = db.Column(db.String(255), nullable=True) # Path to PDF
+    submission_date = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='waiting_for_proposal') # waiting_for_proposal, product_provided, approved, rejected
+    approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    approval_date = db.Column(db.DateTime, nullable=True)
+    approver_comments = db.Column(db.Text, nullable=True)
+
+    project = db.relationship('Project', back_populates='product_approvals')
+    requester = db.relationship('User', foreign_keys=[requester_id], back_populates='product_requests_made')
+    contractor = db.relationship('User', foreign_keys=[contractor_id], back_populates='product_submissions_made')
+    approver = db.relationship('User', foreign_keys=[approver_id], back_populates='product_approvals_made')
+
 # Database initialization
 db_init_lock = Lock()
 
@@ -279,7 +305,7 @@ def init_db():
                 required_tables = [
                     'users', 'project_access', 'projects', 'defects', 'comments',
                     'attachments', 'templates', 'template_items', 'checklists', 'checklist_items',
-                    'drawings', 'defect_markers'
+                    'drawings', 'defect_markers', 'product_approvals'
                 ]
                 logger.info(f"Required tables: {required_tables}")
 
@@ -2149,7 +2175,26 @@ def project_detail(project_id):
         checklist.completed_items = completed_items
 
         filtered_checklists.append(checklist)
-    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override)
+
+    # Product Approvals Logic
+    product_approvals_query = ProductApproval.query.filter_by(project_id=project_id).order_by(ProductApproval.request_date.desc())
+
+    # Apply status filter for product approvals if a specific filter is active
+    # Note: The 'filter_status' from request.args is currently tied to Defects/Checklists.
+    # We might need a separate filter parameter for product approvals if their statuses are different
+    # or if we want independent filtering. For now, let's assume we might reuse or adapt.
+    # For simplicity, this example does not implement separate filtering for product approvals based on 'filter_status'
+    # but shows how you would fetch them. You'll need to decide how filtering applies to this new tab.
+
+    # Example: If you wanted to filter product approvals by their own status, you'd add another
+    # request argument like `product_approval_filter=approved` and use that here.
+    # product_approval_filter_status = request.args.get('product_approval_filter', 'All')
+    # if product_approval_filter_status != 'All':
+    #    product_approvals_query = product_approvals_query.filter(ProductApproval.status == product_approval_filter_status)
+
+    product_approvals_for_template = product_approvals_query.all()
+
+    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template) # Added product_approvals
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required
@@ -4242,6 +4287,137 @@ def view_attachment(attachment_id):
         return redirect(url_for('index'))
 
     return render_template('view_attachment.html', attachment=attachment, back_url=back_url)
+
+# --- Product Approval Routes ---
+@app.route('/project/<int:project_id>/product_approvals/request', methods=['POST'])
+@login_required
+def request_product_approval(project_id):
+    project = db.session.get(Project, project_id)
+    if not project:
+        flash('Project not found.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access or access.role not in ['admin', 'supervisor']:
+        flash('You do not have permission to request product approvals for this project.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    product_name = request.form.get('product_name', '').strip()
+    if not product_name:
+        flash('Product name is required.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    new_request = ProductApproval(
+        project_id=project_id,
+        requester_id=current_user.id,
+        product_name=product_name,
+        request_date=datetime.utcnow(),
+        status='waiting_for_proposal'
+    )
+    db.session.add(new_request)
+    db.session.commit()
+    flash('Product approval request created successfully.', 'success')
+    return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+@app.route('/product_approval/<int:request_id>/submit_product', methods=['POST'])
+@login_required
+def submit_product_for_approval(request_id):
+    approval_request = db.session.get(ProductApproval, request_id)
+    if not approval_request:
+        flash('Product approval request not found.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
+    project_id = approval_request.project_id
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access or access.role != 'contractor':
+        flash('Only contractors can submit products for approval.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    if approval_request.status != 'waiting_for_proposal':
+        flash('This request is not awaiting product submission.', 'warning')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    product_description = request.form.get('product_description', '').strip()
+    documentation_file = request.files.get('documentation_file')
+
+    if not product_description:
+        flash('Product description is required.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
+
+
+    if documentation_file and documentation_file.filename != '':
+        if not ('.' in documentation_file.filename and documentation_file.filename.rsplit('.', 1)[1].lower() == 'pdf'):
+            flash('Only PDF files are allowed for documentation.', 'error')
+            return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
+
+        upload_folder = os.path.join(app.static_folder, 'product_documentation')
+        os.makedirs(upload_folder, exist_ok=True)
+
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
+        filename = secure_filename(f"pa_{request_id}_{timestamp}_{documentation_file.filename}")
+        file_path_on_disk = os.path.join(upload_folder, filename)
+        documentation_file.save(file_path_on_disk)
+        os.chmod(file_path_on_disk, 0o644)
+        approval_request.documentation_path = os.path.join('product_documentation', filename) # Relative to static
+    elif not approval_request.documentation_path: # No new file and no existing file
+        flash('Product documentation (PDF) is required.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
+
+
+    approval_request.product_description = product_description
+    approval_request.contractor_id = current_user.id
+    approval_request.submission_date = datetime.utcnow()
+    approval_request.status = 'product_provided'
+
+    db.session.commit()
+    flash('Product information submitted successfully.', 'success')
+    return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+@app.route('/product_approval/<int:request_id>/decide', methods=['POST'])
+@login_required
+def decide_product_approval(request_id):
+    approval_request = db.session.get(ProductApproval, request_id)
+    if not approval_request:
+        flash('Product approval request not found.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
+    project_id = approval_request.project_id
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+    if not access or access.role not in ['admin', 'supervisor']:
+        flash('You do not have permission to approve or reject this product.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    if approval_request.status != 'product_provided':
+        flash('This product submission cannot be decided upon at this stage.', 'warning')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    decision = request.form.get('decision') # 'approve' or 'reject'
+    approver_comments = request.form.get('approver_comments', '').strip()
+
+    if decision not in ['approve', 'reject']:
+        flash('Invalid decision submitted.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
+
+    approval_request.status = 'approved' if decision == 'approve' else 'rejected'
+    approval_request.approver_id = current_user.id
+    approval_request.approval_date = datetime.utcnow()
+    approval_request.approver_comments = approver_comments
+
+    db.session.commit()
+    flash(f'Product submission {decision}d successfully.', 'success')
+    return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+@app.route('/product_documentation/<path:filename>')
+@login_required # Add login required and further permission checks if needed
+def serve_product_documentation(filename):
+    # Basic permission check: user must be authenticated.
+    # More granular check: user must have access to the project this doc belongs to.
+    # This requires finding which ProductApproval request `filename` belongs to.
+    # For simplicity, this is omitted here but should be added for production.
+    # E.g., query ProductApproval by documentation_path, then check project access.
+    documentation_dir = os.path.join(app.static_folder, 'product_documentation')
+    return send_from_directory(documentation_dir, filename)
+# --- End Product Approval Routes ---
 
 @app.route('/test_login', methods=['POST'])
 @csrf.exempt

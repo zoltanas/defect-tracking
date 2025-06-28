@@ -51,6 +51,7 @@
     <div id="tab-navigation" class="flex" style="visibility: hidden;">
         <button id="defects-tab-button" class="{{ defects_button_classes }}">Defects</button>
         <button id="checklists-tab-button" class="{{ checklists_button_classes }}">Checklists</button>
+        <button id="products-approval-tab-button" class="{{ base_button_classes + ' ' + (inactive_button_style if active_tab_name != 'products_approval' else active_button_style) }}">Products Approval</button>
     </div>
     <div class="bg-white shadow-lg rounded-b-lg border-l border-r border-b border-gray-300">
         <!-- Actions and Filter Card -->
@@ -92,12 +93,22 @@
                         <option value="Closed" {% if filter_status == 'Closed' %}selected{% endif %}>Closed</option>
                     </select>
                 </div>
+                <div id="filter-products-approval-wrapper" class="flex items-center gap-2 mt-3 sm:mt-0 w-full sm:w-auto hidden">
+                    <label for="filter_products_approval" class="text-sm font-medium text-gray-700 mr-2">Filter:</label>
+                    <select id="filter_products_approval" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value + '&active_tab_override=products_approval#products_approval'" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                        <option value="All" {% if filter_status == 'All' %}selected{% endif %}>All Requests</option>
+                        <option value="waiting_for_proposal" {% if filter_status == 'waiting_for_proposal' %}selected{% endif %}>Waiting for Proposal</option>
+                        <option value="product_provided" {% if filter_status == 'product_provided' %}selected{% endif %}>Product Provided</option>
+                        <option value="approved" {% if filter_status == 'approved' %}selected{% endif %}>Approved</option>
+                        <option value="rejected" {% if filter_status == 'rejected' %}selected{% endif %}>Rejected</option>
+                    </select>
+                </div>
             </div>
         </div>
 
         <!-- Tab Panes Wrapper -->
         <div id="tab-panes-wrapper" style="visibility: hidden;">
-            <div id="defects-pane" class="tab-pane px-4 {% if active_tab_name == 'checklists' %}hidden{% endif %}" {% if active_tab_name == 'checklists' %}style="display: none;"{% endif %}> {# Correct: shows if active_tab_name is 'defects' or undefined #}
+            <div id="defects-pane" class="tab-pane px-4 {% if active_tab_name != 'defects' and active_tab_name and active_tab_name != 'products_approval' %}hidden{% endif %}" {% if active_tab_name != 'defects' and active_tab_name and active_tab_name != 'products_approval' %}style="display: none;"{% endif %}>
                 <div class="mb-8">
                     {% if defects %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -152,8 +163,117 @@
                 {% endif %}
             </div>
         </div>
-        <div id="checklists-pane" class="tab-pane px-4 {% if active_tab_name == 'checklists' %}{% else %}hidden{% endif %}" {% if active_tab_name != 'checklists' %}style="display: none;"{% endif %}> {# Correct: shows if active_tab_name is 'checklists', hidden otherwise #}
-            <div class="mb-8"> {# Assuming Checklists section should also have mb-8, adding it for consistency #}
+        <div id="products-approval-pane" class="tab-pane px-4 {% if active_tab_name == 'products_approval' %}{% else %}hidden{% endif %}" {% if active_tab_name != 'products_approval' %}style="display: none;"{% endif %}>
+            <div class="mb-8">
+                {% if user_role in ['admin', 'supervisor'] %}
+                <div class="bg-gray-50 p-4 rounded-lg shadow mb-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">Create New Product Approval Request</h3>
+                    <form action="{{ url_for('request_product_approval', project_id=project.id) }}" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-4">
+                            <label for="product_name" class="block text-sm font-medium text-gray-700">Product Name</label>
+                            <input type="text" name="product_name" id="product_name" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                        </div>
+                        <button type="submit" class="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Request</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if product_approvals %}
+                    <div class="space-y-6">
+                        {% for pa_request in product_approvals %}
+                        <div class="bg-white p-5 rounded-lg shadow-lg border border-gray-200" id="pa-{{ pa_request.id }}">
+                            <h3 class="text-xl font-semibold text-primary mb-2">{{ pa_request.product_name }}</h3>
+                            <p class="text-sm text-gray-500 mb-1">Requested by: {{ pa_request.requester.name if pa_request.requester else 'N/A' }} on {{ pa_request.request_date.strftime('%Y-%m-%d %H:%M') }}</p>
+                            <p class="mb-3">
+                                <span class="inline-block px-3 py-1 text-xs font-medium rounded-full
+                                {% if pa_request.status == 'waiting_for_proposal' %} bg-blue-100 text-blue-800
+                                {% elif pa_request.status == 'product_provided' %} bg-yellow-100 text-yellow-800
+                                {% elif pa_request.status == 'approved' %} bg-green-100 text-green-800
+                                {% elif pa_request.status == 'rejected' %} bg-red-100 text-red-800
+                                {% else %} bg-gray-100 text-gray-800
+                                {% endif %}">
+                                {{ pa_request.status.replace('_', ' ')|title }}
+                                </span>
+                            </p>
+
+                            {% if pa_request.status == 'waiting_for_proposal' and user_role == 'contractor' %}
+                            <form action="{{ url_for('submit_product_for_approval', request_id=pa_request.id) }}" method="POST" enctype="multipart/form-data" class="mt-4 space-y-3">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div>
+                                    <label for="product_description_{{ pa_request.id }}" class="block text-sm font-medium text-gray-700">Product Description</label>
+                                    <textarea name="product_description" id="product_description_{{ pa_request.id }}" rows="3" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"></textarea>
+                                </div>
+                                <div>
+                                    <label for="documentation_file_{{ pa_request.id }}" class="block text-sm font-medium text-gray-700">Product Documentation (PDF)</label>
+                                    <input type="file" name="documentation_file" id="documentation_file_{{ pa_request.id }}" accept=".pdf" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary hover:file:bg-primary-100">
+                                </div>
+                                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Submit Product Details</button>
+                            </form>
+                            {% endif %}
+
+                            {% if pa_request.product_description %}
+                            <div class="mt-3">
+                                <h4 class="font-semibold text-gray-700">Submitted Description:</h4>
+                                <p class="text-sm text-gray-600 whitespace-pre-wrap">{{ pa_request.product_description }}</p>
+                                {% if pa_request.contractor %}
+                                <p class="text-xs text-gray-500">Submitted by: {{ pa_request.contractor.name }} on {{ pa_request.submission_date.strftime('%Y-%m-%d %H:%M') if pa_request.submission_date }}</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            {% if pa_request.documentation_path %}
+                            <div class="mt-3">
+                                <h4 class="font-semibold text-gray-700">Documentation:</h4>
+                                <a href="{{ url_for('serve_product_documentation', filename=pa_request.documentation_path) }}" target="_blank" class="text-blue-600 hover:text-blue-800 hover:underline text-sm flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                    View Document
+                                </a>
+                            </div>
+                            {% endif %}
+
+                            {% if pa_request.status == 'product_provided' and user_role in ['admin', 'supervisor'] %}
+                            <form action="{{ url_for('decide_product_approval', request_id=pa_request.id) }}" method="POST" class="mt-4 space-y-3 border-t pt-4">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div>
+                                    <label for="approver_comments_{{ pa_request.id }}" class="block text-sm font-medium text-gray-700">Approver Comments (Optional)</label>
+                                    <textarea name="approver_comments" id="approver_comments_{{ pa_request.id }}" rows="2" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"></textarea>
+                                </div>
+                                <div class="flex space-x-3">
+                                    <button type="submit" name="decision" value="approve" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Approve</button>
+                                    <button type="submit" name="decision" value="reject" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium">Reject</button>
+                                </div>
+                            </form>
+                            {% endif %}
+
+                            {% if pa_request.status in ['approved', 'rejected'] and pa_request.approver %}
+                            <div class="mt-3 border-t pt-3">
+                                <h4 class="font-semibold text-gray-700">Decision: {{ pa_request.status|title }}</h4>
+                                <p class="text-sm text-gray-600">By: {{ pa_request.approver.name }} on {{ pa_request.approval_date.strftime('%Y-%m-%d %H:%M') if pa_request.approval_date }}</p>
+                                {% if pa_request.approver_comments %}
+                                <p class="text-sm text-gray-600 mt-1">Comments: {{ pa_request.approver_comments }}</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-8 bg-white p-6 rounded-lg shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-10 w-10 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" />
+                        </svg>
+                        <h3 class="mt-2 text-md font-medium text-gray-700">No Product Approval Requests</h3>
+                        <p class="mt-1 text-sm text-gray-500">There are currently no product approval requests for this project or matching your filter.</p>
+                        {% if user_role in ['admin', 'supervisor'] %}
+                        <p class="mt-2 text-sm text-gray-500">You can create one using the form above.</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        <div id="checklists-pane" class="tab-pane px-4 {% if active_tab_name == 'checklists' %}{% else %}hidden{% endif %}" {% if active_tab_name != 'checklists' %}style="display: none;"{% endif %}>
+            <div class="mb-8">
                 {% if checklists %}
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for checklist in checklists %}
@@ -414,109 +534,132 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const defectsTabButton = document.getElementById('defects-tab-button');
     const checklistsTabButton = document.getElementById('checklists-tab-button');
+    const productsApprovalTabButton = document.getElementById('products-approval-tab-button'); // New
     const defectsPane = document.getElementById('defects-pane');
     const checklistsPane = document.getElementById('checklists-pane');
+    const productsApprovalPane = document.getElementById('products-approval-pane'); // New
 
     // Action buttons and filters
     const addDefectButton = document.getElementById('add-defect-button');
     const addChecklistButton = document.getElementById('add-checklist-button');
-    const manageTemplatesButton = document.getElementById('manage-templates-button'); // Added
-    const reportDefectsButton = document.getElementById('report-defects-button');
+    const manageTemplatesButton = document.getElementById('manage-templates-button');
+    const reportDefectsButton = document.getElementById('report-defects-button'); // This might need to be context-specific or generalized
     const filterDefectsWrapper = document.getElementById('filter-defects-wrapper');
     const filterChecklistsWrapper = document.getElementById('filter-checklists-wrapper');
-    const tabPanesWrapper = document.getElementById('tab-panes-wrapper'); // Get the new wrapper
+    const filterProductsApprovalWrapper = document.getElementById('filter-products-approval-wrapper'); // New
+    const tabPanesWrapper = document.getElementById('tab-panes-wrapper');
 
     const activeTabButtonClasses = ['bg-white', 'text-primary', 'relative', 'z-10', 'mb-[-1px]'];
     const inactiveTabButtonClasses = ['bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'border-b'];
 
     // Function to switch tabs
-    function switchTab(activeButton, activePane, inactiveButton, inactivePane) {
-        // Style active button
-        activeButton.classList.remove(...inactiveTabButtonClasses);
-        activeButton.classList.add(...activeTabButtonClasses);
+    function switchTab(targetTabName) {
+        const buttons = [defectsTabButton, checklistsTabButton, productsApprovalTabButton];
+        const panes = [defectsPane, checklistsPane, productsApprovalPane];
+        const buttonPaneMap = {
+            'defects': { button: defectsTabButton, pane: defectsPane },
+            'checklists': { button: checklistsTabButton, pane: checklistsPane },
+            'products_approval': { button: productsApprovalTabButton, pane: productsApprovalPane }
+        };
 
-        // Style inactive button
-        inactiveButton.classList.remove(...activeTabButtonClasses);
-        inactiveButton.classList.add(...inactiveTabButtonClasses);
+        Object.values(buttonPaneMap).forEach(item => {
+            item.button.classList.remove(...activeTabButtonClasses);
+            item.button.classList.add(...inactiveTabButtonClasses);
+            item.pane.classList.add('hidden');
+             // Ensure direct style.display is cleared if previously set (though 'hidden' class should dominate)
+            item.pane.style.display = 'none';
+        });
 
-        // Show active pane and hide inactive one
-        activePane.style.display = ''; // Reset any inline display:none
-        activePane.classList.remove('hidden');
-
-        inactivePane.classList.add('hidden'); // This class should apply display:none !important
-        // No need to add inline style for inactivePane if 'hidden' class handles it.
+        const activeItem = buttonPaneMap[targetTabName];
+        if (activeItem) {
+            activeItem.button.classList.remove(...inactiveTabButtonClasses);
+            activeItem.button.classList.add(...activeTabButtonClasses);
+            activeItem.pane.classList.remove('hidden');
+            activeItem.pane.style.display = ''; // Show active pane
+        }
 
         // Show/hide specific action buttons and filters
-        if (activePane === defectsPane) {
-            // Defects tab is active
+        // Hide all first
+        if (addDefectButton) addDefectButton.classList.add('hidden');
+        if (reportDefectsButton) reportDefectsButton.classList.add('hidden'); // Assuming this is for defects report
+        if (filterDefectsWrapper) filterDefectsWrapper.classList.add('hidden');
+        if (addChecklistButton) addChecklistButton.classList.add('hidden');
+        if (manageTemplatesButton) manageTemplatesButton.classList.add('hidden');
+        if (filterChecklistsWrapper) filterChecklistsWrapper.classList.add('hidden');
+        if (filterProductsApprovalWrapper) filterProductsApprovalWrapper.classList.add('hidden');
+        // No specific add button for product approvals from this page directly, it's part of the list.
+
+        if (targetTabName === 'defects') {
             if (addDefectButton) addDefectButton.classList.remove('hidden');
             if (reportDefectsButton) reportDefectsButton.classList.remove('hidden');
             if (filterDefectsWrapper) filterDefectsWrapper.classList.remove('hidden');
-
-            if (addChecklistButton) addChecklistButton.classList.add('hidden');
-            if (manageTemplatesButton) manageTemplatesButton.classList.add('hidden'); // Added
-            if (filterChecklistsWrapper) filterChecklistsWrapper.classList.add('hidden');
-        } else if (activePane === checklistsPane) {
-            // Checklists tab is active
+        } else if (targetTabName === 'checklists') {
             if (addChecklistButton) addChecklistButton.classList.remove('hidden');
-            if (manageTemplatesButton) manageTemplatesButton.classList.remove('hidden'); // Added
+            if (manageTemplatesButton) manageTemplatesButton.classList.remove('hidden');
             if (filterChecklistsWrapper) filterChecklistsWrapper.classList.remove('hidden');
-
-            if (addDefectButton) addDefectButton.classList.add('hidden');
-            if (reportDefectsButton) reportDefectsButton.classList.add('hidden');
-            if (filterDefectsWrapper) filterDefectsWrapper.classList.add('hidden');
+        } else if (targetTabName === 'products_approval') {
+            // Show relevant filters for product approvals
+            if (filterProductsApprovalWrapper) filterProductsApprovalWrapper.classList.remove('hidden');
+            // Add other product-approval specific buttons here if any
         }
     }
 
     // Event listener for Defects tab
     defectsTabButton.addEventListener('click', function (event) {
         event.preventDefault();
-        const currentFilter = getCurrentFilterValue();
-        const newUrl = `/project/${projectId}?filter=${currentFilter}&active_tab_override=defects#defects`;
+        // Filter value for defects is typically different from checklists/product_approvals
+        // For simplicity, we might reset to 'All' or use a specific defect filter
+        const newUrl = `/project/${projectId}?filter=All&active_tab_override=defects#defects`;
         window.location.href = newUrl;
     });
 
     // Event listener for Checklists tab
     checklistsTabButton.addEventListener('click', function (event) {
         event.preventDefault();
-        const currentFilter = getCurrentFilterValue();
-        const newUrl = `/project/${projectId}?filter=${currentFilter}&active_tab_override=checklists#checklists`;
+        const newUrl = `/project/${projectId}?filter=All&active_tab_override=checklists#checklists`;
         window.location.href = newUrl;
     });
 
-    // Initial tab setup based on URL hash
-    function activateTabFromHash() {
-        const hash = window.location.hash;
-        // The server should have already set the correct active tab if active_tab_override was present.
-        // This function primarily ensures that if the hash is the *only* indicator (e.g. back button, manual hash change),
-        // the tabs switch correctly.
-        // It's also okay if it re-applies the state the server already set.
-        if (hash === '#checklists') {
-            // Check if checklistsTabButton is ALREADY active. If so, do nothing to prevent visual glitch.
-            // This check is only strictly necessary if switchTab itself causes a visual change even when re-applying same state.
-            // For robustness, let's assume switchTab is fine.
-            switchTab(checklistsTabButton, checklistsPane, defectsTabButton, defectsPane);
-        } else {
-            // Default to defects tab if hash is not #checklists or no hash
-            switchTab(defectsTabButton, defectsPane, checklistsTabButton, checklistsPane);
+    // Event listener for Products Approval tab
+    productsApprovalTabButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        const newUrl = `/project/${projectId}?filter=All&active_tab_override=products_approval#products_approval`;
+        window.location.href = newUrl;
+    });
+
+
+    // Initial tab setup based on URL parameter `active_tab_override` or hash
+    function activateTabOnLoad() {
+        const urlParams = new URLSearchParams(window.location.search);
+        let activeTab = urlParams.get('active_tab_override');
+
+        if (!activeTab) { // Fallback to hash if no override parameter
+            const hash = window.location.hash.substring(1); // Remove #
+            if (hash === 'defects' || hash === 'checklists' || hash === 'products_approval') {
+                activeTab = hash;
+            }
+        }
+
+        if (activeTab === 'checklists') {
+            switchTab('checklists');
+        } else if (activeTab === 'products_approval') {
+            switchTab('products_approval');
+        } else { // Default to defects
+            switchTab('defects');
         }
     }
 
     // Activate tab on initial load
-    activateTabFromHash();
+    activateTabOnLoad();
 
-    const tabNavigation = document.getElementById('tab-navigation'); // Added
-    if (tabNavigation) {                                            // Added
-        tabNavigation.style.visibility = 'visible';                // Added
-    }                                                               // Added
+    const tabNavigation = document.getElementById('tab-navigation');
+    if (tabNavigation) {
+        tabNavigation.style.visibility = 'visible';
+    }
 
     if (tabPanesWrapper) {
         tabPanesWrapper.style.visibility = 'visible';
     }
-    // Optional: Listen for hash changes if user uses browser back/forward for hash navigation
-    // window.addEventListener('hashchange', activateTabFromHash, false);
-    // For this specific task, direct click updates hash, and initial load reads it.
-    // The above listener would be for full browser history support of hash changes.
 });
 </script>
 <script>
