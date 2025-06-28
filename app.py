@@ -2223,6 +2223,14 @@ def project_detail(project_id):
     # product_approval_filter_status = request.args.get('product_approval_filter', 'All')
     # if product_approval_filter_status != 'All':
     #    product_approvals_query = product_approvals_query.filter(ProductApproval.status == product_approval_filter_status)
+    product_filter_status = request.args.get('product_filter_status', 'All')
+    if product_filter_status == 'waiting_for_proposal':
+        product_approvals_query = product_approvals_query.filter(ProductApproval.status == 'waiting_for_proposal')
+    elif product_filter_status == 'product_provided':
+        product_approvals_query = product_approvals_query.filter(ProductApproval.status == 'product_provided')
+    elif product_filter_status == 'rejected':
+        product_approvals_query = product_approvals_query.filter(ProductApproval.status == 'rejected')
+    # Else, no specific product approval filter is applied, showing all for the project.
 
     product_approvals_for_template = product_approvals_query.options(
         joinedload(ProductApproval.documents).joinedload(ProductDocument.uploader),
@@ -2231,7 +2239,7 @@ def project_detail(project_id):
         joinedload(ProductApproval.approver)
     ).all()
 
-    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template) # Added product_approvals
+    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template, product_filter_status=product_filter_status) # Added product_approvals and product_filter_status
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required
