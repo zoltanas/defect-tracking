@@ -1455,6 +1455,9 @@ def login():
                 login_user(user)
                 flash('Logged in successfully!', 'success')
                 return redirect(url_for('index'))
+            elif user.status == 'deleted':
+                flash('This account has been removed. Please register a new account or contact support.', 'error')
+                return redirect(url_for('login'))
             else: # Other statuses like 'suspended', 'deactivated' etc.
                 flash('Your account is not active. Please contact support.', 'error')
                 return redirect(url_for('login'))
@@ -1963,6 +1966,52 @@ def edit_profile():
                            name=current_user.name,
                            company=current_user.company,
                            project_accesses=project_accesses)
+
+@app.route('/remove_account', methods=['POST'])
+@login_required
+def remove_account():
+    try:
+        user_id_to_remove = current_user.id
+        user_to_remove = db.session.get(User, user_id_to_remove)
+
+        if not user_to_remove:
+            # This case should ideally not happen if current_user is valid
+            flash('User not found for removal.', 'error')
+            return redirect(url_for('index'))
+
+        # 1. Anonymize user data
+        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+        anonymized_username = f"deleted_user_{user_to_remove.id}_{timestamp}"
+        anonymized_email = f"deleted_{user_to_remove.id}_{timestamp}@example.com"
+
+        user_to_remove.username = anonymized_username
+        user_to_remove.email = anonymized_email
+        user_to_remove.name = "Deactivated User"
+        user_to_remove.company = "N/A"
+        # Set password to something unusable (long random string hashed)
+        user_to_remove.password = bcrypt.generate_password_hash(os.urandom(24).hex()).decode('utf-8')
+
+        # 2. Update status
+        user_to_remove.status = "deleted"
+
+        # 3. Remove ProjectAccess records
+        ProjectAccess.query.filter_by(user_id=user_to_remove.id).delete()
+
+        # 4. Commit changes to DB
+        db.session.commit()
+        logger.info(f"User ID {user_to_remove.id} account has been anonymized and deactivated.")
+
+        # 5. Logout user
+        logout_user()
+
+        flash('Your account has been successfully removed.', 'success')
+        return redirect(url_for('login'))
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error removing account for user {current_user.id if current_user and current_user.is_authenticated else 'Unknown'}: {str(e)}", exc_info=True)
+        flash('An error occurred while trying to remove your account. Please try again.', 'error')
+        return redirect(url_for('edit_profile'))
 
 @app.route('/project_data_management')
 @login_required

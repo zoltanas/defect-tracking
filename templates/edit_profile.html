@@ -78,6 +78,23 @@
             {% endif %}
         </div>
         {# Removed Project Data Management section from here #}
+
+        <div class="mt-10 pt-6 border-t border-gray-200">
+            <h3 class="text-xl font-semibold text-red-600 mb-4">
+                Danger Zone
+            </h3>
+            <form method="POST" action="{{ url_for('remove_account') }}" onsubmit="return confirm('Are you sure you want to remove your account? This action cannot be undone.');" class="mt-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <p class="text-sm text-gray-600 mb-4">
+                    Removing your account will anonymize your personal data and revoke all project access. Your contributions (defects, comments, etc.) will remain attributed to an anonymized user. This action is irreversible.
+                </p>
+                <button type="submit"
+                        class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                    Remove My Account
+                </button>
+            </form>
+        </div>
+
     </div>
 </div>
 {% endblock %}
