@@ -4523,6 +4523,43 @@ def delete_product_document(document_id):
         flash('An error occurred while deleting the document.', 'error')
 
     return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{approval_request.id}')
+
+@app.route('/product_approval/<int:request_id>/delete', methods=['POST'])
+@login_required
+def delete_product_approval_request(request_id):
+    approval_request = db.session.get(ProductApproval, request_id)
+    if not approval_request:
+        flash('Product approval request not found.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
+    project_id = approval_request.project_id
+    # Permission check: Only the user who created the request can delete it.
+    if approval_request.requester_id != current_user.id:
+        flash('You do not have permission to delete this product approval request.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
+
+    try:
+        # Delete associated documents and their files
+        for document in approval_request.documents:
+            file_on_disk_path = os.path.join(app.static_folder, 'product_documentation', document.file_path)
+            if os.path.exists(file_on_disk_path):
+                os.remove(file_on_disk_path)
+                logger.info(f"Deleted product document file: {file_on_disk_path}")
+            else:
+                logger.warning(f"Product document file not found on disk for deletion: {file_on_disk_path}")
+            db.session.delete(document)
+
+        # Delete the product approval request itself
+        db.session.delete(approval_request)
+        db.session.commit()
+        flash('Product approval request and associated documents deleted successfully.', 'success')
+        logger.info(f"Product approval request {request_id} deleted by user {current_user.id}")
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting product approval request {request_id}: {e}", exc_info=True)
+        flash('An error occurred while deleting the product approval request.', 'error')
+
+    return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 # --- End Product Approval Routes ---
 
 @app.route('/test_login', methods=['POST'])
