@@ -2010,6 +2010,11 @@ def index():
             status='product_provided'
         ).count()
 
+        products_rejected_count = ProductApproval.query.filter_by(
+            project_id=project.id,
+            status='rejected'
+        ).count()
+
         projects_data.append({
             'project': project,
             'open_defects_count': open_defects_count,
@@ -2017,6 +2022,7 @@ def index():
             'open_checklists_count': open_checklists_count,
             'products_waiting_for_proposal_count': products_waiting_for_proposal_count,
             'products_provided_waiting_for_approval_count': products_provided_waiting_for_approval_count,
+            'products_rejected_count': products_rejected_count,
         })
 
     return render_template('project_list.html', projects_data=projects_data)
