@@ -23,6 +23,35 @@ import zipfile
 import glob
 from dotenv import load_dotenv
 load_dotenv()
+
+# Helper function to find Poppler path
+def get_poppler_path():
+    """
+    Checks for Poppler installation via POPPLER_PATH environment variable
+    or in the system PATH.
+    Returns the path to Poppler binaries if found, otherwise None.
+    """
+    poppler_path_env = os.environ.get('POPPLER_PATH')
+    if poppler_path_env:
+        # Basic check, assuming if POPPLER_PATH is set, it's correct.
+        # More robust check would be to see if 'pdftoppm' is in this path.
+        if os.path.exists(os.path.join(poppler_path_env, 'pdftoppm')) or \
+           os.path.exists(os.path.join(poppler_path_env, 'pdftoppm.exe')):
+            # app.logger.info(f"Using Poppler from POPPLER_PATH: {poppler_path_env}") # Use app.logger if available
+            return poppler_path_env
+        # app.logger.warning(f"POPPLER_PATH ('{poppler_path_env}') set but pdftoppm not found. Trying system PATH.") # Use app.logger
+
+    # If POPPLER_PATH not set or invalid, try shutil.which
+    pdftoppm_executable = shutil.which('pdftoppm')
+    if pdftoppm_executable:
+        # pdf2image usually expects the directory containing the binaries
+        found_path = os.path.dirname(pdftoppm_executable)
+        # app.logger.info(f"Found Poppler in system PATH: {found_path} (pdftoppm at {pdftoppm_executable})") # Use app.logger
+        return found_path
+
+    # app.logger.warning("Poppler 'pdftoppm' utility not found via POPPLER_PATH or system PATH.") # Use app.logger
+    return None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -797,7 +826,10 @@ def _perform_single_project_import(extracted_project_base_path, importing_user_i
                     thumb_pdf_filename = 'thumb_' + os.path.splitext(unique_server_filename_base)[0] + '.png'
                     abs_pdf_thumb_path = os.path.join(pdf_thumb_save_dir_check, thumb_pdf_filename)
                     try:
-                        pdf_images = convert_from_path(new_server_file_path_abs, first_page=1, last_page=1, fmt='png', size=(300, None))
+                        _poppler_path = get_poppler_path() # Get poppler path
+                        if not _poppler_path:
+                            logger.warning("Poppler not found during import, PDF thumbnail generation might fail.")
+                        pdf_images = convert_from_path(new_server_file_path_abs, first_page=1, last_page=1, fmt='png', size=(300, None), poppler_path=_poppler_path)
                         if pdf_images:
                             pdf_images[0].save(abs_pdf_thumb_path, 'PNG')
                             os.chmod(abs_pdf_thumb_path, 0o644)
@@ -3075,7 +3107,10 @@ def add_defect_attachment(defect_id):
                         app.logger.error(f"CRITICAL: Original PDF file does not exist at {absolute_pdf_path} before calling convert_from_path.")
                         raise FileNotFoundError(f"Original PDF not found at {absolute_pdf_path} for thumbnail generation")
 
-                    images = convert_from_path(absolute_pdf_path, first_page=1, last_page=1, fmt='png', size=(300, None))
+                    _poppler_path = get_poppler_path() # Get poppler path
+                    if not _poppler_path:
+                        app.logger.warning(f"Poppler not found while adding defect attachment {original_filename_secure}, PDF thumbnail generation might fail.")
+                    images = convert_from_path(absolute_pdf_path, first_page=1, last_page=1, fmt='png', size=(300, None), poppler_path=_poppler_path)
                     if images:
                         images[0].save(absolute_thumb_path, 'PNG')
                         os.chmod(absolute_thumb_path, 0o644)
@@ -3973,12 +4008,12 @@ def generate_new_report(project_id):
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
 
-    # Check for POPPLER_PATH
-    poppler_path_env = os.environ.get('POPPLER_PATH')
-    if not poppler_path_env:
-        logger.warning("POPPLER_PATH environment variable is not set. PDF to image conversion for marked drawings might fail or use a system-dependent Poppler installation.")
+    # Get Poppler path using the helper function
+    poppler_path_to_use = get_poppler_path()
+    if poppler_path_to_use:
+        logger.info(f"Poppler path for report generation: {poppler_path_to_use}")
     else:
-        logger.info(f"Using POPPLER_PATH: {poppler_path_env}")
+        logger.warning("Poppler not found. PDF to image conversion for marked drawings in the report will likely fail.")
 
     logger.info(f"Starting new report generation for project ID: {project_id}")
     filter_status = request.args.get('filter', 'All')
@@ -4085,7 +4120,7 @@ def generate_new_report(project_id):
 
             if os.path.exists(pdf_full_path):
                 try:
-                    images = convert_from_path(pdf_full_path, first_page=1, last_page=1, poppler_path=os.environ.get('POPPLER_PATH'))
+                    images = convert_from_path(pdf_full_path, first_page=1, last_page=1, poppler_path=poppler_path_to_use)
                     if images:
                         pil_image = images[0].convert('RGB')
                         draw_obj = ImageDraw.Draw(pil_image) # Renamed to avoid conflict
