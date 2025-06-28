@@ -142,6 +142,7 @@ class User(UserMixin, db.Model):
     product_requests_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.requester_id', back_populates='requester', lazy='dynamic')
     product_submissions_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.contractor_id', back_populates='contractor', lazy='dynamic')
     product_approvals_made = db.relationship('ProductApproval', foreign_keys='ProductApproval.approver_id', back_populates='approver', lazy='dynamic')
+    uploaded_product_documents = db.relationship('ProductDocument', foreign_keys='ProductDocument.uploader_id', back_populates='uploader', lazy='dynamic')
 
 class ProjectAccess(db.Model):
     __tablename__ = 'project_access'
@@ -279,7 +280,7 @@ class ProductApproval(db.Model):
     request_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     contractor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     product_description = db.Column(db.Text, nullable=True)
-    documentation_path = db.Column(db.String(255), nullable=True) # Path to PDF
+    # documentation_path = db.Column(db.String(255), nullable=True) # Path to PDF - REMOVED
     submission_date = db.Column(db.DateTime, nullable=True)
     status = db.Column(db.String(50), nullable=False, default='waiting_for_proposal') # waiting_for_proposal, product_provided, approved, rejected
     approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
@@ -290,6 +291,19 @@ class ProductApproval(db.Model):
     requester = db.relationship('User', foreign_keys=[requester_id], back_populates='product_requests_made')
     contractor = db.relationship('User', foreign_keys=[contractor_id], back_populates='product_submissions_made')
     approver = db.relationship('User', foreign_keys=[approver_id], back_populates='product_approvals_made')
+    documents = db.relationship('ProductDocument', back_populates='product_approval', cascade='all, delete-orphan') # Removed lazy='dynamic'
+
+class ProductDocument(db.Model):
+    __tablename__ = 'product_documents'
+    id = db.Column(db.Integer, primary_key=True)
+    product_approval_id = db.Column(db.Integer, db.ForeignKey('product_approvals.id'), nullable=False, index=True)
+    file_path = db.Column(db.String(255), nullable=False) # Just filename, e.g., pa_doc_timestamp_original.pdf
+    original_filename = db.Column(db.String(255), nullable=False)
+    upload_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    uploader_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    product_approval = db.relationship('ProductApproval', back_populates='documents')
+    uploader = db.relationship('User', back_populates='uploaded_product_documents')
 
 # Database initialization
 db_init_lock = Lock()
@@ -305,7 +319,7 @@ def init_db():
                 required_tables = [
                     'users', 'project_access', 'projects', 'defects', 'comments',
                     'attachments', 'templates', 'template_items', 'checklists', 'checklist_items',
-                    'drawings', 'defect_markers', 'product_approvals'
+                    'drawings', 'defect_markers', 'product_approvals', 'product_documents'
                 ]
                 logger.info(f"Required tables: {required_tables}")
 
@@ -2192,7 +2206,12 @@ def project_detail(project_id):
     # if product_approval_filter_status != 'All':
     #    product_approvals_query = product_approvals_query.filter(ProductApproval.status == product_approval_filter_status)
 
-    product_approvals_for_template = product_approvals_query.all()
+    product_approvals_for_template = product_approvals_query.options(
+        joinedload(ProductApproval.documents).joinedload(ProductDocument.uploader),
+        joinedload(ProductApproval.requester),
+        joinedload(ProductApproval.contractor),
+        joinedload(ProductApproval.approver)
+    ).all()
 
     return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template) # Added product_approvals
 
@@ -4333,44 +4352,79 @@ def submit_product_for_approval(request_id):
         flash('Only contractors can submit products for approval.', 'error')
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 
-    if approval_request.status != 'waiting_for_proposal':
-        flash('This request is not awaiting product submission.', 'warning')
+    # Allow submission if status is 'waiting_for_proposal' or 'product_provided' (for updates)
+    if approval_request.status not in ['waiting_for_proposal', 'product_provided']:
+        flash('This request cannot be updated at this stage.', 'warning')
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 
     product_description = request.form.get('product_description', '').strip()
-    documentation_file = request.files.get('documentation_file')
+    documentation_files = request.files.getlist('documentation_files[]') # Get list of files
 
     if not product_description:
         flash('Product description is required.', 'error')
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
 
+    files_uploaded_count = 0
+    upload_folder = os.path.join(app.static_folder, 'product_documentation')
+    os.makedirs(upload_folder, exist_ok=True)
 
-    if documentation_file and documentation_file.filename != '':
-        if not ('.' in documentation_file.filename and documentation_file.filename.rsplit('.', 1)[1].lower() == 'pdf'):
-            flash('Only PDF files are allowed for documentation.', 'error')
-            return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
+    for doc_file in documentation_files:
+        if doc_file and doc_file.filename != '':
+            if not ('.' in doc_file.filename and doc_file.filename.rsplit('.', 1)[1].lower() == 'pdf'):
+                flash(f"File '{doc_file.filename}' is not a PDF and was skipped.", 'warning')
+                continue
 
-        upload_folder = os.path.join(app.static_folder, 'product_documentation')
-        os.makedirs(upload_folder, exist_ok=True)
+            original_filename = secure_filename(doc_file.filename)
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
+            # Use product_approval_id in filename for better organization if needed, though timestamp and request_id make it fairly unique
+            unique_filename = f"pa_doc_{approval_request.id}_{timestamp}_{original_filename}"
+            file_path_on_disk = os.path.join(upload_folder, unique_filename)
 
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
-        filename = secure_filename(f"pa_{request_id}_{timestamp}_{documentation_file.filename}")
-        file_path_on_disk = os.path.join(upload_folder, filename)
-        documentation_file.save(file_path_on_disk)
-        os.chmod(file_path_on_disk, 0o644)
-        approval_request.documentation_path = os.path.join('product_documentation', filename) # Relative to static
-    elif not approval_request.documentation_path: # No new file and no existing file
-        flash('Product documentation (PDF) is required.', 'error')
+            try:
+                doc_file.save(file_path_on_disk)
+                os.chmod(file_path_on_disk, 0o644)
+
+                new_document = ProductDocument(
+                    product_approval_id=approval_request.id,
+                    file_path=unique_filename, # Store only the filename
+                    original_filename=original_filename,
+                    uploader_id=current_user.id,
+                    upload_date=datetime.utcnow()
+                )
+                db.session.add(new_document)
+                files_uploaded_count += 1
+            except Exception as e:
+                logger.error(f"Error saving file {original_filename} for PA request {request_id}: {e}")
+                flash(f"Error saving file {original_filename}. It was skipped.", "error")
+                continue
+
+    # Check if files are required for the very first submission
+    existing_documents_count = ProductDocument.query.filter_by(product_approval_id=request_id).count()
+    if approval_request.status == 'waiting_for_proposal' and files_uploaded_count == 0 and existing_documents_count == 0:
+        flash('At least one product documentation PDF is required for the initial submission.', 'error')
+        # No rollback needed here as we haven't committed yet for this transaction
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{request_id}')
 
-
     approval_request.product_description = product_description
-    approval_request.contractor_id = current_user.id
-    approval_request.submission_date = datetime.utcnow()
-    approval_request.status = 'product_provided'
+    approval_request.contractor_id = current_user.id # Set/update contractor
+    if files_uploaded_count > 0 or (product_description != approval_request.product_description): # Update submission date if new files or changed description
+        approval_request.submission_date = datetime.utcnow()
 
-    db.session.commit()
-    flash('Product information submitted successfully.', 'success')
+    # Update status only if it was 'waiting_for_proposal' and at least one doc exists or was just uploaded
+    if approval_request.status == 'waiting_for_proposal' and (files_uploaded_count > 0 or existing_documents_count > 0):
+        approval_request.status = 'product_provided'
+
+    try:
+        db.session.commit()
+        if files_uploaded_count > 0:
+            flash(f'{files_uploaded_count} document(s) uploaded successfully. Product information updated.', 'success')
+        else:
+            flash('Product description updated successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error committing product submission for PA request {request_id}: {e}")
+        flash('An error occurred while saving the product information.', 'error')
+
     return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 
 @app.route('/product_approval/<int:request_id>/decide', methods=['POST'])
@@ -4417,6 +4471,42 @@ def serve_product_documentation(filename):
     # E.g., query ProductApproval by documentation_path, then check project access.
     documentation_dir = os.path.join(app.static_folder, 'product_documentation')
     return send_from_directory(documentation_dir, filename)
+
+@app.route('/product_document/<int:document_id>/delete', methods=['POST'])
+@login_required
+def delete_product_document(document_id):
+    document = db.session.get(ProductDocument, document_id)
+    if not document:
+        flash('Document not found.', 'error')
+        return redirect(request.referrer or url_for('index'))
+
+    approval_request = document.product_approval
+    project_id = approval_request.project_id
+    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
+
+    # Permission check: Uploader or Admin/Supervisor of the project
+    if not (access and (current_user.id == document.uploader_id or access.role in ['admin', 'supervisor'])) :
+        flash('You do not have permission to delete this document.', 'error')
+        return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{approval_request.id}')
+
+    file_on_disk_path = os.path.join(app.static_folder, 'product_documentation', document.file_path)
+
+    try:
+        if os.path.exists(file_on_disk_path):
+            os.remove(file_on_disk_path)
+            logger.info(f"Deleted product document file: {file_on_disk_path}")
+        else:
+            logger.warning(f"Product document file not found on disk for deletion: {file_on_disk_path}")
+
+        db.session.delete(document)
+        db.session.commit()
+        flash('Document deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting product document {document_id}: {e}")
+        flash('An error occurred while deleting the document.', 'error')
+
+    return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval') + f'#pa-{approval_request.id}')
 # --- End Product Approval Routes ---
 
 @app.route('/test_login', methods=['POST'])
