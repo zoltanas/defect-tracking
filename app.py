@@ -4341,6 +4341,13 @@ def request_product_approval(project_id):
 @app.route('/product_approval/<int:request_id>/submit_product', methods=['POST'])
 @login_required
 def submit_product_for_approval(request_id):
+    logger.info(f"--- submit_product_for_approval for request_id: {request_id} ---")
+    logger.info(f"Request Headers: {request.headers}")
+    logger.info(f"Request Form Data: {request.form.to_dict()}")
+    logger.info(f"Request Files: {request.files.to_dict()}")
+    documentation_files = request.files.getlist('documentation_files[]') # Get list of files
+    logger.info(f"Files from getlist('documentation_files[]'): {[(f.filename, f.content_type) for f in documentation_files]}")
+
     approval_request = db.session.get(ProductApproval, request_id)
     if not approval_request:
         flash('Product approval request not found.', 'error')
@@ -4368,17 +4375,19 @@ def submit_product_for_approval(request_id):
     upload_folder = os.path.join(app.static_folder, 'product_documentation')
     os.makedirs(upload_folder, exist_ok=True)
 
-    for doc_file in documentation_files:
+    for doc_file in documentation_files: # documentation_files is already the result of getlist
         if doc_file and doc_file.filename != '':
+            logger.info(f"Processing file: {doc_file.filename}, Content-Type: {doc_file.content_type}")
             if not ('.' in doc_file.filename and doc_file.filename.rsplit('.', 1)[1].lower() == 'pdf'):
                 flash(f"File '{doc_file.filename}' is not a PDF and was skipped.", 'warning')
+                logger.warning(f"Skipped non-PDF file: {doc_file.filename}")
                 continue
 
             original_filename = secure_filename(doc_file.filename)
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
-            # Use product_approval_id in filename for better organization if needed, though timestamp and request_id make it fairly unique
             unique_filename = f"pa_doc_{approval_request.id}_{timestamp}_{original_filename}"
             file_path_on_disk = os.path.join(upload_folder, unique_filename)
+            logger.info(f"Generated unique_filename: {unique_filename}, Disk path: {file_path_on_disk}")
 
             try:
                 doc_file.save(file_path_on_disk)
@@ -4386,15 +4395,16 @@ def submit_product_for_approval(request_id):
 
                 new_document = ProductDocument(
                     product_approval_id=approval_request.id,
-                    file_path=unique_filename, # Store only the filename
+                    file_path=unique_filename,
                     original_filename=original_filename,
                     uploader_id=current_user.id,
                     upload_date=datetime.utcnow()
                 )
                 db.session.add(new_document)
                 files_uploaded_count += 1
+                logger.info(f"Successfully processed and staged for DB: {unique_filename}")
             except Exception as e:
-                logger.error(f"Error saving file {original_filename} for PA request {request_id}: {e}")
+                logger.error(f"Error saving file {original_filename} for PA request {request_id}: {e}", exc_info=True)
                 flash(f"Error saving file {original_filename}. It was skipped.", "error")
                 continue
 
@@ -4418,11 +4428,17 @@ def submit_product_for_approval(request_id):
         db.session.commit()
         if files_uploaded_count > 0:
             flash(f'{files_uploaded_count} document(s) uploaded successfully. Product information updated.', 'success')
+            logger.info(f"Successfully committed to DB for request_id: {request_id}. Files uploaded: {files_uploaded_count}. Description updated.")
+        elif product_description != approval_request.product_description : # Check if only description was changed
+             flash('Product description updated successfully.', 'success')
+             logger.info(f"Successfully committed to DB for request_id: {request_id}. Only description updated.")
         else:
-            flash('Product description updated successfully.', 'success')
+            flash('No changes detected or no new files uploaded.', 'info') # If neither files nor description changed
+            logger.info(f"No changes to commit for request_id: {request_id}")
+
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error committing product submission for PA request {request_id}: {e}")
+        logger.error(f"Error committing product submission for PA request {request_id}: {e}", exc_info=True)
         flash('An error occurred while saving the product information.', 'error')
 
     return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
