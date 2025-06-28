@@ -2000,11 +2000,23 @@ def index():
             Checklist.items.any(ChecklistItem.is_checked == False)
         ).count()
 
+        products_waiting_for_proposal_count = ProductApproval.query.filter_by(
+            project_id=project.id,
+            status='waiting_for_proposal'
+        ).count()
+
+        products_provided_waiting_for_approval_count = ProductApproval.query.filter_by(
+            project_id=project.id,
+            status='product_provided'
+        ).count()
+
         projects_data.append({
             'project': project,
             'open_defects_count': open_defects_count,
             'open_defects_with_reply_count': open_defects_with_reply_count,
             'open_checklists_count': open_checklists_count,
+            'products_waiting_for_proposal_count': products_waiting_for_proposal_count,
+            'products_provided_waiting_for_approval_count': products_provided_waiting_for_approval_count,
         })
 
     return render_template('project_list.html', projects_data=projects_data)
