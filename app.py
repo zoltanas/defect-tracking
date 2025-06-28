@@ -376,6 +376,22 @@ def load_user(user_id):
     # when accessing current_user.projects after the initial session might be closed.
     return User.query.options(joinedload(User.projects)).get(int(user_id))
 
+# Custom decorator to require email confirmation
+from functools import wraps
+
+def email_confirmed_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            # This should ideally be handled by @login_required first,
+            # but as a fallback or if @login_required is not used.
+            return redirect(url_for('login', next=request.url))
+        if current_user.status != 'active':
+            flash('Please confirm your email address to access this page.', 'warning')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -1507,6 +1523,7 @@ def logout():
 # Replace your existing invite() function with this one
 @app.route('/invite', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def invite():
     if current_user.role != 'admin':
         flash('Only admins can invite users.', 'error')
@@ -1724,6 +1741,7 @@ def invite():
 
 @app.route('/manage_access', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def manage_access():
     allowed_roles_to_view = ['admin', 'expert', 'contractor', 'supervisor']
     if current_user.role not in allowed_roles_to_view:
@@ -1874,6 +1892,7 @@ def manage_access():
 
 @app.route('/revoke_access/<int:project_access_id>', methods=['POST'])
 @login_required
+@email_confirmed_required
 def revoke_access(project_access_id):
     if current_user.role != 'admin':
         flash('Only admins can revoke access.', 'error')
@@ -1943,6 +1962,7 @@ def accept_invite(token):
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def edit_profile():
     if request.method == 'POST':
         name = request.form['name'].strip()
@@ -2058,6 +2078,7 @@ def project_data_management():
 # Application Routes
 @app.route('/')
 @login_required
+@email_confirmed_required
 def index():
     # Get project IDs where the user has access (either as creator or assigned)
     project_ids = [access.project_id for access in current_user.projects]
@@ -2115,6 +2136,7 @@ def request_entity_too_large(error):
 
 @app.route('/add_project', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def add_project():
     if current_user.role != 'admin':
         flash('Only admins can create projects.', 'error')
@@ -2135,6 +2157,7 @@ def add_project():
 
 @app.route('/project/<int:project_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_project(project_id):
     if current_user.role != 'admin':
         flash('Only admins can delete projects.', 'error')
@@ -2177,6 +2200,7 @@ def delete_project(project_id):
 
 @app.route('/project/<int:project_id>')
 @login_required
+@email_confirmed_required
 def project_detail(project_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -2324,6 +2348,7 @@ def project_detail(project_id):
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def add_drawing(project_id):
     if current_user.role != 'admin':
         flash('Only admins can add drawings.', 'error')
@@ -2355,6 +2380,7 @@ def add_drawing(project_id):
 
 @app.route('/drawing/<int:drawing_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_drawing(drawing_id):
     if current_user.role != 'admin':
         flash('Only admins can delete drawings.', 'error')
@@ -2373,6 +2399,7 @@ def delete_drawing(drawing_id):
 
 @app.route('/project/<int:project_id>/drawing/<int:drawing_id>')
 @login_required
+@email_confirmed_required
 def view_drawing(project_id, drawing_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -2475,6 +2502,7 @@ def view_drawing(project_id, drawing_id):
 
 @app.route('/project/<int:project_id>/add_defect', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def add_defect(project_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -2591,6 +2619,7 @@ def add_defect(project_id):
 
 @app.route('/defect/<int:defect_id>', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def defect_detail(defect_id):
     app.logger.info(f"--- defect_detail route for defect_id: {defect_id} ---")
     try:
@@ -2884,6 +2913,7 @@ def defect_detail(defect_id):
 
 @app.route('/defect/<int:defect_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_defect_route(defect_id): # Renamed to avoid conflict with any potential 'delete_defect' function
     defect = db.session.get(Defect, defect_id)
     if not defect:
@@ -2983,6 +3013,7 @@ def delete_defect_route(defect_id): # Renamed to avoid conflict with any potenti
 
 @app.route('/defect/<int:defect_id>/delete_attachment/<int:attachment_id>', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_attachment(defect_id, attachment_id):
     logger.debug(f'Attempting to delete attachment {attachment_id} for defect {defect_id}')
     attachment = db.session.get(Attachment, attachment_id)
@@ -3033,6 +3064,7 @@ def delete_attachment(defect_id, attachment_id):
 
 @app.route('/defect/<int:defect_id>/attachment/add', methods=['POST'])
 @login_required
+@email_confirmed_required
 def add_defect_attachment(defect_id):
     defect = db.session.get(Defect, defect_id)
     if not defect:
@@ -3160,6 +3192,7 @@ def add_defect_attachment(defect_id):
 
 @app.route('/defect/<int:defect_id>/attachment/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_defect_attachment_json(defect_id):
     defect = db.session.get(Defect, defect_id)
     if not defect:
@@ -3208,6 +3241,7 @@ def delete_defect_attachment_json(defect_id):
 
 @app.route('/project/<int:project_id>/add_checklist', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def add_checklist(project_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -3243,6 +3277,7 @@ def add_checklist(project_id):
 
 @app.route('/checklist/<int:checklist_id>', methods=['GET']) # Removed POST from methods
 @login_required
+@email_confirmed_required
 def checklist_detail(checklist_id):
     checklist = db.session.get(Checklist, checklist_id)
     if not checklist:
@@ -3262,6 +3297,7 @@ def checklist_detail(checklist_id):
 
 @app.route('/checklist_item/<int:item_id>/update_status', methods=['POST'])
 @login_required
+@email_confirmed_required
 def update_checklist_item_status(item_id):
     item = db.session.get(ChecklistItem, item_id)
     if not item:
@@ -3305,6 +3341,7 @@ def update_checklist_item_status(item_id):
 
 @app.route('/checklist_item/<int:item_id>/update_comments', methods=['POST'])
 @login_required
+@email_confirmed_required
 def update_checklist_item_comments(item_id):
     item = db.session.get(ChecklistItem, item_id)
     if not item:
@@ -3334,6 +3371,7 @@ def update_checklist_item_comments(item_id):
 
 @app.route('/checklist_item/<int:item_id>/add_attachment', methods=['POST'])
 @login_required
+@email_confirmed_required
 def add_checklist_item_attachment(item_id):
     item = db.session.get(ChecklistItem, item_id)
     if not item:
@@ -3416,6 +3454,7 @@ def add_checklist_item_attachment(item_id):
 
 @app.route('/checklist_item/<int:item_id>/delete_attachment/<int:attachment_id>', methods=['POST']) # Using POST for simplicity with JS fetch
 @login_required
+@email_confirmed_required
 def delete_checklist_item_attachment_ajax(item_id, attachment_id): # Renamed to avoid conflict with existing route
     attachment = db.session.get(Attachment, attachment_id)
     if not attachment:
@@ -3469,6 +3508,7 @@ def delete_checklist_item_attachment_ajax(item_id, attachment_id): # Renamed to 
 
 @app.route('/checklist/<int:checklist_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_checklist_route(checklist_id): # Renamed to be distinct
     checklist = db.session.get(Checklist, checklist_id)
     if not checklist:
@@ -3535,6 +3575,7 @@ def delete_checklist_route(checklist_id): # Renamed to be distinct
 
 @app.route('/checklist/<int:checklist_id>/delete_attachment/<int:attachment_id>', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_checklist_attachment(checklist_id, attachment_id):
     checklist = db.session.get(Checklist, checklist_id)
     if not checklist:
@@ -3565,6 +3606,7 @@ def delete_checklist_attachment(checklist_id, attachment_id):
 
 @app.route('/defect/<int:defect_id>/update_description', methods=['POST'])
 @login_required
+@email_confirmed_required
 def update_defect_description(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
@@ -3612,6 +3654,7 @@ def update_defect_description(defect_id):
 
 @app.route('/defect/<int:defect_id>/update_status', methods=['POST'])
 @login_required
+@email_confirmed_required
 def update_defect_status(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
@@ -3664,6 +3707,7 @@ def update_defect_status(defect_id):
 
 @app.route('/defect/<int:defect_id>/update_location', methods=['POST'])
 @login_required
+@email_confirmed_required
 def update_defect_location(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     # project = Project.query.get_or_404(defect.project_id) # Project query not strictly needed if drawing check is done correctly
@@ -3767,6 +3811,7 @@ def update_defect_location(defect_id):
 
 @app.route('/comment/<int:comment_id>/edit', methods=['POST'])
 @login_required
+@email_confirmed_required
 def edit_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
     # Permission: Comment author or admin
@@ -3795,6 +3840,7 @@ def edit_comment(comment_id):
 
 @app.route('/comment/<int:comment_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
     # Permission: Comment author or admin
@@ -3837,6 +3883,7 @@ def delete_comment(comment_id):
 
 @app.route('/delete_image/<int:attachment_id>', methods=['DELETE'])
 @login_required
+@email_confirmed_required
 def delete_image_route(attachment_id):
     attachment = db.session.get(Attachment, attachment_id)
     if not attachment:
@@ -3918,6 +3965,7 @@ def delete_image_route(attachment_id):
 
 @app.route('/templates')
 @login_required
+@email_confirmed_required
 def template_list():
     if current_user.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can manage templates.', 'error')
@@ -3927,6 +3975,7 @@ def template_list():
 
 @app.route('/add_template', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def add_template():
     if current_user.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can add templates.', 'error')
@@ -3953,6 +4002,7 @@ def add_template():
 
 @app.route('/template/<int:template_id>/edit', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def edit_template(template_id):
     if current_user.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can edit templates.', 'error')
@@ -3981,6 +4031,7 @@ def edit_template(template_id):
 
 @app.route('/template/<int:template_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_template(template_id):
     if current_user.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can delete templates.', 'error')
@@ -3997,6 +4048,7 @@ def delete_template(template_id):
 
 @app.route('/project/<int:project_id>/new_report')
 @login_required
+@email_confirmed_required
 def generate_new_report(project_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -4257,6 +4309,7 @@ def generate_new_report(project_id):
 
 @app.route('/draw/<int:attachment_id>', methods=['GET', 'POST'])
 @login_required
+@email_confirmed_required
 def draw(attachment_id):
     attachment = db.session.get(Attachment, attachment_id)
     if not attachment:
@@ -4381,6 +4434,7 @@ def draw(attachment_id):
 
 @app.route('/view_attachment/<int:attachment_id>')
 @login_required
+@email_confirmed_required
 def view_attachment(attachment_id):
     attachment = db.session.get(Attachment, attachment_id)
     if not attachment:
@@ -4420,6 +4474,7 @@ def view_attachment(attachment_id):
 # --- Product Approval Routes ---
 @app.route('/project/<int:project_id>/product_approvals/request', methods=['POST'])
 @login_required
+@email_confirmed_required
 def request_product_approval(project_id):
     project = db.session.get(Project, project_id)
     if not project:
@@ -4450,6 +4505,7 @@ def request_product_approval(project_id):
 
 @app.route('/product_approval/<int:request_id>/submit_product', methods=['POST'])
 @login_required
+@email_confirmed_required
 def submit_product_for_approval(request_id):
     logger.info(f"--- submit_product_for_approval for request_id: {request_id} ---")
     logger.info(f"Request Headers: {request.headers}")
@@ -4569,6 +4625,7 @@ def submit_product_for_approval(request_id):
 
 @app.route('/product_approval/<int:request_id>/decide', methods=['POST'])
 @login_required
+@email_confirmed_required
 def decide_product_approval(request_id):
     approval_request = db.session.get(ProductApproval, request_id)
     if not approval_request:
@@ -4603,6 +4660,7 @@ def decide_product_approval(request_id):
 
 @app.route('/product_documentation/<path:filename>')
 @login_required # Add login required and further permission checks if needed
+@email_confirmed_required
 def serve_product_documentation(filename):
     # Basic permission check: user must be authenticated.
     # More granular check: user must have access to the project this doc belongs to.
@@ -4614,6 +4672,7 @@ def serve_product_documentation(filename):
 
 @app.route('/product_document/<int:document_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_product_document(document_id):
     document = db.session.get(ProductDocument, document_id)
     if not document:
@@ -4650,6 +4709,7 @@ def delete_product_document(document_id):
 
 @app.route('/product_approval/<int:request_id>/delete', methods=['POST'])
 @login_required
+@email_confirmed_required
 def delete_product_approval_request(request_id):
     approval_request = db.session.get(ProductApproval, request_id)
     if not approval_request:
