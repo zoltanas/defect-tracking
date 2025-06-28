@@ -95,12 +95,12 @@
                 </div>
                 <div id="filter-products-approval-wrapper" class="flex items-center gap-2 mt-3 sm:mt-0 w-full sm:w-auto hidden">
                     <label for="filter_products_approval" class="text-sm font-medium text-gray-700 mr-2">Filter:</label>
-                    <select id="filter_products_approval" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?filter=' + this.value + '&active_tab_override=products_approval#products_approval'" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
-                        <option value="All" {% if filter_status == 'All' %}selected{% endif %}>All Requests</option>
-                        <option value="waiting_for_proposal" {% if filter_status == 'waiting_for_proposal' %}selected{% endif %}>Waiting for Proposal</option>
-                        <option value="product_provided" {% if filter_status == 'product_provided' %}selected{% endif %}>Product Provided</option>
-                        <option value="approved" {% if filter_status == 'approved' %}selected{% endif %}>Approved</option>
-                        <option value="rejected" {% if filter_status == 'rejected' %}selected{% endif %}>Rejected</option>
+                    <select id="filter_products_approval" onchange="window.location.href='{{ url_for('project_detail', project_id=project.id) }}?product_filter_status=' + this.value + '&active_tab_override=products_approval#products_approval'" class="p-2 w-full sm:w-auto md:w-48 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                        <option value="All" {% if product_filter_status == 'All' or not product_filter_status %}selected{% endif %}>All Requests</option>
+                        <option value="waiting_for_proposal" {% if product_filter_status == 'waiting_for_proposal' %}selected{% endif %}>Waiting for Proposal</option>
+                        <option value="product_provided" {% if product_filter_status == 'product_provided' %}selected{% endif %}>Product Provided</option>
+                        <option value="approved" {% if product_filter_status == 'approved' %}selected{% endif %}>Approved</option>
+                        <option value="rejected" {% if product_filter_status == 'rejected' %}selected{% endif %}>Rejected</option>
                     </select>
                 </div>
             </div>

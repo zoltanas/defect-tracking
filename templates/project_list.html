@@ -26,12 +26,12 @@
                     <div class="mt-4 border-t border-gray-200 pt-4">
                         <h4 class="text-sm font-medium text-gray-700 mb-2">Statistics:</h4>
                         <ul class="text-sm text-gray-600 space-y-1">
-                            <li>Open Defects: <span class="font-semibold">{{ data_item.open_defects_count }}</span></li>
-                            <li>Open Defects with Replies: <span class="font-semibold">{{ data_item.open_defects_with_reply_count }}</span></li>
-                            <li>Open Checklists: <span class="font-semibold">{{ data_item.open_checklists_count }}</span></li>
-                            <li>Products waiting for proposal: <span class="font-semibold">{{ data_item.products_waiting_for_proposal_count }}</span></li>
-                            <li>Products provided waiting for approval: <span class="font-semibold">{{ data_item.products_provided_waiting_for_approval_count }}</span></li>
-                            <li>Products rejected: <span class="font-semibold">{{ data_item.products_rejected_count }}</span></li>
+                            <li>Open Defects: <a href="{{ url_for('project_detail', project_id=data_item.project.id, filter='Open', active_tab_override='defects') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.open_defects_count }}</span></a></li>
+                            <li>Open Defects with Replies: <a href="{{ url_for('project_detail', project_id=data_item.project.id, filter='OpenWithReply', active_tab_override='defects') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.open_defects_with_reply_count }}</span></a></li>
+                            <li>Open Checklists: <a href="{{ url_for('project_detail', project_id=data_item.project.id, filter='Open', active_tab_override='checklists') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.open_checklists_count }}</span></a></li>
+                            <li>Products waiting for proposal: <a href="{{ url_for('project_detail', project_id=data_item.project.id, active_tab_override='products_approval', product_filter_status='waiting_for_proposal') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.products_waiting_for_proposal_count }}</span></a></li>
+                            <li>Products provided waiting for approval: <a href="{{ url_for('project_detail', project_id=data_item.project.id, active_tab_override='products_approval', product_filter_status='product_provided') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.products_provided_waiting_for_approval_count }}</span></a></li>
+                            <li>Products rejected: <a href="{{ url_for('project_detail', project_id=data_item.project.id, active_tab_override='products_approval', product_filter_status='rejected') }}" class="text-sky-600 hover:underline"><span class="font-semibold">{{ data_item.products_rejected_count }}</span></a></li>
                         </ul>
                     </div>
 
