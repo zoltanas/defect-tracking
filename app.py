@@ -4371,8 +4371,8 @@ def submit_product_for_approval(request_id):
         flash('Only contractors can submit products for approval.', 'error')
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 
-    # Allow submission if status is 'waiting_for_proposal' or 'product_provided' (for updates)
-    if approval_request.status not in ['waiting_for_proposal', 'product_provided']:
+    # Allow submission if status is 'waiting_for_proposal', 'product_provided', or 'rejected' (for updates/resubmission)
+    if approval_request.status not in ['waiting_for_proposal', 'product_provided', 'rejected']:
         flash('This request cannot be updated at this stage.', 'warning')
         return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 
@@ -4387,12 +4387,15 @@ def submit_product_for_approval(request_id):
     upload_folder = os.path.join(app.static_folder, 'product_documentation')
     os.makedirs(upload_folder, exist_ok=True)
 
+    allowed_doc_extensions = {'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+
     for doc_file in documentation_files: # documentation_files is already the result of getlist
         if doc_file and doc_file.filename != '':
             logger.info(f"Processing file: {doc_file.filename}, Content-Type: {doc_file.content_type}")
-            if not ('.' in doc_file.filename and doc_file.filename.rsplit('.', 1)[1].lower() == 'pdf'):
-                flash(f"File '{doc_file.filename}' is not a PDF and was skipped.", 'warning')
-                logger.warning(f"Skipped non-PDF file: {doc_file.filename}")
+            file_ext = doc_file.filename.rsplit('.', 1)[1].lower() if '.' in doc_file.filename else ''
+            if not file_ext or file_ext not in allowed_doc_extensions:
+                flash(f"File '{doc_file.filename}' has an unsupported extension and was skipped. Allowed types: PDF, PNG, JPG, JPEG, GIF.", 'warning')
+                logger.warning(f"Skipped file with unsupported extension: {doc_file.filename}")
                 continue
 
             original_filename = secure_filename(doc_file.filename)
@@ -4432,9 +4435,20 @@ def submit_product_for_approval(request_id):
     if files_uploaded_count > 0 or (product_description != approval_request.product_description): # Update submission date if new files or changed description
         approval_request.submission_date = datetime.utcnow()
 
-    # Update status only if it was 'waiting_for_proposal' and at least one doc exists or was just uploaded
+    # Update status:
+    # If 'waiting_for_proposal' and docs exist/uploaded, move to 'product_provided'.
+    # If 'rejected' and changes made (new files or description change), move to 'product_provided'.
     if approval_request.status == 'waiting_for_proposal' and (files_uploaded_count > 0 or existing_documents_count > 0):
         approval_request.status = 'product_provided'
+    elif approval_request.status == 'rejected' and (files_uploaded_count > 0 or product_description != approval_request.product_description or existing_documents_count > 0):
+        # If it was rejected, and now new files are added OR description changed OR there are existing documents (implying an edit to a previously populated submission)
+        # then it should go back to 'product_provided' for re-review.
+        approval_request.status = 'product_provided'
+        # Also ensure approver fields are cleared if it's being resubmitted after rejection
+        approval_request.approver_id = None
+        approval_request.approval_date = None
+        approval_request.approver_comments = None
+
 
     try:
         db.session.commit()

@@ -223,7 +223,7 @@
                                 </span>
                             </p>
                             #}
-                            {% if user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided'] %}
+                            {% if user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided', 'rejected'] %}
                             <form action="{{ url_for('submit_product_for_approval', request_id=pa_request.id) }}" method="POST" enctype="multipart/form-data" class="mt-4 space-y-3" id="productApprovalForm-{{ pa_request.id }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -285,22 +285,25 @@
                                 <!-- File Input for Adding New Documents -->
                                 <div class="mt-4">
                                     <label for="documentation_files_{{ pa_request.id }}" class="block text-sm font-medium text-gray-700">
-                                        Add More Product Documentation (PDFs)
+                                        Add More Product Documentation (PDF, JPG, PNG, GIF)
                                     </label>
-                                    <input type="file" name="documentation_files[]" id="documentation_files_{{ pa_request.id }}" multiple accept=".pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary hover:file:bg-primary-100">
+                                    <input type="file" name="documentation_files[]" id="documentation_files_{{ pa_request.id }}" multiple accept=".pdf,.png,.jpg,.jpeg,.gif" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary hover:file:bg-primary-100">
                                     {% if pa_request.status == 'waiting_for_proposal' and not pa_request.documents %}
                                         <p class="text-xs text-gray-500 mt-1">At least one document is required for initial submission.</p>
                                     {% endif %}
                                 </div>
 
                                 <button type="submit" id="submitProductApprovalBtn-{{ pa_request.id }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium mt-4">
-                                    {% if pa_request.status == 'waiting_for_proposal' %}Submit Product Details{% else %}Update Details & Add Documents{% endif %}
+                                    {% if pa_request.status == 'waiting_for_proposal' %}Submit Product Details
+                                    {% elif pa_request.status == 'rejected' %}Resubmit Product Details
+                                    {% else %}Update Details & Add Documents
+                                    {% endif %}
                                 </button>
                             </form>
                             {% endif %}
 
-                            {% if pa_request.product_description and not (user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided']) %}
-                            {# Show static description if not in contractor edit mode #}
+                            {% if pa_request.product_description and not (user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided', 'rejected']) %}
+                            {# Show static description if not in contractor edit mode (which now includes 'rejected' state) #}
                             <div class="mt-3">
                                 <h4 class="font-semibold text-gray-700">Submitted Description:</h4>
                                 <p class="text-sm text-gray-600 whitespace-pre-wrap">{{ pa_request.product_description }}</p>
@@ -310,8 +313,8 @@
                             </div>
                             {% endif %}
 
-                            {% if pa_request.documents and not (user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided']) %}
-                            {# Show static document list if not in contractor edit mode #}
+                            {% if pa_request.documents and not (user_role == 'contractor' and pa_request.status in ['waiting_for_proposal', 'product_provided', 'rejected']) %}
+                            {# Show static document list if not in contractor edit mode (which now includes 'rejected' state) #}
                             <div class="mt-3">
                                 <h4 class="font-semibold text-gray-700 mb-1">Uploaded Documents:</h4>
                                 <ul class="list-disc list-inside space-y-1">
