@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+
+{% block title %}Manage Substitutes{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold mb-6 text-gray-800">Manage Your Substitutes</h1>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="p-4 mb-4 text-sm rounded-lg
+                        {% if category == 'success' %} bg-green-100 text-green-700
+                        {% elif category == 'error' %} bg-red-100 text-red-700
+                        {% else %} bg-blue-100 text-blue-700
+                        {% endif %}"
+                 role="alert">
+                {{ message }}
+            </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Add Substitute Form -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+        <h2 class="text-2xl font-semibold mb-4 text-gray-700">Add a New Substitute</h2>
+        <form method="POST" action="{{ url_for('add_substitute') }}">
+            {{ csrf_token() }}
+            <div class="mb-4">
+                <label for="substitute_email" class="block text-gray-700 text-sm font-bold mb-2">Substitute's Email Address:</label>
+                <input type="email" name="substitute_email" id="substitute_email" required
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            </div>
+            <button type="submit"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                Add Substitute
+            </button>
+        </form>
+    </div>
+
+    <!-- Current Substitutes List -->
+    <div class="bg-white shadow-md rounded-lg p-6">
+        <h2 class="text-2xl font-semibold mb-4 text-gray-700">Current Substitutes</h2>
+        {% if substitutions and substitutions|length > 0 %}
+            <ul class="divide-y divide-gray-200">
+                {% for sub in substitutions %}
+                    <li class="py-4 flex justify-between items-center">
+                        <div>
+                            <p class="text-lg font-medium text-gray-900">{{ sub.substitute_user.name }} ({{ sub.substitute_user.email }})</p>
+                            <p class="text-sm text-gray-500">Active since: {{ sub.creation_date.strftime('%Y-%m-%d %H:%M') }}</p>
+                        </div>
+                        <form method="POST" action="{{ url_for('revoke_substitute', substitution_id=sub.id) }}" class="inline-block">
+                            {{ csrf_token() }}
+                            <button type="submit"
+                                    class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                                    onclick="return confirm('Are you sure you want to revoke this substitute?');">
+                                Revoke
+                            </button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-gray-600">You currently have no substitutes assigned.</p>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

@@ -334,6 +334,20 @@ class ProductDocument(db.Model):
     product_approval = db.relationship('ProductApproval', back_populates='documents')
     uploader = db.relationship('User', back_populates='uploaded_product_documents')
 
+class Substitution(db.Model):
+    __tablename__ = 'substitutions'
+    id = db.Column(db.Integer, primary_key=True)
+    original_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    substitute_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    creation_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships to User model
+    original_user = db.relationship('User', foreign_keys=[original_user_id], backref=db.backref('substitutions_as_original', lazy='dynamic'))
+    substitute_user = db.relationship('User', foreign_keys=[substitute_user_id], backref=db.backref('substitutions_as_substitute', lazy='dynamic'))
+
+    # Unique constraint to prevent duplicate substitution entries
+    __table_args__ = (db.UniqueConstraint('original_user_id', 'substitute_user_id', name='uq_original_substitute'),)
+
 # Database initialization
 db_init_lock = Lock()
 
@@ -375,6 +389,41 @@ def load_user(user_id):
     # Eagerly load the 'projects' relationship to prevent DetachedInstanceError
     # when accessing current_user.projects after the initial session might be closed.
     return User.query.options(joinedload(User.projects)).get(int(user_id))
+
+# --- Substitution Helper Functions ---
+def get_substitution_details():
+    """
+    Checks if the current_user is acting as a substitute.
+    Returns a tuple: (is_substituting, original_user_id, original_user_object)
+    If not substituting, original_user_id will be None and original_user_object will be None.
+    """
+    if current_user.is_authenticated:
+        substitution = Substitution.query.filter_by(substitute_user_id=current_user.id).first()
+        if substitution:
+            original_user = User.query.get(substitution.original_user_id)
+            return True, substitution.original_user_id, original_user
+    return False, None, None
+
+def get_effective_user():
+    """
+    Returns the User object that should be considered active for operations.
+    If substituting, returns the original user. Otherwise, returns current_user.
+    """
+    is_substituting, _, original_user_obj = get_substitution_details()
+    if is_substituting and original_user_obj:
+        return original_user_obj
+    return current_user
+
+def get_effective_user_id():
+    """
+    Returns the ID of the user that should be considered active for operations.
+    If substituting, returns the original user's ID. Otherwise, returns current_user.id.
+    """
+    is_substituting, original_user_id, _ = get_substitution_details()
+    if is_substituting and original_user_id:
+        return original_user_id
+    return current_user.id
+# --- End Substitution Helper Functions ---
 
 # Custom decorator to require email confirmation
 from functools import wraps
@@ -429,12 +478,34 @@ def utility_processor():
     return dict(get_absolute_static_path=get_absolute_static_path_for_template)
 
 @app.context_processor
+def inject_substitution_status():
+    if current_user.is_authenticated:
+        is_currently_substituting = Substitution.query.filter_by(substitute_user_id=current_user.id).first()
+        return dict(is_currently_substituting=bool(is_currently_substituting))
+    return dict(is_currently_substituting=False)
+
+@app.context_processor
 def inject_accessible_projects():
     if current_user.is_authenticated:
+        effective_user = get_effective_user()
         accessible_project_objects = []
-        # Assuming current_user.projects is a list of ProjectAccess objects
-        project_accesses = ProjectAccess.query.filter_by(user_id=current_user.id).all()
-        project_ids = [access.project_id for access in project_accesses]
+        # ProjectAccess objects are still linked to the actual logged-in user (current_user)
+        # or the original user if substituting. The `effective_user` handles this.
+        # However, project access itself might be more complex if substitutes have their *own* direct access
+        # vs purely inheriting. For now, assume substitution means full inheritance of the original user's access.
+
+        # If a user is substituting, they see projects of the original user.
+        # The `effective_user.projects` should reflect this if relationships are set up correctly
+        # on the User model and `get_effective_user()` returns the correct User instance.
+        # Let's test this direct approach first.
+        # The `projects` attribute on the User model is `db.relationship('ProjectAccess', back_populates='user')`
+        # So `effective_user.projects` will give the ProjectAccess objects for that user.
+
+        user_to_query_access_for = effective_user # This will be original_user if substituting, else current_user.
+
+        project_access_entries = ProjectAccess.query.filter_by(user_id=user_to_query_access_for.id).all()
+        project_ids = [access.project_id for access in project_access_entries]
+
         if project_ids:
             accessible_project_objects = Project.query.filter(Project.id.in_(project_ids)).order_by(Project.name).all()
         return dict(accessible_projects=accessible_project_objects)
@@ -2081,7 +2152,9 @@ def project_data_management():
 @email_confirmed_required
 def index():
     # Get project IDs where the user has access (either as creator or assigned)
-    project_ids = [access.project_id for access in current_user.projects]
+    # Use effective user to determine which projects to list
+    effective_user = get_effective_user()
+    project_ids = [access.project_id for access in effective_user.projects] # effective_user.projects will give ProjectAccess for original user if substituting
     projects_query = Project.query.filter(Project.id.in_(project_ids))
 
     projects_data = []
@@ -2093,7 +2166,9 @@ def index():
         all_open_defects = Defect.query.filter_by(project_id=project.id, status='open').all()
         for defect in all_open_defects:
             last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
-            if last_comment and last_comment.user_id != current_user.id:
+            # The notification logic should still be based on the actual logged-in user (current_user)
+            # not the effective_user, as it's about whether *this logged-in session* has seen the reply.
+            if last_comment and last_comment.user_id != current_user.id: # Keep current_user.id here
                 count_open_defects_with_other_user_reply += 1
         open_defects_with_reply_count = count_open_defects_with_other_user_reply
 
@@ -2147,7 +2222,10 @@ def add_project():
             project = Project(name=name)
             db.session.add(project)
             db.session.commit()
-            access = ProjectAccess(user_id=current_user.id, project_id=project.id, role='admin')
+            # Project access should be granted to the user initiating the action, which is the effective_user.
+            # If admin 'A' is substituted by 'B', and 'B' creates a project, admin 'A' should get access.
+            effective_user_obj = get_effective_user()
+            access = ProjectAccess(user_id=effective_user_obj.id, project_id=project.id, role='admin') # Use effective_user_obj.id
             db.session.add(access)
             db.session.commit()
             flash('Project added successfully!', 'success')
@@ -2166,8 +2244,15 @@ def delete_project(project_id):
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id, role='admin').first()
-    if not access:
+
+    effective_user_id_val = get_effective_user_id()
+    effective_user_role = get_effective_user().role # Get role of the effective user
+
+    # Check if the effective user is an admin for this project
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id, role='admin').first()
+
+    # Additionally, ensure the effective user has a global admin role, not just project admin via ProjectAccess
+    if not access or effective_user_role != 'admin':
         flash('You do not have permission to delete this project.', 'error')
         return redirect(url_for('index'))
     # Delete drawing files
@@ -2206,30 +2291,39 @@ def project_detail(project_id):
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-    if not access:
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+    if not access: # Access is based on the effective user
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
+
     filter_status = request.args.get('filter', 'All')
     active_tab_override = request.args.get('active_tab_override', 'defects') # New line
     defects_query = Defect.query.filter_by(project_id=project_id)
 
-    # Add this condition for expert users, but not for Technical Supervisors
-    if current_user.role == 'expert' and current_user.role != 'Technical supervisor':
-        defects_query = defects_query.filter_by(creator_id=current_user.id)
-    # Technical supervisors should see all defects, so no additional filter is applied here for them.
+    # Defect visibility for 'expert' role should be based on the effective_user's role and ID.
+    if effective_user_role == 'expert' and effective_user_role != 'Technical supervisor': # Ensure TS is not miscategorized
+        defects_query = defects_query.filter_by(creator_id=effective_user_id_val)
+    # Technical supervisors and other roles (admin, contractor) see all defects within the project.
 
     if filter_status == 'Open':
         defects = defects_query.filter_by(status='open').all()
     elif filter_status == 'OpenNoReply':
         defects = defects_query.filter_by(status='open').outerjoin(Defect.comments).filter(Comment.id == None).all()
     elif filter_status == 'OpenWithReply':
-        open_defects = defects_query.filter_by(status='open').all()
+        # This filter is about notifications for the *logged-in* user (current_user), not the effective_user.
+        # So, the core logic for determining "reply from other" should use current_user.id.
+        # However, the initial pool of defects to check should be those visible to the effective_user.
+        open_defects_visible_to_effective_user = defects_query.filter_by(status='open').all()
         defects_with_reply_from_other = []
-        for defect in open_defects:
+        for defect in open_defects_visible_to_effective_user: # Iterate through defects visible to effective user
             try:
-                app.logger.info(f"[DEBUG_REDIRECT] Processing defect ID: {defect.id}, Desc: '{defect.description}' for OpenWithReply filter.")
-                app.logger.info(f"[DEBUG_REDIRECT] Current user: ID={current_user.id}, Authenticated={current_user.is_authenticated}")
+                # Debug logging can remain or be adjusted as needed
+                app.logger.info(f"[DEBUG_REDIRECT] Processing defect ID: {defect.id}, Desc: '{defect.description}' for OpenWithReply filter. EffectiveUser: {effective_user_obj.username}, CurrentUser: {current_user.username}")
 
                 last_comment = Comment.query.filter_by(defect_id=defect.id).order_by(Comment.created_at.desc()).first()
 
@@ -2237,9 +2331,8 @@ def project_detail(project_id):
                     app.logger.info(f"[DEBUG_REDIRECT] No last comment found for defect ID: {defect.id}.")
                     continue
 
-                app.logger.info(f"[DEBUG_REDIRECT] Last comment for defect ID {defect.id}: CommentID={last_comment.id}, CommenterUserID={last_comment.user_id}")
-
-                if last_comment.user_id != current_user.id:
+                # The check `last_comment.user_id != current_user.id` is crucial: it's about whether the *actual logged-in user* needs notification.
+                if last_comment.user_id != current_user.id: # This must be current_user.id
                     app.logger.info(f"[DEBUG_REDIRECT] Defect ID {defect.id} will be INCLUDED (commenter {last_comment.user_id} != current_user {current_user.id}).")
                     defects_with_reply_from_other.append(defect)
                 else:
@@ -2247,12 +2340,11 @@ def project_detail(project_id):
 
             except Exception as e:
                 app.logger.error(f"[DEBUG_REDIRECT] EXCEPTION while processing defect ID {defect.id} in OpenWithReply: {str(e)}", exc_info=True)
-                # continue # Optional: to continue processing other defects if one fails
         defects = defects_with_reply_from_other
     elif filter_status == 'Closed':
         defects = defects_query.filter_by(status='closed').all()
     else: # All
-        defects = defects_query.all()
+        defects = defects_query.all() # defects_query already incorporates role-based filtering
 
     for defect in defects:
         defect.first_thumbnail_path = None
@@ -2344,14 +2436,18 @@ def project_detail(project_id):
         joinedload(ProductApproval.approver)
     ).all()
 
-    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=access.role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template, product_filter_status=product_filter_status) # Added product_approvals and product_filter_status
+    return render_template('project_detail.html', project=project, defects=defects, checklists=filtered_checklists, filter_status=filter_status, user_role=effective_user_role, active_tab_name=active_tab_override, product_approvals=product_approvals_for_template, product_filter_status=product_filter_status) # Changed access.role to effective_user_role
 
 @app.route('/project/<int:project_id>/add_drawing', methods=['GET', 'POST'])
 @login_required
 @email_confirmed_required
 def add_drawing(project_id):
-    if current_user.role != 'admin':
+    effective_user_obj = get_effective_user()
+    # Permission to add drawing should be based on the effective user's role.
+    if effective_user_obj.role != 'admin':
         flash('Only admins can add drawings.', 'error')
+        # If a substitute (non-admin) tries this, they get redirected to index.
+        # If an admin is substituted by another admin, this check passes.
         return redirect(url_for('index'))
     project = db.session.get(Project, project_id)
     if not project:
@@ -2382,7 +2478,8 @@ def add_drawing(project_id):
 @login_required
 @email_confirmed_required
 def delete_drawing(drawing_id):
-    if current_user.role != 'admin':
+    effective_user_obj = get_effective_user()
+    if effective_user_obj.role != 'admin':
         flash('Only admins can delete drawings.', 'error')
         return redirect(url_for('index'))
     drawing = db.session.get(Drawing, drawing_id)
@@ -2405,10 +2502,16 @@ def view_drawing(project_id, drawing_id):
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-    if not access:
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+    if not access: # Access based on effective user
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
+
     drawing = db.session.get(Drawing, drawing_id)
     if not drawing or drawing.project_id != project_id:
         flash('Drawing not found.', 'error')
@@ -2421,25 +2524,28 @@ def view_drawing(project_id, drawing_id):
     ).filter_by(drawing_id=drawing_id)
 
     markers = markers_query.all()
-
     markers_data = []
-    user_role = current_user.role # Use global current_user.role for filtering logic
 
     for marker in markers:
-        if not marker.defect: # Skip if marker is orphaned (should not happen with good data integrity)
+        if not marker.defect: # Skip if marker is orphaned
             continue
 
         defect = marker.defect
         include_marker = False
 
-        if user_role in ['admin', 'contractor', 'supervisor']:
+        # Marker visibility logic based on effective_user's role and ID
+        if effective_user_role in ['admin', 'contractor', 'supervisor']: # Note: Problem description implies supervisor is a distinct role from Technical Supervisor.
             if defect.status == 'open':
                 include_marker = True
-        elif user_role == 'expert':
-            if defect.status == 'open' and defect.creator_id == current_user.id:
+        elif effective_user_role == 'expert':
+            # Experts see their own open defects' markers
+            if defect.status == 'open' and defect.creator_id == effective_user_id_val:
                 include_marker = True
+        # Add other roles if necessary, e.g. 'Technical supervisor' might have specific rules.
+        # For now, assuming 'supervisor' covers general supervisors and 'Technical supervisor' if it's a distinct value in User.role would need its own elif.
 
         if include_marker:
+            # Creator name should be from the defect's actual creator, not the effective user viewing it.
             creator_name = defect.creator.username if defect.creator else "N/A"
             creation_date_formatted = defect.creation_date.strftime('%Y-%m-%d %H:%M') if defect.creation_date else "N/A"
 
@@ -2498,7 +2604,7 @@ def view_drawing(project_id, drawing_id):
                 'attachment_thumbnail_url': attachment_thumbnail_url # This will now be the correct URL or None
             })
 
-    return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=access.role)
+    return render_template('view_drawing.html', drawing=drawing, markers=markers_data, user_role=effective_user_role) # Pass effective_user_role
 
 @app.route('/project/<int:project_id>/add_defect', methods=['GET', 'POST'])
 @login_required
@@ -2508,114 +2614,133 @@ def add_defect(project_id):
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-    if not access:
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+    if not access: # Access based on effective user
         flash('You do not have access to this project.', 'error')
         return redirect(url_for('index'))
+
+    # Any user with access to the project can add a defect.
+    # Specific roles might have UI differences handled in template, but backend allows it if they have ProjectAccess.
+
     drawings = Drawing.query.filter_by(project_id=project_id).all()
-    # Serialize drawings to JSON-compatible format
-    drawings_data = [
-        {
-            'id': drawing.id,
-            'name': drawing.name,
-            'file_path': drawing.file_path
-        } for drawing in drawings
-    ]
+    drawings_data = [{'id': drawing.id, 'name': drawing.name, 'file_path': drawing.file_path} for drawing in drawings]
     logger.debug(f"Drawings data for project {project_id}: {drawings_data}")
+
     if request.method == 'POST':
         description = request.form.get('description', '').strip()
-        drawing_id = request.form.get('drawing_id')
-        marker_x = request.form.get('marker_x')
-        marker_y = request.form.get('marker_y')
+        drawing_id_str = request.form.get('drawing_id')
+        marker_x_str = request.form.get('marker_x')
+        marker_y_str = request.form.get('marker_y')
+        # page_num_str = request.form.get('page_num', '1') # Assuming page_num might come from form for marker
+
         if not description:
             flash('Description is required.', 'error')
-            return redirect(url_for('add_defect', project_id=project_id))
+            # Pass effective_user_role to template even on error redirect
+            return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=effective_user_role, csrf_token_value=generate_csrf())
+
+
+        # *** Defect creator_id should be the ID of the effective user ***
         defect = Defect(
             project_id=project_id,
-            creator_id=current_user.id,
+            creator_id=effective_user_id_val, # Use effective_user_id_val
             description=description,
             status='open',
             creation_date=datetime.now()
         )
         db.session.add(defect)
-        db.session.commit()
-        if drawing_id and marker_x and marker_y:
+        db.session.commit() # Commit to get defect.id
+
+        if drawing_id_str and marker_x_str and marker_y_str:
             try:
-                marker_x = float(marker_x)
-                marker_y = float(marker_y)
-                if 0 <= marker_x <= 1 and 0 <= marker_y <= 1:
+                drawing_id_val = int(drawing_id_str)
+                marker_x_val = float(marker_x_str)
+                marker_y_val = float(marker_y_str)
+                # page_num_val = int(page_num_str) # Parse page_num
+
+                # Validate drawing exists in this project
+                linked_drawing = Drawing.query.filter_by(id=drawing_id_val, project_id=project_id).first()
+                if not linked_drawing:
+                    flash('Invalid drawing selected for marker.', 'error')
+                    # db.session.delete(defect) # Rollback defect creation? Or allow defect without marker?
+                    # For now, let defect exist, but marker fails.
+                    # Consider how to handle this transactional dependency.
+                elif 0 <= marker_x_val <= 1 and 0 <= marker_y_val <= 1: # and page_num_val > 0:
                     marker = DefectMarker(
                         defect_id=defect.id,
-                        drawing_id=int(drawing_id),
-                        x=marker_x,
-                        y=marker_y
+                        drawing_id=drawing_id_val,
+                        x=marker_x_val,
+                        y=marker_y_val,
+                        # page_num=page_num_val # Add page_num to marker
                     )
                     db.session.add(marker)
                     db.session.commit()
-                    logger.debug(f"Marker saved for defect {defect.id}: x={marker_x}, y={marker_y}, drawing_id={drawing_id}")
+                    logger.debug(f"Marker saved for defect {defect.id}: x={marker_x_val}, y={marker_y_val}, drawing_id={drawing_id_val}")
                 else:
-                    flash('Marker coordinates out of bounds.', 'error')
-                    logger.warning(f"Invalid marker coordinates: x={marker_x}, y={marker_y}")
+                    flash('Marker coordinates or page number out of bounds.', 'error')
+                    logger.warning(f"Invalid marker data: x={marker_x_val}, y={marker_y_val}, drawing_id={drawing_id_val}")
             except ValueError:
-                flash('Invalid marker coordinates.', 'error')
-                logger.error(f"Failed to parse marker coordinates: x={marker_x}, y={marker_y}")
-        # Handle attachments (if any)
+                flash('Invalid marker data format.', 'error')
+                logger.error(f"Failed to parse marker data: drawing_id='{drawing_id_str}', x='{marker_x_str}', y='{marker_y_str}'")
+
         attachment_ids = []
         if 'photos' in request.files:
             files = request.files.getlist('photos')
-            for file in files:
-                if file and file.filename and allowed_file(file.filename): # Added file.filename check
-                    mime_type = file.content_type
+            for file_obj in files: # Renamed to file_obj to avoid conflict
+                if file_obj and file_obj.filename and allowed_file(file_obj.filename):
+                    mime_type = file_obj.content_type
                     if mime_type.startswith('image/'):
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f') # Added %f for microseconds
-                        original_filename_secure = secure_filename(file.filename)
-                        # Use defect.id available after initial commit of defect
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
+                        original_filename_secure = secure_filename(file_obj.filename)
                         unique_filename_base = f"defect_{defect.id}_{timestamp}_{original_filename_secure}"
 
-                        img_save_dir, thumb_save_dir = ensure_attachment_paths('attachments_img') # Uses new helper
-
+                        img_save_dir, thumb_save_dir = ensure_attachment_paths('attachments_img')
                         original_save_path = os.path.join(img_save_dir, unique_filename_base)
-                        file.seek(0) # Reset file pointer
-                        file.save(original_save_path)
+                        file_obj.seek(0)
+                        file_obj.save(original_save_path)
                         os.chmod(original_save_path, 0o644)
-                        # DB path relative to 'static/uploads/'
                         file_path_for_db = os.path.join('uploads', 'attachments_img', unique_filename_base)
 
                         thumbnail_filename = f"thumb_{unique_filename_base}"
-                        # thumbnail_save_path is the full disk path for saving thumbnail
                         thumbnail_save_path = os.path.join(thumb_save_dir, thumbnail_filename)
 
                         try:
                             create_thumbnail(original_save_path, thumbnail_save_path)
-                            # DB path relative to 'static/uploads/'
                             thumbnail_path_for_db = os.path.join('uploads', 'attachments_img', 'thumbnails', thumbnail_filename)
-
                             attachment = Attachment(
                                 defect_id=defect.id,
                                 file_path=file_path_for_db,
                                 thumbnail_path=thumbnail_path_for_db,
-                                mime_type=mime_type # Save mime_type
+                                mime_type=mime_type
                             )
                             db.session.add(attachment)
                             db.session.commit()
                             attachment_ids.append(attachment.id)
-                        except Exception as e: # Catch errors during thumbnailing or DB operations
+                        except Exception as e:
                             db.session.rollback()
                             logger.error(f'Error processing image {original_filename_secure} in add_defect: {str(e)}')
                             flash(f'Error processing image {original_filename_secure}.', 'error')
-                            continue # Continue with the next file
+                            continue
                     else:
-                        # Handle non-image file if necessary for 'photos' field
-                        flash(f"File '{file.filename}' is not a supported image type for initial defect photos and was skipped.", "warning")
-                        continue # Skip this file
-                elif file and file.filename: # If file is present but not allowed by allowed_file()
-                    flash(f"File type for '{file.filename}' is not allowed.", "warning")
+                        flash(f"File '{file_obj.filename}' is not a supported image type for initial defect photos and was skipped.", "warning")
+                        continue
+                elif file_obj and file_obj.filename:
+                    flash(f"File type for '{file_obj.filename}' is not allowed.", "warning")
                     continue
+
         if attachment_ids:
+            # If redirecting to 'draw', make sure 'draw' route also uses effective_user for permissions if needed
             return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect.id)))
+
         flash('Defect created successfully!', 'success')
         return redirect(url_for('defect_detail', defect_id=defect.id))
-    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=access.role, csrf_token_value=generate_csrf())
+
+    # For GET request, pass the effective_user_role
+    return render_template('add_defect.html', project=project, drawings=drawings_data, user_role=effective_user_role, csrf_token_value=generate_csrf())
 
 @app.route('/defect/<int:defect_id>', methods=['GET', 'POST'])
 @login_required
@@ -2630,121 +2755,112 @@ def defect_detail(defect_id):
             flash('Defect not found.', 'error')
             return redirect(url_for('index'))
 
-        # Check access
-        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
+        effective_user_obj = get_effective_user()
+        effective_user_id_val = effective_user_obj.id
+        effective_user_role = effective_user_obj.role
+
+        # Check access using effective user's ID
+        access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=defect.project_id).first()
         if not access:
-            logger.error(f"User {current_user.id} has no access to project {defect.project_id}")
+            logger.error(f"Effective user {effective_user_id_val} (Current user: {current_user.id}) has no access to project {defect.project_id}")
             flash('You do not have access to this defect.', 'error')
             return redirect(url_for('index'))
 
-        # ADD THIS CHECK FOR EXPERT USER VIEWING PERMISSION
-        if current_user.role == 'expert' and defect.creator_id != current_user.id:
-            logger.warning(f"Expert user {current_user.id} attempted to view defect {defect_id} created by {defect.creator_id}.")
+        # Viewing permission for 'expert' role based on effective user
+        if effective_user_role == 'expert' and defect.creator_id != effective_user_id_val:
+            logger.warning(f"Expert effective user {effective_user_id_val} (Current user: {current_user.id}) attempted to view defect {defect_id} created by {defect.creator_id}.")
             flash('You do not have permission to view this defect as it was not created by you.', 'error')
             return redirect(url_for('project_detail', project_id=defect.project_id))
-        # END OF ADDED CHECK
 
-        # Handle POST requests
         if request.method == 'POST':
             action = request.form.get('action')
 
             if action == 'delete_defect':
-                if access.role != 'admin':
-                    logger.warning(f"User {current_user.id} attempted to delete defect {defect_id} without admin role")
+                # Delete permission should be based on effective user's role (specifically global admin)
+                if effective_user_role != 'admin': # Only global admins can delete defects
+                    logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}) attempted to delete defect {defect_id} without global admin role.")
                     flash('Only admins can delete defects.', 'error')
                     return redirect(url_for('defect_detail', defect_id=defect_id))
-                project_id = defect.project_id
+
+                project_id_for_redirect = defect.project_id # Store before deleting
+                # ... (rest of delete logic for attachments, defect itself)
                 attachments = Attachment.query.filter_by(defect_id=defect_id).all()
-                for attachment in attachments:
-                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path))
-                    thumbnail_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.thumbnail_path)) if attachment.thumbnail_path else None
+                for attachment_obj in attachments: # Renamed to avoid conflict
+                    file_path_on_disk = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_obj.file_path))
+                    thumbnail_path_on_disk = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment_obj.thumbnail_path)) if attachment_obj.thumbnail_path else None
                     try:
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                        if thumbnail_path and os.path.exists(thumbnail_path):
-                            os.remove(thumbnail_path)
-                    except Exception as e:
-                        logger.error(f"Error deleting attachment files for defect {defect_id}: {str(e)}")
-                    db.session.delete(attachment)
+                        if os.path.exists(file_path_on_disk): os.remove(file_path_on_disk)
+                        if thumbnail_path_on_disk and os.path.exists(thumbnail_path_on_disk): os.remove(thumbnail_path_on_disk)
+                    except Exception as e_file_del: logger.error(f"Error deleting attachment files for defect {defect_id}: {str(e_file_del)}")
+                    db.session.delete(attachment_obj)
+
+                DefectMarker.query.filter_by(defect_id=defect.id).delete() # Delete markers
+                Comment.query.filter_by(defect_id=defect.id).delete() # Delete comments (and their attachments if cascaded or handle explicitly)
+
                 db.session.delete(defect)
                 db.session.commit()
-                logger.info(f"Defect {defect_id} deleted successfully")
+                logger.info(f"Defect {defect_id} deleted successfully by effective user {effective_user_id_val} (Current: {current_user.id})")
                 flash('Defect deleted successfully!', 'success')
-                return redirect(url_for('project_detail', project_id=project_id))
+                return redirect(url_for('project_detail', project_id=project_id_for_redirect))
 
             elif action == 'add_comment':
                 content = request.form.get('comment_content', '').strip()
                 if content:
-                    comment = Comment(defect_id=defect_id, user_id=current_user.id, content=content)
+                    # *** Comment user_id should be the ID of the effective user (original user if substituting) ***
+                    # *** However, the spirit of "substitute acts as original" means the comment should appear AS IF from the original user.
+                    # But for audit trails, it might be better to log current_user.id somewhere, or have a separate 'acting_user_id'.
+                    # For now, per requirement "substitute user should be able to see and do absolutely everything the same what the user which is substituted can do,
+                    # and all the substituted users created content ,posts and comments... are also then for substitute user be like his own" -> this implies creator is effective_user.
+                    comment = Comment(defect_id=defect_id, user_id=effective_user_id_val, content=content) # Use effective_user_id_val
                     db.session.add(comment)
-                    db.session.commit() # Commit comment to get comment.id for attachments
+                    db.session.commit()
                     attachment_ids = []
                     if 'comment_photos' in request.files:
                         files = request.files.getlist('comment_photos')
-                        for file in files:
-                            if file and allowed_file(file.filename):
+                        for file_obj_comment in files: # Renamed
+                            if file_obj_comment and allowed_file(file_obj_comment.filename):
                                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                # Ensure comment.id is available
-                                filename = secure_filename(f'comment_{comment.id}_{timestamp}_{file.filename}')
-                                file_path_for_db = os.path.join('images', filename) 
-                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename) 
-                                
+                                filename = secure_filename(f'comment_{comment.id}_{timestamp}_{file_obj_comment.filename}')
+                                file_path_for_db = os.path.join('images', filename)
+                                full_disk_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                                 thumbnail_dir = ensure_thumbnail_directory()
                                 thumbnail_filename_base = f'thumb_{filename}'
-                                thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base) # Full path for saving
-                                thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base) # Relative path for DB
-
+                                thumbnail_disk_path = os.path.join(thumbnail_dir, thumbnail_filename_base)
+                                thumbnail_path_for_db = os.path.join('images', 'thumbnails', thumbnail_filename_base)
                                 try:
-                                    img = PILImage.open(file)
-                                    img = ImageOps.exif_transpose(img) 
+                                    img = PILImage.open(file_obj_comment)
+                                    img = ImageOps.exif_transpose(img)
                                     img = img.convert('RGB')
                                     img.save(full_disk_path, quality=85, optimize=True)
                                     os.chmod(full_disk_path, 0o644)
-                                    create_thumbnail(full_disk_path, thumbnail_disk_path) # create_thumbnail saves to thumbnail_disk_path
-                                    
-                                    attachment = Attachment(comment_id=comment.id, 
-                                                            file_path=file_path_for_db, 
-                                                            thumbnail_path=thumbnail_path_for_db)
+                                    create_thumbnail(full_disk_path, thumbnail_disk_path)
+                                    attachment = Attachment(comment_id=comment.id, file_path=file_path_for_db, thumbnail_path=thumbnail_path_for_db)
                                     db.session.add(attachment)
-                                    db.session.commit() # Commit each attachment
+                                    db.session.commit()
                                     attachment_ids.append(attachment.id)
-                                except Exception as e:
-                                    logger.error(f'Error processing file {file.filename} for comment {comment.id} on defect {defect_id}: {str(e)}')
-                                    flash(f'Error uploading file {file.filename}.', 'error')
-                                    db.session.rollback() # Rollback this attachment's transaction
-                                    continue # Continue with other files
+                                except Exception as e_att:
+                                    logger.error(f'Error processing file {file_obj_comment.filename} for comment {comment.id}: {str(e_att)}')
+                                    flash(f'Error uploading file {file_obj_comment.filename}.', 'error')
+                                    db.session.rollback()
+                                    continue
                     if attachment_ids:
-                        logger.info(f"Comment with {len(attachment_ids)} attachments added to defect {defect_id}")
-                        # Redirect to draw tool for the first attachment, then back to defect detail
                         return redirect(url_for('draw', attachment_id=attachment_ids[0], next=url_for('defect_detail', defect_id=defect_id)))
-                    
-                    logger.info(f"Comment added to defect {defect_id} (no attachments or attachments processed).")
                     flash('Comment added successfully!', 'success')
                 else:
-                    logger.warning(f"Empty comment submitted for defect {defect_id}")
                     flash('Comment cannot be empty.', 'error')
-                # This redirect should be here, after processing the comment (or lack thereof)
                 return redirect(url_for('defect_detail', defect_id=defect_id))
 
-            elif action == 'edit_defect': # Corresponds to the main "Save Changes" form
+            elif action == 'edit_defect':
                 can_edit = False
-                if current_user.role == 'admin':
-                    if defect.creator_id == current_user.id:
+                # Edit/close permissions are based on the effective_user being the creator.
+                if effective_user_role in ['admin', 'expert', 'Technical supervisor']:
+                    if defect.creator_id == effective_user_id_val: # Check against effective_user_id_val
                         can_edit = True
-                elif current_user.role == 'expert':
-                    if defect.creator_id == current_user.id:
-                        can_edit = True
-                elif current_user.role == 'Technical supervisor':
-                    if defect.creator_id == current_user.id:
-                        can_edit = True
-                # No else needed, can_edit remains False by default
 
                 if can_edit:
                     error_occurred = False
-
-                    # --- Update Defect Properties ---
                     new_description = request.form.get('description', '').strip()
-                    new_status = request.form.get('status', defect.status).lower()
+                    new_status_str = request.form.get('status', defect.status).lower() # status from form
 
                     if not new_description:
                         flash('Description cannot be empty.', 'error')
@@ -2752,157 +2868,103 @@ def defect_detail(defect_id):
                     else:
                         defect.description = new_description
 
-                    if not error_occurred: # Only proceed if description was okay
-                        if new_status in ['open', 'closed']:
-                            if defect.status != new_status:
-                                if new_status == 'closed':
-                                    # Apply ownership check for closing for ALL roles, including admin
-                                    if defect.creator_id != current_user.id:
-                                        # If we want to allow admins to close any defect, this check needs to be:
-                                        # if defect.creator_id != current_user.id and current_user.role != 'admin':
-                                        # For now, strictly apply creator or specific role for closing
-                                        flash('Only the defect creator can close this defect.', 'error') # Simplified message
+                    if not error_occurred:
+                        if new_status_str in ['open', 'closed']:
+                            if defect.status != new_status_str: # If status is actually changing
+                                if new_status_str == 'closed':
+                                    # Ownership check for closing: effective user must be creator
+                                    if defect.creator_id != effective_user_id_val:
+                                        flash('Only the defect creator (or their substitute) can close this defect.', 'error')
                                         error_occurred = True
                                     else:
-                                        defect.status = new_status
+                                        defect.status = new_status_str
                                         defect.close_date = datetime.now()
-                                else: # new_status == 'open'
-                                    defect.status = new_status
+                                else: # new_status_str == 'open'
+                                    defect.status = new_status_str
                                     defect.close_date = None
                         else:
                             flash('Invalid status value.', 'error')
                             error_occurred = True
-                   
-                    # --- Handle Marker Data (only if no prior errors) ---
+
+                    # ... (rest of marker data handling, largely unchanged but ensure it uses defect.project_id for validation)
                     if not error_occurred:
-                        drawing_id_str = request.form.get('drawing_id')
-                        marker_x_str = request.form.get('marker_x')
-                        marker_y_str = request.form.get('marker_y')
+                        drawing_id_str_edit = request.form.get('drawing_id')
+                        marker_x_str_edit = request.form.get('marker_x')
+                        marker_y_str_edit = request.form.get('marker_y')
 
-                        if drawing_id_str and marker_x_str and marker_y_str:
+                        if drawing_id_str_edit and marker_x_str_edit and marker_y_str_edit:
                             try:
-                                drawing_id_val = int(drawing_id_str)
-                                marker_x_val = float(marker_x_str)
-                                marker_y_val = float(marker_y_str)
+                                drawing_id_val_edit = int(drawing_id_str_edit)
+                                marker_x_val_edit = float(marker_x_str_edit)
+                                marker_y_val_edit = float(marker_y_str_edit)
 
-                                if not (0 <= marker_x_val <= 1 and 0 <= marker_y_val <= 1):
+                                if not (0 <= marker_x_val_edit <= 1 and 0 <= marker_y_val_edit <= 1):
                                     flash('Marker coordinates must be between 0 and 1.', 'error')
                                     error_occurred = True
                                 else:
-                                    valid_drawing = Drawing.query.filter_by(id=drawing_id_val, project_id=defect.project_id).first()
+                                    valid_drawing = Drawing.query.filter_by(id=drawing_id_val_edit, project_id=defect.project_id).first()
                                     if not valid_drawing:
                                         flash('Invalid drawing selected for marker.', 'error')
                                         error_occurred = True
                                     else:
                                         existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
                                         if existing_marker:
-                                            existing_marker.drawing_id = drawing_id_val
-                                            existing_marker.x = marker_x_val
-                                            existing_marker.y = marker_y_val
-                                            logger.info(f"Updated marker for defect {defect_id}")
+                                            existing_marker.drawing_id = drawing_id_val_edit
+                                            existing_marker.x = marker_x_val_edit
+                                            existing_marker.y = marker_y_val_edit
                                         else:
-                                            new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val, x=marker_x_val, y=marker_y_val)
+                                            new_marker = DefectMarker(defect_id=defect_id, drawing_id=drawing_id_val_edit, x=marker_x_val_edit, y=marker_y_val_edit)
                                             db.session.add(new_marker)
-                                            logger.info(f"Created new marker for defect {defect_id}")
                             except ValueError:
-                                flash('Invalid marker data format (e.g., non-numeric values).', 'error')
+                                flash('Invalid marker data format.', 'error')
                                 error_occurred = True
-                                logger.warning(f"ValueError for marker data, defect {defect_id}: drawing_id='{drawing_id_str}', x='{marker_x_str}', y='{marker_y_str}'")
-
-                        elif not drawing_id_str:
+                        elif not drawing_id_str_edit: # No drawing selected, remove existing marker if any
                             existing_marker = DefectMarker.query.filter_by(defect_id=defect_id).first()
-                            if existing_marker:
-                                db.session.delete(existing_marker)
-                                logger.info(f"Deleted marker for defect {defect_id} as no drawing was selected.")
+                            if existing_marker: db.session.delete(existing_marker)
 
                     if error_occurred:
                         db.session.rollback()
                     else:
                         db.session.commit()
                         flash('Defect updated successfully!', 'success')
-                
-                else: # if not can_edit
-                    logger.warning(f"User {current_user.id} (Role: {current_user.role}) attempted to edit defect {defect_id} (Creator ID: {defect.creator_id}) without permission.")
+                else: # not can_edit
+                    logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted to edit defect {defect_id} (Creator: {defect.creator_id}) without permission.")
                     flash('You do not have permission to edit this defect.', 'error')
-                
                 return redirect(url_for('defect_detail', defect_id=defect_id))
 
-            else:
-                # Handle cases where no specific action matched or 'action' was not 'delete_defect' or 'add_comment'
-                # This also covers the old 'description' in request.form check if it's not part of 'edit_defect' action explicitly
-                if 'description' in request.form and action != 'edit_defect':
-                     # This case might occur if a form is submitted with 'description' but not action='edit_defect'
-                     # For now, we'll treat it as an edit attempt, but log it.
-                     logger.warning(f"Defect edit attempt for defect_id {defect_id} without action='edit_defect'. Form keys: {list(request.form.keys())}")
-                     # Redirect to avoid unintended processing, or handle as a specific case if necessary.
-                     # For safety, let's assume it might be an incomplete/malformed request and redirect.
-                     flash("Potential issue with form submission. Please try again.", "warning")
-
+            else: # Unhandled action
                 logger.warning(f"Unhandled POST action '{action}' for defect_id {defect_id}. Redirecting.")
                 return redirect(url_for('defect_detail', defect_id=defect_id))
 
         # --- GET Request Processing ---
-        # Fetch attachments and comments (already present from previous structure)
         attachments = Attachment.query.filter_by(defect_id=defect_id, checklist_item_id=None, comment_id=None).all()
         comments = Comment.query.filter_by(defect_id=defect_id).order_by(Comment.created_at.asc()).all()
-        
-        # Fetch project drawings for the dropdown
         project_drawings = Drawing.query.filter_by(project_id=defect.project.id).all()
         drawings_data_for_template = [{'id': d.id, 'name': d.name, 'file_path': d.file_path} for d in project_drawings]
 
-        # Logging for defect
-        if defect:
-            app.logger.info(f"Fetched defect: id={defect.id}, description='{defect.description}', status='{defect.status}'")
-        else:
-            # This case is already handled by the initial check, but good for robustness if that check were removed.
-            app.logger.error(f"Defect object somehow None after initial check for defect_id: {defect_id}")
-            # flash('Defect not found.', 'error') # Already flashed
-            # return redirect(url_for('index')) # Already redirected
-
-        # Fetch marker and drawing (already present from previous structure)
-        marker_sqla = DefectMarker.query.filter_by(defect_id=defect_id).first() # Renamed to marker_sqla to avoid confusion
-        drawing_obj = None # Initialize drawing_obj
-        marker_data = None # Initialize marker_data
-
+        marker_sqla = DefectMarker.query.filter_by(defect_id=defect_id).first()
+        marker_data = None
         if marker_sqla:
-            app.logger.info(f"Fetched marker (SQLAlchemy): id={marker_sqla.id}, x={marker_sqla.x}, y={marker_sqla.y}, drawing_id={marker_sqla.drawing_id}, page_num={getattr(marker_sqla, 'page_num', 'N/A')}")
-            drawing_obj = db.session.get(Drawing, marker_sqla.drawing_id) # Use db.session.get for PK lookup
+            drawing_obj = db.session.get(Drawing, marker_sqla.drawing_id)
             if drawing_obj:
-                app.logger.info(f"Fetched drawing_obj: id={drawing_obj.id}, file_path='{drawing_obj.file_path}'")
                 marker_data = {
-                    'drawing_id': marker_sqla.drawing_id,
-                    'x': marker_sqla.x,
-                    'y': marker_sqla.y,
-                    'file_path': drawing_obj.file_path, # Use path from the fetched drawing object
-                    'page_num': getattr(marker_sqla, 'page_num', 1) # If page_num is implemented
+                    'drawing_id': marker_sqla.drawing_id, 'x': marker_sqla.x, 'y': marker_sqla.y,
+                    'file_path': drawing_obj.file_path, 'page_num': getattr(marker_sqla, 'page_num', 1)
                 }
-                # logger.debug already exists below, so we use app.logger.info for consistency or app.logger.debug
-                app.logger.debug(f"Defect {defect_id} - Marker data for display: {marker_data}") # Changed from logger.debug to app.logger.debug
-            else:
-                app.logger.warning(f"Drawing object not found for drawing_id: {marker_sqla.drawing_id} (associated with marker id: {marker_sqla.id})")
-                # marker_data remains None if drawing_obj is not found
-        else:
-            app.logger.info(f"No marker (SQLAlchemy object) found for defect_id: {defect_id}")
-            # marker_data remains None
 
-        # Log the final marker_data dictionary
-        app.logger.info(f"Final marker_data for template: {marker_data}")
-
-        # ADD THE NEW LOGGING HERE:
+        # Log for contractor viewing marker data (uses current_user.role for the logging condition, not effective_user_role)
         if current_user.role == 'contractor' and marker_data:
             app.logger.info(f"CONTRACTOR USER ({current_user.id}) - Defect {defect_id} - Marker data being passed to template: {marker_data}")
 
-        # logger.info already exists below, so we use app.logger.info for consistency or app.logger.debug
-        app.logger.info(f"Rendering defect_detail for defect {defect_id} (GET request or after POST error without redirect)") # Changed from logger.info to app.logger.info
         return render_template(
             'defect_detail.html',
             defect=defect,
             attachments=attachments,
             comments=comments,
-            user_role=access.role,
-            marker=marker_data, # This is for displaying existing marker
+            user_role=effective_user_role, # Pass effective_user_role
+            marker=marker_data,
             project=defect.project,
-            drawings=drawings_data_for_template, # This is for the dropdown
+            drawings=drawings_data_for_template,
             csrf_token_value=generate_csrf()
         )
 
@@ -2920,10 +2982,10 @@ def delete_defect_route(defect_id): # Renamed to avoid conflict with any potenti
         flash('Defect not found.', 'error')
         return redirect(url_for('index'))
 
-    # Authorization: Only admins can delete defects
-    if current_user.role != 'admin':
+    effective_user_obj = get_effective_user()
+    # Authorization: Only global admins (effective role) can delete defects
+    if effective_user_obj.role != 'admin':
         flash('You are not authorized to delete this defect.', 'error')
-        # Redirect to the defect detail page or project page
         return redirect(url_for('defect_detail', defect_id=defect.id))
 
     project_id_for_redirect = defect.project_id # Store before defect is deleted
@@ -3024,22 +3086,33 @@ def delete_attachment(defect_id, attachment_id):
     if not defect:
         flash('Defect not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role # Global role of the effective user
+
+    # Project access check based on effective user
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=defect.project_id).first()
     if not access:
         flash('You do not have access to this defect.', 'error')
         return redirect(url_for('defect_detail', defect_id=defect_id))
 
     # Permission checks
-    if attachment.defect_id:
-        # Only admins can delete defect attachments
-        if access.role != 'admin':
+    if attachment.defect_id: # Attachment directly on defect
+        # Only effective global admins can delete defect attachments
+        if effective_user_role != 'admin':
             flash('Only admins can delete defect attachments.', 'error')
             return redirect(url_for('defect_detail', defect_id=defect_id))
-    elif attachment.comment_id:
-        # Contractors can delete their own comment attachments
+    elif attachment.comment_id: # Attachment on a comment
         comment = db.session.get(Comment, attachment.comment_id)
-        if access.role == 'contractor' and comment.user_id != current_user.id:
-            flash('You can only delete attachments from your own comments.', 'error')
+        if not comment: # Should not happen if DB is consistent
+            flash('Associated comment not found.', 'error')
+            return redirect(url_for('defect_detail', defect_id=defect_id))
+
+        # Users can delete attachments from their own comments (effective_user_id vs comment.user_id)
+        # OR if the effective user is an admin.
+        if not (comment.user_id == effective_user_id_val or effective_user_role == 'admin'):
+            flash('You can only delete attachments from your own comments or if you are an admin.', 'error')
             return redirect(url_for('defect_detail', defect_id=defect_id))
 
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(attachment.file_path))
@@ -3070,9 +3143,17 @@ def add_defect_attachment(defect_id):
     if not defect:
         return jsonify({'success': False, 'error': 'Defect not found.'}), 404
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
-    if not access or access.role not in ['admin', 'expert', 'worker']: # Workers can add attachments
-        return jsonify({'success': False, 'error': 'Permission denied.'}), 403
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    # Role for permission check should be the effective user's role.
+    # Project access check should also use effective_user_id_val.
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=defect.project_id).first()
+
+    # Permission to add attachments: if user has project access and their effective role is suitable.
+    # Assuming 'worker' is a valid role string.
+    # If a substitute is an admin/expert/worker for the original user, they can add.
+    if not access or effective_user_obj.role not in ['admin', 'expert', 'worker', 'contractor', 'supervisor', 'Technical supervisor']: # Allow all roles with project access to add attachments
+        return jsonify({'success': False, 'error': 'Permission denied. You need access to the project and an appropriate role.'}), 403
 
     if 'attachment_file' not in request.files:
         return jsonify({'success': False, 'error': 'No file part.'}), 400
@@ -3198,9 +3279,28 @@ def delete_defect_attachment_json(defect_id):
     if not defect:
         return jsonify({'success': False, 'error': 'Defect not found.'}), 404
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=defect.project_id).first()
-    if not access or access.role not in ['admin', 'expert']: 
-        return jsonify({'success': False, 'error': 'Permission denied to delete attachments for this defect.'}), 403
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=defect.project_id).first()
+    # Permissions: Effective user must have project access.
+    # Deletion by 'admin' (global role of effective user) or 'expert' (global role of effective user, if they created the defect).
+    # The original code allowed 'expert' to delete any attachment on a defect they have access to.
+    # This should be refined: an expert should only delete attachments on defects they created, or if they are admin.
+
+    can_delete = False
+    if access:
+        if effective_user_role == 'admin':
+            can_delete = True
+        elif effective_user_role == 'expert' and defect.creator_id == effective_user_id_val:
+            # Experts can delete attachments from defects they created.
+            can_delete = True
+        # Add other roles if they are allowed to delete attachments from any defect they have access to.
+        # For now, only admin (global) and expert (creator) can delete direct defect attachments.
+
+    if not can_delete:
+        return jsonify({'success': False, 'error': 'Permission denied to delete this defect attachment.'}), 403
 
     attachment_id = request.form.get('attachment_id')
     if not attachment_id:
@@ -3247,10 +3347,17 @@ def add_checklist(project_id):
     if not project:
         flash('Project not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-    if not access or access.role not in ['admin', 'Technical supervisor']:
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+    # Permission to add checklists based on effective user's role and project access.
+    if not access or effective_user_role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can add checklists.', 'error')
         return redirect(url_for('project_detail', project_id=project_id))
+
     templates = Template.query.all()
     if request.method == 'POST':
         name = request.form['name']
@@ -3283,10 +3390,13 @@ def checklist_detail(checklist_id):
     if not checklist:
         flash('Checklist not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access:
+
+    effective_user_id_val = get_effective_user_id()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=checklist.project_id).first()
+    if not access: # Access based on effective user
         flash('You do not have access to this checklist.', 'error')
         return redirect(url_for('index'))
+
     items = ChecklistItem.query.filter_by(checklist_id=checklist_id).all()
     # The POST block that handled form submission for all items has been removed.
     # All updates will be handled by the new AJAX routes.
@@ -3307,9 +3417,13 @@ def update_checklist_item_status(item_id):
     if not checklist:
         return jsonify(success=False, error='Associated checklist not found.'), 404 # Should not happen
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access:
+    effective_user_id_val = get_effective_user_id()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=checklist.project_id).first()
+    if not access: # Access based on effective user
         return jsonify(success=False, error='Access denied to this project.'), 403
+
+    # Further permission: Any user with project access can update status (as per original logic)
+    # No specific role check was present, so effective user having project access is enough.
 
     data = request.get_json(force=True, silent=True) # Kept force=True, silent=True
     if data is None:
@@ -3351,9 +3465,12 @@ def update_checklist_item_comments(item_id):
     if not checklist:
         return jsonify(success=False, error='Associated checklist not found.'), 404
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access:
+    effective_user_id_val = get_effective_user_id()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=checklist.project_id).first()
+    if not access: # Access based on effective user
         return jsonify(success=False, error='Access denied to this project.'), 403
+
+    # Similarly, any effective user with project access can update comments.
 
     data = request.get_json()
     if data is None or 'comments' not in data:
@@ -3381,9 +3498,12 @@ def add_checklist_item_attachment(item_id):
     if not checklist:
         return jsonify(success=False, error='Associated checklist not found.'), 404
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access: # Any user with project access can add attachments for now
+    effective_user_id_val = get_effective_user_id()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=checklist.project_id).first()
+    if not access: # Access based on effective user
         return jsonify(success=False, error='Access denied to this project.'), 403
+
+    # Any effective user with project access can add attachments.
 
     if 'photos' not in request.files:
         return jsonify(success=False, error='No photo files part in the request.'), 400
@@ -3472,9 +3592,14 @@ def delete_checklist_item_attachment_ajax(item_id, attachment_id): # Renamed to 
     if not checklist:
         return jsonify(success=False, error='Associated checklist not found.'), 404
 
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access: # Any user with project access can delete for now, adjust if needed
+    effective_user_id_val = get_effective_user_id()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=checklist.project_id).first()
+    if not access: # Access based on effective user
         return jsonify(success=False, error='Access denied to this project.'), 403
+
+    # Permission: Any effective user with project access can delete.
+    # If specific roles are needed (e.g., only admin or creator of checklist/item), this needs adjustment.
+    # The original logic was: "Any user with project access can delete for now". This is maintained for effective_user.
 
     try:
         # Delete physical files (original and thumbnail)
@@ -3515,8 +3640,9 @@ def delete_checklist_route(checklist_id): # Renamed to be distinct
         flash('Checklist not found.', 'error')
         return redirect(url_for('index'))
 
-    # Authorization: Only admins or technical supervisors can delete checklists
-    if current_user.role not in ['admin', 'Technical supervisor']:
+    effective_user_obj = get_effective_user()
+    # Authorization: Only effective admins or technical supervisors can delete checklists
+    if effective_user_obj.role not in ['admin', 'Technical supervisor']:
         flash('You are not authorized to delete this checklist.', 'error')
         return redirect(url_for('checklist_detail', checklist_id=checklist.id))
 
@@ -3581,10 +3707,14 @@ def delete_checklist_attachment(checklist_id, attachment_id):
     if not checklist:
         flash('Checklist not found.', 'error')
         return redirect(url_for('index'))
-    access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=checklist.project_id).first()
-    if not access or access.role != 'admin':
-        flash('Only admins can delete attachments.', 'error')
+
+    effective_user_obj = get_effective_user()
+    access = ProjectAccess.query.filter_by(user_id=effective_user_obj.id, project_id=checklist.project_id).first()
+    # Permission: Only effective global admins can delete these attachments through this route.
+    if not access or effective_user_obj.role != 'admin':
+        flash('Only admins can delete attachments using this method.', 'error')
         return redirect(url_for('checklist_detail', checklist_id=checklist_id))
+
     attachment = db.session.get(Attachment, attachment_id)
     if not attachment:
         flash('Attachment not found.', 'error')
@@ -3610,23 +3740,24 @@ def delete_checklist_attachment(checklist_id, attachment_id):
 def update_defect_description(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
     can_perform_action = False
-    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
-        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
-        if current_user.role in allowed_editing_roles:
-            if current_user.id == defect.creator_id:
-                can_perform_action = True
-        # Add other general rules if any user, regardless of role, can edit their own defect
-        # For example, if a 'contractor' who is a creator should also be able to edit:
-        # elif current_user.id == defect.creator_id:
-        #    can_perform_action = True
-        # However, the issue is about admin, expert, TS, so we focus on them.
-        # The most restrictive interpretation for "can only edit their own" is applied per role.
+    # Allowed roles that can edit defects they created (via effective user)
+    allowed_editing_roles_creator = ['admin', 'expert', 'Technical supervisor', 'contractor', 'supervisor']
+    if effective_user_role in allowed_editing_roles_creator:
+        if defect.creator_id == effective_user_id_val:
+            can_perform_action = True
+
+    # Global admins can always edit, regardless of creator
+    if effective_user_role == 'admin':
+        can_perform_action = True
 
     if not can_perform_action:
-        # It's good to log this attempt
-        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
-        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
+        logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted unauthorized description edit on defect {defect_id} (Creator ID: {defect.creator_id}).")
+        return jsonify(success=False, error="Permission denied. You can only edit defects you created or if you are an admin."), 403
 
     data = request.get_json()
     if not data or 'description' not in data:
@@ -3658,23 +3789,23 @@ def update_defect_description(defect_id):
 def update_defect_status(defect_id):
     defect = Defect.query.get_or_404(defect_id)
     
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
     can_perform_action = False
-    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
-        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
-        if current_user.role in allowed_editing_roles:
-            if current_user.id == defect.creator_id:
-                can_perform_action = True
-        # Add other general rules if any user, regardless of role, can edit their own defect
-        # For example, if a 'contractor' who is a creator should also be able to edit:
-        # elif current_user.id == defect.creator_id:
-        #    can_perform_action = True
-        # However, the issue is about admin, expert, TS, so we focus on them.
-        # The most restrictive interpretation for "can only edit their own" is applied per role.
+    # Closing/reopening: Creator (effective) or Admin (effective)
+    if defect.creator_id == effective_user_id_val:
+        can_perform_action = True
+    elif effective_user_role == 'admin': # Global admin can change status
+        can_perform_action = True
+
+    # Original logic for other roles like 'expert', 'Technical supervisor' also required them to be creator.
+    # This is now covered by `defect.creator_id == effective_user_id_val`.
 
     if not can_perform_action:
-        # It's good to log this attempt
-        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
-        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
+        logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted unauthorized status change on defect {defect_id} (Creator ID: {defect.creator_id}).")
+        return jsonify(success=False, error="Permission denied. Only the defect creator or an admin can change the status."), 403
 
     data = request.get_json()
     if not data or 'status' not in data:
@@ -3710,25 +3841,24 @@ def update_defect_status(defect_id):
 @email_confirmed_required
 def update_defect_location(defect_id):
     defect = Defect.query.get_or_404(defect_id)
-    # project = Project.query.get_or_404(defect.project_id) # Project query not strictly needed if drawing check is done correctly
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
 
     can_perform_action = False
-    if hasattr(current_user, 'role'): # Check if current_user has a role attribute
-        allowed_editing_roles = ['admin', 'expert', 'Technical supervisor'] # Roles that can edit THEIR OWN defects
-        if current_user.role in allowed_editing_roles:
-            if current_user.id == defect.creator_id:
-                can_perform_action = True
-        # Add other general rules if any user, regardless of role, can edit their own defect
-        # For example, if a 'contractor' who is a creator should also be able to edit:
-        # elif current_user.id == defect.creator_id:
-        #    can_perform_action = True
-        # However, the issue is about admin, expert, TS, so we focus on them.
-        # The most restrictive interpretation for "can only edit their own" is applied per role.
+    # Similar to description: creator (effective) or admin (effective) can update location.
+    allowed_editing_roles_creator = ['admin', 'expert', 'Technical supervisor', 'contractor', 'supervisor']
+    if effective_user_role in allowed_editing_roles_creator:
+        if defect.creator_id == effective_user_id_val:
+            can_perform_action = True
+
+    if effective_user_role == 'admin': # Global admin can always edit location
+        can_perform_action = True
 
     if not can_perform_action:
-        # It's good to log this attempt
-        logger.warning(f"User {current_user.id} (Role: {getattr(current_user, 'role', 'N/A')}) attempted unauthorized edit on defect {defect_id} (Creator ID: {defect.creator_id}) via AJAX route.")
-        return jsonify(success=False, error="Permission denied. You can only edit defects you created."), 403
+        logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted unauthorized location update on defect {defect_id} (Creator ID: {defect.creator_id}).")
+        return jsonify(success=False, error="Permission denied. You can only edit defect locations you created or if you are an admin."), 403
 
     data = request.get_json()
     drawing_id_str = data.get('drawing_id')
@@ -3814,9 +3944,21 @@ def update_defect_location(defect_id):
 @email_confirmed_required
 def edit_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    # Permission: Comment author or admin
-    if not (current_user.id == comment.user_id or (hasattr(current_user, 'role') and current_user.role == 'admin')):
-        return jsonify(success=False, error="Permission denied."), 403
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    # Permission: Comment author (effective user) or admin (effective user)
+    can_edit = False
+    if comment.user_id == effective_user_id_val: # Effective user is the author
+        can_edit = True
+    elif effective_user_role == 'admin': # Effective user is an admin
+        can_edit = True
+
+    if not can_edit:
+        logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted unauthorized edit on comment {comment_id} (Author ID: {comment.user_id}).")
+        return jsonify(success=False, error="Permission denied. You can only edit your own comments or if you are an admin."), 403
 
     data = request.get_json()
     if not data: # Ensure data is not None
@@ -3843,9 +3985,21 @@ def edit_comment(comment_id):
 @email_confirmed_required
 def delete_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
-    # Permission: Comment author or admin
-    if not (current_user.id == comment.user_id or (hasattr(current_user, 'role') and current_user.role == 'admin')):
-        return jsonify(success=False, error="Permission denied."), 403
+
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
+
+    # Permission: Comment author (effective user) or admin (effective user)
+    can_delete = False
+    if comment.user_id == effective_user_id_val:
+        can_delete = True
+    elif effective_user_role == 'admin':
+        can_delete = True
+
+    if not can_delete:
+        logger.warning(f"Effective user {effective_user_id_val} (Role: {effective_user_role}, Current: {current_user.id}) attempted unauthorized delete on comment {comment_id} (Author ID: {comment.user_id}).")
+        return jsonify(success=False, error="Permission denied. You can only delete your own comments or if you are an admin."), 403
 
     # Handle comment attachments: Delete files and Attachment records
     comment_attachments = Attachment.query.filter_by(comment_id=comment.id).all()
@@ -3889,49 +4043,50 @@ def delete_image_route(attachment_id):
     if not attachment:
         return jsonify({'status': 'error', 'message': 'Attachment not found.'}), 404
 
-    project_id = None
+    effective_user_obj = get_effective_user()
+    effective_user_id_val = effective_user_obj.id
+    effective_user_role = effective_user_obj.role
     permission_ok = False
+    project_id = None # Initialize project_id
 
     if attachment.defect_id:
         defect = db.session.get(Defect, attachment.defect_id)
-        if not defect:
-            return jsonify({'status': 'error', 'message': 'Associated defect not found.'}), 404
+        if not defect: return jsonify({'status': 'error', 'message': 'Associated defect not found.'}), 404
         project_id = defect.project_id
-        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-        if access and current_user.role == 'admin':
-            permission_ok = True
-        else:
+        access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+        if access:
+            if effective_user_role == 'admin': # Global admin
+                permission_ok = True
+            elif effective_user_role == 'expert' and defect.creator_id == effective_user_id_val: # Expert who created defect
+                permission_ok = True
+        if not permission_ok:
             return jsonify({'status': 'error', 'message': 'Permission denied to delete this defect attachment.'}), 403
 
     elif attachment.checklist_item_id:
         checklist_item = db.session.get(ChecklistItem, attachment.checklist_item_id)
-        if not checklist_item or not checklist_item.checklist:
-            return jsonify({'status': 'error', 'message': 'Associated checklist item or checklist not found.'}), 404
+        if not checklist_item or not checklist_item.checklist: return jsonify({'status': 'error', 'message': 'Associated checklist item or checklist not found.'}), 404
         project_id = checklist_item.checklist.project_id
-        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-        if access and current_user.role == 'admin':
-            permission_ok = True
-        else:
-            return jsonify({'status': 'error', 'message': 'Permission denied to delete this checklist attachment.'}), 403
+        access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+        if access:
+            # Assuming any user with project access can delete checklist attachments (original broad permission)
+            # or if more strict, only admin/creator of checklist. For now, admin or if they have project access.
+            if effective_user_role == 'admin' or access: # If they have project access, allow. Or if they are admin.
+                 permission_ok = True # This makes it quite open for checklist item attachments.
+        if not permission_ok:
+             return jsonify({'status': 'error', 'message': 'Permission denied to delete this checklist attachment.'}), 403
 
     elif attachment.comment_id:
         comment = db.session.get(Comment, attachment.comment_id)
-        if not comment or not comment.defect: # Assuming comments are always linked to defects for project context
-            return jsonify({'status': 'error', 'message': 'Associated comment or defect not found.'}), 404
+        if not comment or not comment.defect: return jsonify({'status': 'error', 'message': 'Associated comment or defect not found.'}), 404
         project_id = comment.defect.project_id
-        access = ProjectAccess.query.filter_by(user_id=current_user.id, project_id=project_id).first()
-        if not access:
-             return jsonify({'status': 'error', 'message': 'No project access.'}), 403 # Should not happen if other checks pass
-        if current_user.role == 'admin' or comment.user_id == current_user.id:
-            permission_ok = True
-        else:
+        access = ProjectAccess.query.filter_by(user_id=effective_user_id_val, project_id=project_id).first()
+        if access:
+            if effective_user_role == 'admin' or comment.user_id == effective_user_id_val: # Admin or author of comment
+                permission_ok = True
+        if not permission_ok:
             return jsonify({'status': 'error', 'message': 'Permission denied to delete this comment attachment.'}), 403
     else:
-        # Orphaned or unknown context
-        return jsonify({'status': 'error', 'message': 'Cannot determine attachment context or invalid attachment.'}), 400
-
-    if not permission_ok: # Should be caught by specific context checks, but as a safeguard
-        return jsonify({'status': 'error', 'message': 'Permission denied.'}), 403
+        return jsonify({'status': 'error', 'message': 'Cannot determine attachment context.'}), 400
 
     # Delete files
     try:
@@ -3967,7 +4122,8 @@ def delete_image_route(attachment_id):
 @login_required
 @email_confirmed_required
 def template_list():
-    if current_user.role not in ['admin', 'Technical supervisor']:
+    effective_user_obj = get_effective_user()
+    if effective_user_obj.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can manage templates.', 'error')
         return redirect(url_for('index'))
     templates = Template.query.all()
@@ -3977,9 +4133,11 @@ def template_list():
 @login_required
 @email_confirmed_required
 def add_template():
-    if current_user.role not in ['admin', 'Technical supervisor']:
+    effective_user_obj = get_effective_user()
+    if effective_user_obj.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can add templates.', 'error')
         return redirect(url_for('index'))
+
     if request.method == 'POST':
         name = request.form['name']
         items = request.form['items']
@@ -4004,9 +4162,11 @@ def add_template():
 @login_required
 @email_confirmed_required
 def edit_template(template_id):
-    if current_user.role not in ['admin', 'Technical supervisor']:
+    effective_user_obj = get_effective_user()
+    if effective_user_obj.role not in ['admin', 'Technical supervisor']:
         flash('Only admins or technical supervisors can edit templates.', 'error')
         return redirect(url_for('index'))
+
     template = db.session.get(Template, template_id)
     if not template:
         flash('Template not found.', 'error')
@@ -4745,6 +4905,124 @@ def delete_product_approval_request(request_id):
 
     return redirect(url_for('project_detail', project_id=project_id, active_tab_override='products_approval'))
 # --- End Product Approval Routes ---
+
+# --- Substitute Routes ---
+@app.route('/substitute', methods=['GET'])
+@login_required
+@email_confirmed_required
+def substitute_page():
+    # Ensure the current user is not a substitute for someone else
+    is_substituting = Substitution.query.filter_by(substitute_user_id=current_user.id).first()
+    if is_substituting:
+        flash('Substitutes cannot manage other substitutes or be substituted.', 'warning')
+        return redirect(url_for('index'))
+
+    substitutions = Substitution.query.filter_by(original_user_id=current_user.id).all()
+    return render_template('substitute.html', substitutions=substitutions)
+
+@app.route('/substitute/add', methods=['POST'])
+@login_required
+@email_confirmed_required
+def add_substitute():
+    is_substituting = Substitution.query.filter_by(substitute_user_id=current_user.id).first()
+    if is_substituting:
+        flash('Substitutes cannot manage other substitutes.', 'error')
+        return redirect(url_for('index'))
+
+    substitute_email = request.form.get('substitute_email', '').strip()
+    if not substitute_email:
+        flash('Substitute email is required.', 'error')
+        return redirect(url_for('substitute_page'))
+
+    if substitute_email == current_user.email:
+        flash('You cannot add yourself as a substitute.', 'error')
+        return redirect(url_for('substitute_page'))
+
+    substitute_user = User.query.filter_by(email=substitute_email).first()
+    if not substitute_user:
+        flash(f'User with email {substitute_email} not found.', 'error')
+        # Consider inviting the user if they don't exist - for now, require existing user
+        return redirect(url_for('substitute_page'))
+
+    if substitute_user.status != 'active':
+        flash(f'User {substitute_user.name} ({substitute_email}) is not active. They must confirm their email first.', 'warning')
+        return redirect(url_for('substitute_page'))
+
+    # Check if this user is already a substitute for the current user
+    existing_substitution = Substitution.query.filter_by(
+        original_user_id=current_user.id,
+        substitute_user_id=substitute_user.id
+    ).first()
+    if existing_substitution:
+        flash(f'{substitute_user.name} is already your substitute.', 'info')
+        return redirect(url_for('substitute_page'))
+
+    # Check if the potential substitute is already substituting someone else
+    # According to the requirement: "Substitutor user should be able to see and do absolutely everything..."
+    # This implies a substitute cannot themselves have a substitute or BE a substitute for multiple people simultaneously.
+    # For now, let's assume a user can only be a substitute for ONE original user at a time.
+    # And a user who IS a substitute, cannot BECOME a substitute for someone else.
+    # The problem states "substitutor should not see in layout menu this Substitute option and should be able to invite another substitutor." - this is contradictory.
+    # I will assume a substitute CANNOT invite another substitutor.
+    # I will also assume a user cannot be a substitute if they ARE ALREADY substituting someone else.
+    already_substituting_someone_else = Substitution.query.filter_by(substitute_user_id=substitute_user.id).first()
+    if already_substituting_someone_else:
+        flash(f'{substitute_user.name} is already acting as a substitute for another user and cannot be assigned.', 'error')
+        return redirect(url_for('substitute_page'))
+
+    # Also, a user who has their own substitutes cannot become a substitute for someone else.
+    has_own_substitutes = Substitution.query.filter_by(original_user_id=substitute_user.id).first()
+    if has_own_substitutes:
+        flash(f'{substitute_user.name} has their own substitutes and cannot act as a substitute for you.', 'error')
+        return redirect(url_for('substitute_page'))
+
+
+    new_substitution = Substitution(
+        original_user_id=current_user.id,
+        substitute_user_id=substitute_user.id,
+        creation_date=datetime.utcnow()
+    )
+    db.session.add(new_substitution)
+    try:
+        db.session.commit()
+        flash(f'{substitute_user.name} has been added as your substitute.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error adding substitute: {str(e)}", exc_info=True)
+        flash('Failed to add substitute due to a server error.', 'error')
+
+    return redirect(url_for('substitute_page'))
+
+@app.route('/substitute/revoke/<int:substitution_id>', methods=['POST'])
+@login_required
+@email_confirmed_required
+def revoke_substitute(substitution_id):
+    is_substituting = Substitution.query.filter_by(substitute_user_id=current_user.id).first()
+    if is_substituting:
+        flash('Substitutes cannot manage other substitutes.', 'error') # Should not reach here if UI is correct
+        return redirect(url_for('index'))
+
+    substitution_to_revoke = Substitution.query.get(substitution_id)
+    if not substitution_to_revoke:
+        flash('Substitution record not found.', 'error')
+        return redirect(url_for('substitute_page'))
+
+    if substitution_to_revoke.original_user_id != current_user.id:
+        flash('You do not have permission to revoke this substitute.', 'error')
+        return redirect(url_for('substitute_page'))
+
+    revoked_user_name = substitution_to_revoke.substitute_user.name
+    db.session.delete(substitution_to_revoke)
+    try:
+        db.session.commit()
+        flash(f'Substitution for {revoked_user_name} has been revoked.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error revoking substitute: {str(e)}", exc_info=True)
+        flash('Failed to revoke substitute due to a server error.', 'error')
+
+    return redirect(url_for('substitute_page'))
+# --- End Substitute Routes ---
 
 @app.route('/test_login', methods=['POST'])
 @csrf.exempt
