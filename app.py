@@ -229,6 +229,7 @@ class Defect(db.Model):
     comments = db.relationship('Comment', back_populates='defect', cascade='all, delete-orphan')
     creator = db.relationship('User')
     markers = db.relationship('DefectMarker', back_populates='defect', cascade='all, delete-orphan')
+    created_via_substitution = db.Column(db.Boolean, default=False, nullable=False)
 
 class Drawing(db.Model):
     __tablename__ = 'drawings'
@@ -274,8 +275,9 @@ class Comment(db.Model):
     edited = db.Column(db.Boolean, default=False, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Sets on creation and updates on modification
     defect = db.relationship('Defect', back_populates='comments')
-    user = db.relationship('User')
+    user = db.relationship('User') # This is the creator (effective_user at time of creation)
     attachments = db.relationship('Attachment', back_populates='comment', cascade='all, delete-orphan')
+    created_via_substitution = db.Column(db.Boolean, default=False, nullable=False)
 
 class Attachment(db.Model):
     __tablename__ = 'attachments'
@@ -3112,7 +3114,8 @@ def add_defect(project_id):
             creator_id=effective_user.id, # Defect created by the effective_user
             description=description,
             status='open',
-            creation_date=datetime.now()
+            creation_date=datetime.now(),
+            created_via_substitution=bool(session.get('acting_as_original_user_id'))
         )
         db.session.add(defect)
         db.session.commit() # Commit to get defect.id
@@ -3254,7 +3257,12 @@ def defect_detail(defect_id):
                 content = request.form.get('comment_content', '').strip()
                 if content:
                     # Comment created by the effective_user
-                    comment = Comment(defect_id=defect_id, user_id=effective_user.id, content=content)
+                    comment = Comment(
+                        defect_id=defect_id,
+                        user_id=effective_user.id,
+                        content=content,
+                        created_via_substitution=bool(session.get('acting_as_original_user_id'))
+                    )
                     db.session.add(comment)
                     db.session.commit()
                     # ... (attachment handling for comment, similar to add_defect)
@@ -5507,3 +5515,45 @@ def ensure_schema_command():
             except Exception as e:
                 print(f"Error during schema check/update: {str(e)}")
                 connection.rollback() # Ensure rollback on error
+
+@app.cli.command("ensure-app-schema")
+def ensure_app_schema_command():
+    """Checks and ensures specific app-related schema elements exist, like created_via_substitution."""
+    with app.app_context():
+        inspector = inspect(db.engine)
+        with db.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                # Check Defect table
+                if 'defects' in inspector.get_table_names():
+                    defect_columns = [col['name'] for col in inspector.get_columns('defects')]
+                    if 'created_via_substitution' not in defect_columns:
+                        print("Adding 'created_via_substitution' column to 'defects' table.")
+                        connection.execute(db.text("ALTER TABLE defects ADD COLUMN created_via_substitution BOOLEAN NOT NULL DEFAULT FALSE"))
+                        # Backfill existing records - assuming they were not created via substitution
+                        connection.execute(db.text("UPDATE defects SET created_via_substitution = FALSE WHERE created_via_substitution IS NULL"))
+                        print("'created_via_substitution' column added to 'defects' and backfilled.")
+                    else:
+                        print("'created_via_substitution' column already exists in 'defects' table.")
+                else:
+                    print("Warning: 'defects' table not found. Skipping schema check for it.")
+
+                # Check Comment table
+                if 'comments' in inspector.get_table_names():
+                    comment_columns = [col['name'] for col in inspector.get_columns('comments')]
+                    if 'created_via_substitution' not in comment_columns:
+                        print("Adding 'created_via_substitution' column to 'comments' table.")
+                        connection.execute(db.text("ALTER TABLE comments ADD COLUMN created_via_substitution BOOLEAN NOT NULL DEFAULT FALSE"))
+                        # Backfill existing records
+                        connection.execute(db.text("UPDATE comments SET created_via_substitution = FALSE WHERE created_via_substitution IS NULL"))
+                        print("'created_via_substitution' column added to 'comments' and backfilled.")
+                    else:
+                        print("'created_via_substitution' column already exists in 'comments' table.")
+                else:
+                    print("Warning: 'comments' table not found. Skipping schema check for it.")
+
+                transaction.commit()
+                print("App schema check/update completed successfully.")
+            except Exception as e:
+                transaction.rollback()
+                print(f"Error during app schema check/update: {str(e)}")
