@@ -79,11 +79,9 @@
                         </div>
                         <div>
                             {% if orig_user.is_currently_acting %}
-                                <span class="text-sm font-medium text-green-600 mr-2">(Currently Acting)</span>
-                                <a href="{{ url_for('end_substitution') }}"
-                                   class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-1 px-3 rounded-md text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-yellow-500">
-                                    End Substitution
-                                </a>
+                                <span class="text-sm font-medium text-green-600 mr-2">(Currently Acting as this user)</span>
+                                {# The main "Stop acting as..." button is now in layout.html #}
+                                {# No specific "End Substitution" button needed here per user if global one exists #}
                             {% else %}
                                  <a href="{{ url_for('start_substitution', original_user_id_to_act_as=orig_user.id) }}"
                                    class="bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-3 rounded-md text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-green-500">
