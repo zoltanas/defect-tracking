@@ -1493,6 +1493,7 @@ def inject_effective_user():
         effective_current_user=effective_user,
         actual_current_user=actual_user,
         is_substitute_session=is_substitute_session
+        # first_original_user_to_act_as is no longer needed here
     )
 
 # --- End Helper functions for Substitution ---
