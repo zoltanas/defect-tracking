@@ -1489,11 +1489,20 @@ def inject_effective_user():
         if effective_user and effective_user.id == session.get('acting_as_original_user_id'):
             is_substitute_session = True
 
+    original_user_to_act_as_directly = None
+    if actual_user and actual_user.is_authenticated and not is_substitute_session:
+        active_sub_relations = UserSubstitute.query.filter_by(
+            substitute_user_id=actual_user.id,
+            is_active=True
+        ).all()
+        if len(active_sub_relations) == 1:
+            original_user_to_act_as_directly = User.query.get(active_sub_relations[0].original_user_id)
+
     return dict(
         effective_current_user=effective_user,
         actual_current_user=actual_user,
-        is_substitute_session=is_substitute_session
-        # first_original_user_to_act_as is no longer needed here
+        is_substitute_session=is_substitute_session,
+        original_user_to_act_as_directly=original_user_to_act_as_directly
     )
 
 # --- End Helper functions for Substitution ---
