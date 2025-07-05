@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Substitute Invitation</title>
+</head>
+<body>
+    <p>Hello,</p>
+    <p>You have been invited to act as a substitute for {{ original_user_name }} on the Defect Tracker application.</p>
+    {% if invite_link %}
+        <p>If you are a new user, or need to confirm this substitution, please click the link below to complete your setup or accept:</p>
+        <p><a href="{{ invite_link }}">Accept Invitation and Setup Account</a></p>
+        <p>If you did not expect this invitation, please ignore this email.</p>
+    {% else %}
+        <p>Your existing account has been assigned this substitute role. You can start acting as {{ original_user_name }} by logging into your account and visiting the 'Substitute' page.</p>
+    {% endif %}
+    <p>Thanks,</p>
+    <p>The Defect Tracker Team</p>
+    <hr>
+    <p><small>&copy; {{ current_year }} Defect Tracker. All rights reserved.</small></p>
+</body>
+</html>
