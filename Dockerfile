@@ -28,12 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application source code
 COPY . .
 
-# Make entrypoint script executable and set it as the entrypoint
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-ENTRYPOINT ["/app/entrypoint.sh"]
-
 # Set the default command to run the application
 # Gunicorn will listen on the port defined by the PORT environment variable,
 # which is automatically provided by Cloud Run.
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 app:app
