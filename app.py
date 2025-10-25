@@ -389,12 +389,11 @@ def init_db():
                 logger.error(f"Error creating database tables: {str(e)}")
                 raise
 
-# Initialize database
-try:
+@app.cli.command("init-db")
+def init_db_command():
+    """Initializes the database."""
     init_db()
-except Exception as e:
-    logger.error(f"Failed to initialize database: {str(e)}")
-    raise
+    click.echo("Initialized the database.")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -5396,9 +5395,6 @@ def setup_test_data():
             db.session.rollback()
             logger.error(f"Error setting up test data: {str(e)}", exc_info=True)
             return f"Error setting up test data: {str(e)}"
-
-if __name__ == '__main__':
-    app.run(debug=True)
 
 # --------------- End Temporary Test Route --------------- # This line (and everything above it including the __main__ guard) should be the end of the file.
 
