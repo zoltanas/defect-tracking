@@ -5,7 +5,7 @@ steps:
     args:
       - 'build'
       - 'europe-west1-docker.pkg.dev/defect-tracker-476217/cloud-run-source-deploy/defect-tracking/defect-tracker:$COMMIT_SHA'
-      - '--builder=gcr.io/buildpacks/builder:latest'
+      - '--builder=gcr.io/buildpacks/builder:google-22'
       - '--path=.'
     id: 'Build and Push'
 
