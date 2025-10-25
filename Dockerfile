@@ -21,9 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Find the pango library path and store it for the entrypoint
-RUN dpkg -L libpango-1.0-0 | grep 'libpango-1.0.so.0$' | xargs dirname > /library_path.txt
-
 # Copy the requirements file and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
