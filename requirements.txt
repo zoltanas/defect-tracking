@@ -11,7 +11,6 @@ Flask-WTF>=1.0.0
 click
 WeasyPrint
 pdf2image # System dependency: requires Poppler (e.g., sudo apt-get install poppler-utils)
-gunicorn
 Flask-Mail==0.9.1
 python-dotenv
 psycopg2-binary
