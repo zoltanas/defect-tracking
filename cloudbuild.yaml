@@ -1,13 +1,19 @@
 steps:
-  # 1. Build and push the container image using buildpacks
-  - name: 'gcr.io/k8s-skaffold/pack'
-    entrypoint: 'pack'
+  # 1. Build the container image using Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '-t'
       - 'europe-west1-docker.pkg.dev/defect-tracker-476217/cloud-run-source-deploy/defect-tracking/defect-tracker:$COMMIT_SHA'
-      - '--builder=gcr.io/buildpacks/builder:google-22'
-      - '--path=.'
-    id: 'Build and Push'
+      - '.'
+    id: 'Build'
+
+  # 2. Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-west1-docker.pkg.dev/defect-tracker-476217/cloud-run-source-deploy/defect-tracking/defect-tracker:$COMMIT_SHA'
+    id: 'Push'
 
   # 3. Run database migrations
   - name: 'gcr.io/google-appengine/exec-wrapper'
