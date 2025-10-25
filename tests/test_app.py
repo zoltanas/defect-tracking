@@ -20,7 +20,8 @@ def client():
 
     with app.test_client() as client:
         with app.app_context():
-            db.create_all()
+            from app import init_db
+            init_db()
         yield client
 
     os.close(db_fd)
@@ -384,11 +385,11 @@ def test_manage_access_filters_users(client):
         db.session.commit()
 
         # Admin1 has access to project_x
-        ProjectAccess(user_id=admin1.id, project_id=project_x.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin1.id, project_id=project_x.id, role='admin'))
         # User A has access to project_x
-        ProjectAccess(user_id=user_a.id, project_id=project_x.id, role='expert').save()
+        db.session.add(ProjectAccess(user_id=user_a.id, project_id=project_x.id, role='expert'))
         # User B has access to project_y
-        ProjectAccess(user_id=user_b.id, project_id=project_y.id, role='contractor').save()
+        db.session.add(ProjectAccess(user_id=user_b.id, project_id=project_y.id, role='contractor'))
         db.session.commit()
 
     # Log in as admin1
@@ -414,8 +415,8 @@ def test_manage_access_no_shared_projects_users(client):
         db.session.add_all([project_z, project_w])
         db.session.commit()
 
-        ProjectAccess(user_id=admin2.id, project_id=project_z.id, role='admin').save()
-        ProjectAccess(user_id=user_c.id, project_id=project_w.id, role='expert').save()
+        db.session.add(ProjectAccess(user_id=admin2.id, project_id=project_z.id, role='admin'))
+        db.session.add(ProjectAccess(user_id=user_c.id, project_id=project_w.id, role='expert'))
         db.session.commit()
 
     client.post('/login', data={'username': 'admin2@example.com', 'password': 'password'})
@@ -450,7 +451,7 @@ def test_invite_new_user(client, mail): # Use the mail fixture
         project_to_invite = Project(name='Invite Project')
         db.session.add(project_to_invite)
         db.session.commit()
-        ProjectAccess(user_id=admin_inviter.id, project_id=project_to_invite.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin_inviter.id, project_id=project_to_invite.id, role='admin'))
         db.session.commit()
 
     client.post('/login', data={'username': 'admin_invite@example.com', 'password': 'password'})
@@ -493,7 +494,7 @@ def test_invite_existing_active_user(client, mail):
         project_to_share = Project(name='Project For Existing')
         db.session.add(project_to_share)
         db.session.commit()
-        ProjectAccess(user_id=admin_inviter.id, project_id=project_to_share.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin_inviter.id, project_id=project_to_share.id, role='admin'))
         db.session.commit()
 
     client.post('/login', data={'username': 'admin_inviter2@example.com', 'password': 'password'})
@@ -533,7 +534,7 @@ def test_invite_existing_pending_user_fails(client, mail):
         project_whatever = Project(name='Some Project')
         db.session.add(project_whatever)
         db.session.commit()
-        ProjectAccess(user_id=admin_inviter.id, project_id=project_whatever.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin_inviter.id, project_id=project_whatever.id, role='admin'))
         db.session.commit()
 
     client.post('/login', data={'username': 'admin_inviter3@example.com', 'password': 'password'})
@@ -568,7 +569,7 @@ def test_accept_invite_new_user_success(client):
         project = Project(name='Accept Test Project')
         db.session.add_all([admin, project])
         db.session.commit()
-        ProjectAccess(user_id=admin.id, project_id=project.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin.id, project_id=project.id, role='admin'))
         db.session.commit()
 
         # Simulate the creation of a temporary user via invite logic
@@ -1038,7 +1039,7 @@ def test_view_drawing_defect_with_no_creator(client): # e.g. creator deleted or 
         db.session.add(project)
         db.session.commit()
 
-        ProjectAccess(user_id=admin_viewer.id, project_id=project.id, role='admin').save()
+        db.session.add(ProjectAccess(user_id=admin_viewer.id, project_id=project.id, role='admin'))
         db.session.commit()
 
         drawing = Drawing(project_id=project.id, name='Drawing For Defect No Creator', file_path='drawings/no_creator.pdf')
