@@ -1,0 +1,7 @@
+# nixpacks.toml
+
+[phases.setup]
+nixPkgs = ["pango", "cairo", "gdk-pixbuf", "libffi", "poppler_utils", "glib"]
+
+[start]
+cmd = "flask init-db && gunicorn --workers 4 --bind 0.0.0.0:$PORT app:app"
