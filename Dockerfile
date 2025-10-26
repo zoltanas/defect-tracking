@@ -75,7 +75,7 @@ RUN mkdir -p /app/instance \
 USER www-data
 
 # Expose the port the app runs on
-EXPOSE 8000
+EXPOSE 8080
 
 # The command to run your application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "4", "app:app"]

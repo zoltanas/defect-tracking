@@ -1,11 +1,9 @@
 flask==3.0.0
-flask-sqlalchemy==3.1.1
 flask-login==0.6.3
 flask-bcrypt==1.0.1
 gunicorn==22.0.0
 pillow==10.1.0
 itsdangerous==2.1.2
-sqlalchemy==2.0.23
 werkzeug==3.0.1
 Flask-WTF>=1.0.0
 click
@@ -13,4 +11,5 @@ WeasyPrint
 pdf2image # System dependency: requires Poppler (e.g., sudo apt-get install poppler-utils)
 Flask-Mail==0.9.1
 python-dotenv
-psycopg2-binary
+firebase-admin
+google-cloud-storage

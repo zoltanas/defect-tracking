@@ -68,10 +68,10 @@
     </form>
 </div>
 
-<script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
+<script src="/js/pdf.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "/js/pdf.worker.min.js";
 
         const drawingsData = {{ drawings | tojson }}; // For file_path lookup
         const pdfContainer = document.getElementById('pdfContainer');
