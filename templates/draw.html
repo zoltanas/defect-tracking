@@ -39,7 +39,7 @@
 
     <div class="relative w-full bg-gray-100 rounded-lg shadow-inner overflow-hidden">
         {# Hidden source image to get dimensions #}
-        <img id="sourceImage" src="{{ url_for('static', filename=attachment.file_path) }}" alt="Source Image for Annotation" class="max-w-full h-auto hidden opacity-0 pointer-events-none">
+        <img id="sourceImage" src="/{{ attachment.file_path }}" alt="Source Image for Annotation" class="max-w-full h-auto hidden opacity-0 pointer-events-none">
         <canvas id="drawingCanvas" class="border border-gray-300 w-full h-auto touch-none display-block rounded-md"></canvas>
     </div>
 

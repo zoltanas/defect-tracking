@@ -36,11 +36,11 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/pdf.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/drawing_defect_popup.js') }}"></script>
+<script src="/js/pdf.min.js"></script>
+<script src="/js/drawing_defect_popup.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdf.worker.min.js') }}";
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "/js/pdf.worker.min.js";
 
         const pdfContainer = document.getElementById('pdfContainer');
         const pdfStatusEl = document.getElementById('pdfStatus');
